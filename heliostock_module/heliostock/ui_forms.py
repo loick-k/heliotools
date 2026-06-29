@@ -8,13 +8,12 @@ import pandas as pd
 import streamlit as st
 
 from .app_service import ParametricRange
-from .engine import HeatPumpConfig, MonthlyDemand, cop_from_btes_temperature, default_industrial_demands_1gwh
+from .engine import HeatPumpConfig, MonthlyDemand, cop_from_btes_temperature
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, SolarInputs
 from .load_profiles import (
-    _demands_to_dataframe,
     _estimate_capped_bt_heat_mwh,
     _hourly_demands_from_process_file,
     _peak_bt_power_kw,
@@ -26,9 +25,6 @@ from .ui_inputs import (
     FixedGeoAssumptions,
     FixedSolarAssumptions,
 )
-
-
-DEFAULT_DEMAND_PROFILE_VERSION = "hourly_only_v2"
 
 
 @dataclass(frozen=True)
@@ -108,75 +104,37 @@ def render_weather_form() -> WeatherFormResult:
 
 def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
     with st.expander("2) Besoins process", expanded=True):
-        demand_file = st.file_uploader("Fichier besoin process Excel optionnel", type=["xlsx", "xls"])
+        demand_file = st.file_uploader("Fichier besoin process Excel 8760 h", type=["xlsx", "xls"])
         st.caption(
-            "Format supporté : 8760 h avec `P/E étuve recalée` pour le besoin HT 60 C "
-            "et `P/E cabines recalée` pour le besoin BT 25 C. "
-            "Le fichier reste local : aucun profil industriel n'est embarqué dans le dépôt public."
+            "Import obligatoire : 8760 lignes horaires avec `P/E etuve recalee` pour le besoin HT 60 C "
+            "et `P/E cabines recalee` pour le besoin BT 25 C. "
+            "Le fichier reste local : aucun profil industriel n'est embarque dans le depot public."
         )
-        c_start, c_end, c_k_cab, c_k_etuve = st.columns(4)
-        operating_start_hour = c_start.number_input("Heure debut fonctionnement", min_value=0, max_value=23, value=5, step=1)
-        operating_end_hour = c_end.number_input("Heure fin fonctionnement", min_value=1, max_value=24, value=21, step=1)
-        cabin_scale_factor = c_k_cab.number_input("k cabines", min_value=0.0, max_value=2.0, value=0.821, step=0.001, format="%.3f")
-        oven_scale_factor = c_k_etuve.number_input("k etuve", min_value=0.0, max_value=2.0, value=0.955, step=0.001, format="%.3f")
         hourly_demand_override = None
         hourly_profile_df = pd.DataFrame()
 
-        if demand_file is not None:
-            try:
-                hourly_demand_override, demands, hourly_profile_df, demand_info = _hourly_demands_from_process_file(
-                    demand_file,
-                    hourly_weather,
-                    operating_start_hour=int(operating_start_hour),
-                    operating_end_hour=int(operating_end_hour),
-                    cabin_scale_factor=float(cabin_scale_factor),
-                    oven_scale_factor=float(oven_scale_factor),
-                )
-                st.success(
-                    "Profil process upload chargé : "
-                    f"{demand_info['rows']:.0f} lignes, "
-                    f"HT {demand_info['ht_kwh'] / 1000:.0f} MWh/an, "
-                    f"BT {demand_info['bt_kwh'] / 1000:.0f} MWh/an."
-                )
-                if str(demand_info.get("format", "")) == "hourly_8760":
-                    st.caption(
-                        "Mapping appliqué : `Etuves` -> process HT 60 C ; `Cabines` -> process BT 25 C. "
-                        "Les valeurs horaires recalées sont utilisées directement, sans coefficient k supplémentaire."
-                    )
-                else:
-                    st.caption(
-                        "Mapping applique : `Etuve` -> process HT 60 C ; `Cabines` -> process BT 25 C. "
-                        "Les puissances sont appliquees sur les heures de fonctionnement renseignees puis recalees par "
-                        f"`k etuve = {float(demand_info['oven_scale_factor']):.3f}` et "
-                        f"`k cabines = {float(demand_info['cabin_scale_factor']):.3f}`."
-                    )
-            except Exception as exc:
-                st.error(f"Lecture du fichier besoin impossible : {exc}")
-                return DemandFormResult([], None, pd.DataFrame(), valid=False)
-        else:
-            if (
-                "heliostock_demands_df" not in st.session_state
-                or st.session_state.get("heliostock_demands_profile_version") != DEFAULT_DEMAND_PROFILE_VERSION
-            ):
-                st.session_state["heliostock_demands_df"] = _demands_to_dataframe(default_industrial_demands_1gwh())
-                st.session_state["heliostock_demands_profile_version"] = DEFAULT_DEMAND_PROFILE_VERSION
+        if demand_file is None:
+            st.warning("Charge un fichier Excel horaire 8760 h pour activer le calcul.")
+            return DemandFormResult([], None, pd.DataFrame(), valid=False)
 
-            st.caption("Fallback : saisie en kWh/mois. Le calcul reste horaire : chaque mois est reparti sur ses heures EPW.")
-            demands_df = st.data_editor(
-                st.session_state["heliostock_demands_df"],
-                hide_index=True,
-                width="stretch",
-                num_rows="fixed",
+        try:
+            hourly_demand_override, demands, hourly_profile_df, demand_info = _hourly_demands_from_process_file(
+                demand_file,
+                hourly_weather,
             )
-            st.session_state["heliostock_demands_df"] = demands_df
-            demands = [
-                MonthlyDemand(
-                    month=int(row["Mois"]),
-                    process_ht_kwh=float(row["Process HT 60C (kWh/mois)"]),
-                    process_bt_kwh=float(row["Process BT 25C (kWh/mois)"]),
-                )
-                for _, row in demands_df.iterrows()
-            ]
+            st.success(
+                "Profil process 8760 h charge : "
+                f"{demand_info['rows']:.0f} lignes, "
+                f"HT {demand_info['ht_kwh'] / 1000:.0f} MWh/an, "
+                f"BT {demand_info['bt_kwh'] / 1000:.0f} MWh/an."
+            )
+            st.caption(
+                "Mapping applique : `Etuves` -> process HT 60 C ; `Cabines` -> process BT 25 C. "
+                "Les valeurs horaires recalees sont utilisees directement."
+            )
+        except Exception as exc:
+            st.error(f"Lecture du fichier besoin impossible : {exc}")
+            return DemandFormResult([], None, pd.DataFrame(), valid=False)
 
     return DemandFormResult(
         demands=demands,
@@ -252,7 +210,7 @@ def render_geothermal_form(
         btes_backend = "pygfunction"
         st.caption(
             "Calcul champ de sondes : modèle horaire 8760 h avec température source PAC calculée par pygfunction. "
-            "Les besoins horaires viennent de l'upload Excel ou du tableau mensuel de secours."
+            "Les besoins horaires viennent obligatoirement de l'upload Excel 8760 h."
         )
 
         pre_pac_nominal_power_kw = pre_peak_bt_power_kw * max(0.0, pac_power_fraction_pct) / 100.0

@@ -463,8 +463,9 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
     with st.expander("Hypotheses restantes"):
         st.markdown(
             """
-            - Si aucun fichier Excel n'est charge, les besoins sont saisis en kWh/mois puis repartis uniformement sur les heures du mois.
-            - Si un fichier de calendrier process est charge, les besoins horaires viennent du profil journalier reconstruit sur les heures de fonctionnement.
+            - Les besoins process doivent venir d'un fichier Excel horaire 8760 h.
+            - Les colonnes `E/P etuve recalee` alimentent le besoin HT 60 C.
+            - Les colonnes `E/P cabines recalee` alimentent le besoin BT 25 C.
             - Le stockage solaire journalier est un volume d'eau equivalent.
             - Le solaire charge le ballon ; il ne va jamais directement au process.
             - Le ballon prechauffe le process HT jusqu'a 60 C si son niveau de temperature le permet.

@@ -34,9 +34,8 @@ data/FRA_PL_Nantes.Atlantique.AP.072220_TMYx.zip
 data/FRA_PL_Angers.Loire.AP.073901_TMYx.zip
 ```
 
-Le profil de besoins peut etre charge par fichier Excel process via l'interface Streamlit. Aucun fichier Excel de besoin
-process n'est embarque dans le depot public. Sans upload, l'interface propose seulement un tableau mensuel editable de
-secours, reparti ensuite sur les heures EPW.
+Le profil de besoins doit etre charge par fichier Excel process 8760 h via l'interface Streamlit. Aucun fichier Excel de
+besoin process n'est embarque dans le depot public. Sans upload 8760 h valide, le calcul n'est pas lance.
 
 Les vrais profils industriels doivent rester locaux et ne doivent pas etre versionnes dans le depot public.
 
@@ -187,7 +186,7 @@ couvert par la PAC.
 
 ### Besoin de prechauffage d'air
 
-L'interface laisse encore saisir directement les besoins en kWh/mois, mais la logique physique attendue en amont est :
+L'interface attend un profil horaire 8760 h importe par Excel. En amont, les besoins peuvent etre construits avec :
 
 ```text
 Q_air = m_dot * Cp_air * max(0, T_cible - T_air_ext)
@@ -424,11 +423,17 @@ Le coût solaire affiché est :
 coût_solaire = P1_auxiliaires + P2_maintenance + P4_investissement_net
 ```
 
-## Limite actuelle des besoins horaires
+## Import obligatoire des besoins horaires
 
-Si aucun fichier Excel process n'est chargé, les besoins HT/BT restent saisis en kWh/mois puis repartis uniformement
-sur les heures de chaque mois. Avec le fichier Excel process, le profil est reconstruit à partir d'un calendrier journalier
-et d'heures de fonctionnement, mais ce n'est pas encore un fichier 8760 h natif.
+Le calcul physique fonctionne systematiquement sur un profil horaire 8760 h. L'interface ne propose plus de saisie
+mensuelle de secours. Le fichier Excel importe doit contenir directement les puissances ou energies horaires :
+
+```text
+P etuve recalee kW ou E etuve recalee kWh -> besoin HT 60 C
+P cabines recalee kW ou E cabines recalee kWh -> besoin BT 25 C
+```
+
+Sans fichier Excel 8760 h valide, le calcul n'est pas lance.
 
 Le stockage journalier HT est represente par une capacite energetique au-dessus de l'ambiance :
 
@@ -476,18 +481,10 @@ P etuve recalee kW ou E etuve recalee kWh -> besoin HT 60 C
 P cabines recalee kW ou E cabines recalee kWh -> besoin BT 25 C
 ```
 
-Un ancien format journalier reste supporte : le module reconstruit alors un profil horaire en appliquant les puissances
-sur les heures de fonctionnement, par defaut `5h-21h`.
-
-Sans upload, l'interface bascule sur un tableau mensuel editable. Les fichiers de besoins reels sont ignores par Git via
-`.gitignore` et doivent rester locaux.
+Les anciens formats journaliers ou mensuels ne sont plus acceptes dans l'interface. Les fichiers de besoins reels sont
+ignores par Git via `.gitignore` et doivent rester locaux.
 
 Le calcul ne se lance qu'apres clic sur le bouton `Lancer le calcul`, avec une barre de progression.
 
-Pour l'ancien format journalier, les besoins importes peuvent etre recales par coefficients :
-
-```text
-k cabines = 0,821
-k etuve = 0,955
-```
+Les valeurs du fichier 8760 h sont utilisees directement, sans recalage par coefficient dans l'interface.
 

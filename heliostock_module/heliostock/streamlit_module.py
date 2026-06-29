@@ -24,8 +24,8 @@ def render_heliostock_hourly() -> pd.DataFrame:
         "surplus vers BTES, PAC geothermique pour le process BT."
     )
     st.info(
-        "Les kWh/mois servent uniquement de format de saisie fallback des besoins. "
-        "La resolution physique est toujours faite heure par heure sur les donnees EPW."
+        "Charge un fichier Excel de besoins horaires 8760 h pour lancer le calcul. "
+        "Aucun profil mensuel de secours n'est utilise."
     )
 
     weather_form = render_weather_form()

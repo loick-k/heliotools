@@ -13,8 +13,8 @@ class MonthlyDemand:
     Physical preheating logic expected upstream:
     Q_air = m_dot * Cp_air * max(0, T_target - T_air_ext)
 
-    HelioStock keeps monthly kWh as fallback inputs so industrial users can paste
-    measured or precomputed process needs directly.
+    The Streamlit interface now requires an imported 8760 h profile. Monthly
+    values remain only as an internal aggregate format shared by legacy helpers.
     """
 
     month: int

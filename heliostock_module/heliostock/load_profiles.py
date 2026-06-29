@@ -6,15 +6,6 @@ import pandas as pd
 
 from .engine import MonthlyDemand
 
-def _demands_to_dataframe(demands: list[MonthlyDemand]) -> pd.DataFrame:
-    return pd.DataFrame(
-        {
-            "Mois": [d.month for d in demands],
-            "Process HT 60C (kWh/mois)": [d.process_ht_kwh for d in demands],
-            "Process BT 25C (kWh/mois)": [d.process_bt_kwh for d in demands],
-        }
-    )
-
 
 def _normalize_column_name(name: object) -> str:
     text = str(name).strip().lower()
@@ -144,19 +135,17 @@ def _hourly_demands_from_process_file(
     normalized_columns = {_normalize_column_name(column) for column in df_preview.columns}
     hourly_markers = {
         "e etuve recalee kwh",
+        "e etuves recalee kwh",
         "e cabines recalee kwh",
         "p etuve recalee kw",
+        "p etuves recalee kw",
         "p cabines recalee kw",
     }
     if normalized_columns & hourly_markers:
         return _hourly_demands_from_8760_profile(excel_file, weather)
-    return _hourly_demands_from_process_calendar(
-        excel_file,
-        weather,
-        operating_start_hour=operating_start_hour,
-        operating_end_hour=operating_end_hour,
-        cabin_scale_factor=cabin_scale_factor,
-        oven_scale_factor=oven_scale_factor,
+    raise ValueError(
+        "Format besoin invalide : HelioStock attend un profil horaire 8760 h avec "
+        "`P/E etuve recalee` et `P/E cabines recalee`."
     )
 
 
