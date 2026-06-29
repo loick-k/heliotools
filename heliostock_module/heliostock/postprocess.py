@@ -193,6 +193,62 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
     return pd.DataFrame(rows)
 
 
+def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str) -> pd.DataFrame:
+    """Build duration curves for stacked coverage charts with vectorized pandas operations."""
+
+    working_df = results_df
+    if mode == "HT":
+        sort_column = "Puissance besoin HT (kW)"
+        components = [
+            ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
+            ("Appoint HT", "Puissance appoint HT (kW)", 2),
+        ]
+    elif mode == "BT":
+        sort_column = "Puissance besoin BT (kW)"
+        components = [
+            ("GÃ©othermie PAC", "Puissance BT PAC (kW)", 1),
+            ("Appoint BT", "Puissance appoint BT (kW)", 2),
+        ]
+    elif mode == "GLOBAL":
+        sort_column = "Puissance besoin total (kW)"
+        working_df = results_df.copy()
+        working_df["Puissance appoint total (kW)"] = (
+            working_df["Puissance appoint HT (kW)"] + working_df["Puissance appoint BT (kW)"]
+        )
+        components = [
+            ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
+            ("GÃ©othermie PAC", "Puissance BT PAC (kW)", 2),
+            ("Appoint gaz", "Puissance appoint total (kW)", 3),
+        ]
+    else:
+        raise ValueError("mode doit valoir HT, BT ou GLOBAL")
+
+    sorted_df = working_df.sort_values(sort_column, ascending=False).reset_index(drop=True).copy()
+    sorted_df["Heure triee"] = sorted_df.index + 1
+
+    component_columns = [column for _, column, _ in components]
+    label_by_column = {column: label for label, column, _ in components}
+    order_by_label = {label: order for label, _, order in components}
+    duration_df = sorted_df[
+        ["Heure triee", "month", "day", "hour", "tair_c", *component_columns]
+    ].melt(
+        id_vars=["Heure triee", "month", "day", "hour", "tair_c"],
+        value_vars=component_columns,
+        var_name="Poste",
+        value_name="Puissance (kW)",
+    )
+    duration_df["Poste"] = duration_df["Poste"].map(label_by_column)
+    duration_df["Ordre"] = duration_df["Poste"].map(order_by_label).astype(int)
+    return duration_df.rename(
+        columns={
+            "month": "Mois",
+            "day": "Jour",
+            "hour": "Heure EPW",
+            "tair_c": "Tair (C)",
+        }
+    )
+
+
 def _melt_monthly(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     return df[["Mois", *columns]].melt(
         id_vars=["Mois"],

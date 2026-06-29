@@ -205,6 +205,43 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
     )
 
 
+def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
+    return (
+        alt.Chart(df)
+        .mark_area(interpolate="step-after")
+        .encode(
+            x=alt.X("Heure triee:Q", title="Heures triees par besoin decroissant"),
+            y=alt.Y("Puissance (kW):Q", title="Puissance appelee/couverte (kW)", stack="zero"),
+            color=alt.Color(
+                "Poste:N",
+                title="Poste",
+                scale=alt.Scale(
+                    domain=[
+                        "Solaire thermique",
+                        "GÃ©othermie PAC",
+                        "Geothermie PAC",
+                        "Appoint HT",
+                        "Appoint BT",
+                        "Appoint gaz",
+                    ],
+                    range=["#facc15", "#16a34a", "#16a34a", "#9ca3af", "#6b7280", "#6b7280"],
+                ),
+            ),
+            order=alt.Order("Ordre:Q", sort="ascending"),
+            tooltip=[
+                "Heure triee:Q",
+                "Poste:N",
+                alt.Tooltip("Puissance (kW):Q", format=".1f"),
+                "Mois:Q",
+                "Jour:Q",
+                "Heure EPW:Q",
+                alt.Tooltip("Tair (C):Q", format=".1f"),
+            ],
+        )
+        .properties(height=360, title=title)
+    )
+
+
 def _bar_chart(df: pd.DataFrame, *, y_title: str = "MWh/mois", height: int = 340):
     return (
         alt.Chart(df)

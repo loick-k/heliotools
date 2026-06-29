@@ -5,7 +5,6 @@ import streamlit as st
 
 from .charts import (
     _bar_chart,
-    _duration_chart,
     _efficiency_chart,
     _line_chart,
     _multiyear_btes_flux_chart,
@@ -17,7 +16,6 @@ from .charts import (
     _temperature_chart,
 )
 from .postprocess import (
-    _load_duration_dataframe,
     _melt_monthly,
     _stacked_coverage_duration_dataframe,
 )
@@ -291,25 +289,21 @@ def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_bt
 
 
 def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
-    st.markdown("### Monotone synchronisee sur les 8760 heures")
+    st.markdown("### Monotones de charge")
     st.caption(
-        "Les heures sont triees une seule fois selon la reference choisie. "
-        "Toutes les courbes gardent donc leur simultaneite horaire : on voit reellement si le solaire ou la PAC "
-        "couvrent les heures de forte puissance ou plutot les heures de faible puissance."
+        "Les monotones sont triees par besoin decroissant et affichees en mix empile. "
+        "La monotone synchronisee multi-courbes 8760 h a ete retiree pour accelerer l'affichage."
     )
-    sort_by = st.selectbox(
-        "Reference de tri des heures",
-        options=["Besoin total", "Besoin HT", "Besoin BT", "Prechauffage HT solaire", "BT PAC"],
-        index=0,
+
+    st.markdown("### Mix global trie par besoin total")
+    global_stack_df = _stacked_coverage_duration_dataframe(hourly_df, mode="GLOBAL")
+    st.altair_chart(
+        _stacked_coverage_duration_chart(
+            global_stack_df,
+            title="Besoin total = solaire thermique + geothermie PAC + appoint gaz",
+        ),
+        width="stretch",
     )
-    duration_df = _load_duration_dataframe(hourly_df, sort_by=sort_by)
-    selected_curves = st.multiselect(
-        "Courbes a afficher",
-        options=sorted(duration_df["Courbe"].unique()),
-        default=["Besoin HT", "Prechauffage HT solaire", "Appoint HT", "Besoin BT", "BT PAC geothermie"],
-    )
-    duration_filtered = duration_df[duration_df["Courbe"].isin(selected_curves)]
-    st.altair_chart(_duration_chart(duration_filtered, sort_by=sort_by), width="stretch")
 
     c_ht, c_bt = st.columns(2)
     with c_ht:
