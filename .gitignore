@@ -13,6 +13,11 @@ env/
 # Streamlit local secrets
 .streamlit/secrets.toml
 
+# Local client/process demand files
+*.xlsx
+*.xls
+!heliostock_module/data/Besoin_horaire_demo_anonyme.xlsx
+
 # Local archives and exports
 *.zip
 !heliostock_module/data/*.zip

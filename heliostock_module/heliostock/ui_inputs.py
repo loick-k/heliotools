@@ -9,7 +9,7 @@ import pandas as pd
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 DEFAULT_NANTES_EPW_ZIP = DATA_DIR / "FRA_PL_Nantes.Atlantique.AP.072220_TMYx.zip"
 DEFAULT_ANGERS_EPW_ZIP = DATA_DIR / "FRA_PL_Angers.Loire.AP.073901_TMYx.zip"
-DEFAULT_PROCESS_DEMAND_XLSX = DATA_DIR / "Besoin_horaire_v2.xlsx"
+DEFAULT_PROCESS_DEMAND_XLSX = DATA_DIR / "Besoin_horaire_demo_anonyme.xlsx"
 DEFAULT_EPW_STATIONS = {
     "Nantes": DEFAULT_NANTES_EPW_ZIP,
     "Angers": DEFAULT_ANGERS_EPW_ZIP,

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import unicodedata
+
 import pandas as pd
 
 from .engine import MonthlyDemand
@@ -16,6 +18,11 @@ def _demands_to_dataframe(demands: list[MonthlyDemand]) -> pd.DataFrame:
 
 def _normalize_column_name(name: object) -> str:
     text = str(name).strip().lower()
+    text = "".join(
+        char
+        for char in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(char)
+    )
     replacements = {
         "é": "e",
         "è": "e",

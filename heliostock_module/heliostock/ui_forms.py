@@ -112,9 +112,9 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
     with st.expander("2) Besoins process", expanded=True):
         demand_file = st.file_uploader("Fichier besoin process Excel optionnel", type=["xlsx", "xls"])
         st.caption(
-            "Format V2 supporté : 8760 h avec `P/E étuve recalée` pour le besoin HT 60 C "
+            "Format supporté : 8760 h avec `P/E étuve recalée` pour le besoin HT 60 C "
             "et `P/E cabines recalée` pour le besoin BT 25 C. "
-            "Sans upload, le profil horaire V2 fourni est chargé par défaut."
+            "Sans upload, un profil horaire de démonstration anonymisé est chargé par défaut."
         )
         c_start, c_end, c_k_cab, c_k_etuve = st.columns(4)
         operating_start_hour = c_start.number_input("Heure debut fonctionnement", min_value=0, max_value=23, value=5, step=1)
@@ -137,7 +137,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
                     cabin_scale_factor=float(cabin_scale_factor),
                     oven_scale_factor=float(oven_scale_factor),
                 )
-                source_label = "upload" if demand_file is not None else "défaut"
+                source_label = "upload" if demand_file is not None else "démo anonymisée"
                 st.success(
                     f"Profil process {source_label} chargé : "
                     f"{demand_info['rows']:.0f} lignes, "

@@ -34,17 +34,18 @@ data/FRA_PL_Nantes.Atlantique.AP.072220_TMYx.zip
 data/FRA_PL_Angers.Loire.AP.073901_TMYx.zip
 ```
 
-Le profil de besoins peut être chargé par fichier Excel process. Sans fichier, le profil par defaut correspond au cas test
-saisi en kWh/mois, puis reparti sur les 8760 heures :
+Le profil de besoins peut etre charge par fichier Excel process. Sans fichier, le profil par defaut est un profil
+horaire 8760 h de demonstration, synthetique et anonymise :
 
-- HT 60 C : 386 211 kWh/an ;
-- BT 25 C : 1 066 788 kWh/an.
+- `data/Besoin_horaire_demo_anonyme.xlsx`
 
-Pour le fichier Excel process actuellement supporté, le mapping est :
+Les vrais profils industriels doivent etre charges par upload dans Streamlit et ne doivent pas etre versionnes dans le
+depot public.
 
-- `E étuve MWh` / `P étuve kW` -> besoin HT 60 C ;
-- `E cabines MWh` / `P cabines kW` -> besoin BT 25 C ;
-- coefficients de recalage par défaut : `k étuve = 0,955`, `k cabines = 0,821`.
+Pour le fichier Excel process actuellement supporte, le mapping est :
+
+- `E etuve recalee kWh` / `P etuve recalee kW` -> besoin HT 60 C ;
+- `E cabines recalee kWh` / `P cabines recalee kW` -> besoin BT 25 C.
 
 ## Integration dans une app Streamlit existante
 
@@ -472,21 +473,22 @@ Les coefficients restent modifiables dans l'interface.
 
 ## Import du besoin process
 
-L'interface accepte un fichier Excel de calendrier process. Pour le fichier type fourni :
+L'interface accepte un fichier Excel process. Le format recommande est un profil 8760 h avec :
 
 ```text
-P étuve / E étuve -> besoin HT 60 C
-P cabines / E cabines -> besoin BT 25 C
+P etuve recalee kW ou E etuve recalee kWh -> besoin HT 60 C
+P cabines recalee kW ou E cabines recalee kWh -> besoin BT 25 C
 ```
 
-Le fichier est journalier ; le module reconstruit un profil horaire en appliquant les puissances sur les heures de
-fonctionnement, par defaut `5h-21h`. Sans fichier Excel, l'interface garde le fallback historique en kWh/mois repartis
-uniformement sur les heures du mois.
+Un ancien format journalier reste supporte : le module reconstruit alors un profil horaire en appliquant les puissances
+sur les heures de fonctionnement, par defaut `5h-21h`.
 
-Le fichier Excel n'est pas charge automatiquement : il doit etre uploade dans l'interface Streamlit. Le calcul ne se
-lance qu'apres clic sur le bouton `Lancer le calcul`, avec une barre de progression.
+Sans upload, l'interface charge automatiquement `data/Besoin_horaire_demo_anonyme.xlsx`, un profil de demonstration
+synthetique. Les fichiers de besoins reels sont ignores par Git via `.gitignore` et doivent rester locaux.
 
-Les besoins importes peuvent etre recales par coefficients. Les valeurs par defaut retenues pour le cas actuel sont :
+Le calcul ne se lance qu'apres clic sur le bouton `Lancer le calcul`, avec une barre de progression.
+
+Pour l'ancien format journalier, les besoins importes peuvent etre recales par coefficients :
 
 ```text
 k cabines = 0,821
