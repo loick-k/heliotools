@@ -52,25 +52,34 @@ def render_heliostock_hourly() -> pd.DataFrame:
 
     if run_clicked:
         progress = st.progress(0, text="Préparation des hypothèses de calcul...")
-        calculation = run_hourly_calculation(
-            HourlyCalculationRequest(
-                weather=weather_form.hourly_weather,
-                demands=demand_form.demands,
-                hourly_demand_override=demand_form.hourly_demand_override,
-                solar=solar_form.inputs,
-                btes=geothermal_form.btes,
-                heat_pump=geothermal_form.heat_pump,
-                economics=economics_inputs,
-                pac_power_fraction_pct=geothermal_form.pac_power_fraction_pct,
-                use_probe_predesign=geothermal_form.use_probe_predesign,
-                probe_power_ratio_w_m=geothermal_form.probe_power_ratio_w_m,
-                probe_energy_ratio_kwh_m=geothermal_form.probe_energy_ratio_kwh_m,
-                probe_unit_depth_m=geothermal_form.probe_unit_depth_m,
-                pac_parametric=parametric_forms.pac,
-                solar_parametric=parametric_forms.solar,
-            ),
-            progress=lambda value, text: progress.progress(value, text=text),
-        )
+        try:
+            calculation = run_hourly_calculation(
+                HourlyCalculationRequest(
+                    weather=weather_form.hourly_weather,
+                    demands=demand_form.demands,
+                    hourly_demand_override=demand_form.hourly_demand_override,
+                    solar=solar_form.inputs,
+                    btes=geothermal_form.btes,
+                    heat_pump=geothermal_form.heat_pump,
+                    economics=economics_inputs,
+                    pac_power_fraction_pct=geothermal_form.pac_power_fraction_pct,
+                    use_probe_predesign=geothermal_form.use_probe_predesign,
+                    probe_power_ratio_w_m=geothermal_form.probe_power_ratio_w_m,
+                    probe_energy_ratio_kwh_m=geothermal_form.probe_energy_ratio_kwh_m,
+                    probe_unit_depth_m=geothermal_form.probe_unit_depth_m,
+                    pac_parametric=parametric_forms.pac,
+                    solar_parametric=parametric_forms.solar,
+                ),
+                progress=lambda value, text: progress.progress(value, text=text),
+            )
+        except (ImportError, RuntimeError) as exc:
+            progress.empty()
+            st.error(
+                "Le calcul champ de sondes utilise pygfunction. Installe les dépendances avec "
+                "`pip install -r requirements.txt`, puis relance le calcul."
+            )
+            st.caption(str(exc))
+            return pd.DataFrame()
         for warning in calculation.warnings:
             st.warning(warning)
         progress.progress(100, text="Calcul terminé.")

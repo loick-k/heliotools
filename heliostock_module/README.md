@@ -25,7 +25,7 @@ La demo ouvre directement le module de calcul horaire solaire + stockage journal
 Le résultat principal reste une simulation 8760 h annuelle. Une projection physique multiannuelle répète ensuite la
 même météo et les mêmes besoins sur la durée d'analyse économique, 20 ans par défaut, pour visualiser la dérive
 thermique du champ de sondes. Cette projection est menée à la fois pour la géothermie seule et pour la géothermie avec
-recharge solaire, avec le même moteur BTES sélectionné.
+recharge solaire, avec le modele champ de sondes pygfunction.
 
 Par defaut, la demo charge le fichier EPW Nantes embarque. L'interface permet aussi de choisir Angers :
 
@@ -444,16 +444,14 @@ temperature de stockage pour l'injection BTES.
 ## Limites actuelles
 
 - calcul horaire EPW, avec import possible d'un profil process 8760 h ;
-- BTES represente par volume equivalent de sol en mode initial ;
-- backend `pygfunction` experimental disponible dans l'interface pour calculer une temperature source issue des
-  g-functions, avec fallback automatique vers le modele equivalent si la librairie n'est pas installee ;
+- temperature source PAC du champ de sondes calculee par `pygfunction` ;
+- bilan energetique equivalent conserve pour borner l'injection, l'extraction et les limites `Tmin/Tmax` ;
 - pertes du champ modelisees par relaxation horaire vers la temperature naturelle du sol ;
 - pas de dimensionnement hydraulique ni pertes reseau detaillees ;
 - les besoins process ne sont pas encore calcules depuis des debits horaires ;
 
-Le mode `pygfunction` remplace la temperature source utilisee pour le COP PAC. Le bilan d'energie equivalent reste
-conserve pour les limites d'injection/extraction et les bornes `Tmin/Tmax`, ce qui permet de revenir au modele initial
-sans modifier les autres parametres.
+`pygfunction` calcule la temperature source utilisee pour le COP PAC. Le bilan d'energie equivalent reste conserve pour
+les limites d'injection/extraction et les bornes `Tmin/Tmax`.
 
 ## Bibliotheque capteurs
 

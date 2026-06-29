@@ -7,7 +7,8 @@ Le modèle actif dans l’interface Streamlit est le modèle horaire `simulate_h
 Le calcul principal reste une année 8760 h. Une projection physique multiannuelle répète ensuite la même année météo et
 les mêmes besoins horaires sur la durée d'analyse économique, 20 ans par défaut. L'état thermique du champ de sondes est
 conservé d'une année à l'autre afin de visualiser la recharge ou l'épuisement progressif du sous-sol. La projection est
-calculée pour la géothermie seule et pour la géothermie avec recharge solaire, avec le même moteur BTES sélectionné.
+calculée pour la géothermie seule et pour la géothermie avec recharge solaire, avec le modèle champ de sondes
+`pygfunction`.
 
 Le P1 électrique PAC/géothermie distingue l'électricité compresseur de l'électricité complète PAC. Un forfait prudent
 de pré-dimensionnement ajoute 15 % d'auxiliaires PAC/géothermie et 0,05 kW de veille/régulation. Les pompes solaires et
@@ -626,11 +627,9 @@ Q_solaire_BTES_potentiel =
 
 Fichier concerné : `heliostock/engine.py`, dataclass `BtesConfig`.
 
-Le moteur BTES par défaut reste le modèle capacitif équivalent HelioStock. L'interface peut aussi sélectionner un
-backend `pygfunction` expérimental. Dans ce cas, `pygfunction` calcule la température source utilisée par le COP PAC à
-partir de l'historique horaire net du champ : extraction PAC positive, injection solaire négative. Le bilan d'énergie
-équivalent reste conservé pour borner l'injection, l'extraction et les limites `Tmin/Tmax`. Si `pygfunction` n'est pas
-installé ou ne peut pas initialiser le champ, le calcul revient automatiquement au modèle capacitif initial.
+Le modèle champ de sondes utilisé par l'interface est `pygfunction`. Il calcule la température source utilisée par le
+COP PAC à partir de l'historique horaire net du champ : extraction PAC positive, injection solaire négative. Le bilan
+d'énergie équivalent reste conservé pour borner l'injection, l'extraction et les limites `Tmin/Tmax`.
 
 Le champ de sondes est représenté par un volume de sol équivalent :
 
@@ -1655,7 +1654,7 @@ Limites actuelles :
 - pas de temps de réponse capteur ;
 - pas de capacité thermique du circuit solaire ;
 - pas de modèle d’échangeur détaillé, seulement des approches fixes ;
-- modèle g-functions disponible uniquement via le backend `pygfunction` expérimental ;
+- modèle g-functions assuré par `pygfunction` ;
 - résistance thermique sonde/sol simplifiée dans le backend `pygfunction` ;
 - interférences temporelles détaillées entre sondes limitées au backend `pygfunction` ;
 - pas de limite explicite de puissance linéique par mètre de sonde ;

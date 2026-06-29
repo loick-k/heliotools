@@ -8,7 +8,6 @@ import pandas as pd
 import streamlit as st
 
 from .app_service import ParametricRange
-from .btes_models import pygfunction_available
 from .engine import HeatPumpConfig, MonthlyDemand, cop_from_btes_temperature, default_industrial_demands_1gwh
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
@@ -250,22 +249,11 @@ def render_geothermal_form(
         d1, d2 = st.columns(2)
         pac_power_fraction_pct = d1.number_input("P PAC (% Pmax BT)", min_value=1.0, max_value=150.0, value=100.0, step=5.0)
         probe_unit_depth_m = d2.number_input("Profondeur unitaire sonde (m)", min_value=10.0, value=100.0, step=10.0)
-        btes_backend_label = st.selectbox(
-            "Moteur thermique champ de sondes",
-            options=["Capacité équivalente HelioStock", "pygfunction expérimental"],
-            index=0,
+        btes_backend = "pygfunction"
+        st.caption(
+            "Calcul champ de sondes : modèle horaire 8760 h avec température source PAC calculée par pygfunction. "
+            "Les besoins horaires viennent de l'upload Excel ou du tableau mensuel de secours."
         )
-        btes_backend = "pygfunction" if btes_backend_label.startswith("pygfunction") else "equivalent_capacity"
-        if btes_backend == "pygfunction" and not pygfunction_available():
-            st.warning("pygfunction n'est pas installé dans cet environnement : le calcul utilisera le modèle HelioStock équivalent.")
-            btes_backend = "equivalent_capacity"
-        elif btes_backend == "pygfunction":
-            st.info(
-                "Mode expérimental : pygfunction calcule la température source du champ. "
-                "Les limites énergie/Tmin/Tmax restent celles du modèle HelioStock."
-            )
-        else:
-            st.caption("Mode initial : modèle capacitif équivalent HelioStock.")
 
         pre_pac_nominal_power_kw = pre_peak_bt_power_kw * max(0.0, pac_power_fraction_pct) / 100.0
         pre_hp_for_design = HeatPumpConfig(

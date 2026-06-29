@@ -91,11 +91,10 @@ def render_hourly_results(
     else:
         k12.metric("Gain equivalent eco", "non trouve")
 
-    p1, p2, p3, p4 = st.columns(4)
+    p1, p2, p3 = st.columns(3)
     p1.metric("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW")
     p2.metric("P PAC retenue", f"{pac_nominal_power_kw:.0f} kW", delta=f"{pac_power_fraction_pct:.0f} % Pmax")
     p3.metric("Pic appoint appele", f"{backup_power_kw:.0f} kW")
-    p4.metric("Moteur BTES", "pygfunction" if btes_backend_used == "pygfunction" else "HelioStock")
 
     _render_pac_electricity_summary(
         total_compressor=total_compressor,
@@ -470,6 +469,6 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
             - Le solaire charge le ballon ; il ne va jamais directement au process.
             - Le ballon prechauffe le process HT jusqu'a 60 C si son niveau de temperature le permet.
             - La ressource solaire restante part vers le BTES uniquement quand le ballon ne peut plus absorber, donc quand il atteint `Tmax ballon`.
-            - Le moteur BTES est selectionnable : modele capacitif HelioStock initial ou backend `pygfunction` experimental.
+            - Le champ de sondes utilise pygfunction pour calculer la temperature source PAC.
             """
         )

@@ -47,7 +47,7 @@ ui_results.py / ui_economics.py / charts.py
 - `inputs.py` : dataclasses d'entrée et validations simples.
 - `engine.py` : configurations physiques communes et fonctions partagées.
 - `hourly_engine.py` : boucle horaire, allocation solaire, PAC, BTES, appoints.
-- `btes_models.py` : backends BTES, capacité équivalente et pygfunction expérimental.
+- `btes_models.py` : modèle champ de sondes via `pygfunction`, avec une classe capacitive conservée comme utilitaire interne.
 - `scenarios.py` : assemblage des scénarios, comparaison avec/sans solaire, multiannuel, économie de sondes.
 - `borefield_savings.py` : solveur de réduction équivalente de champ de sondes.
 - `economics.py` : calcul économique pur.

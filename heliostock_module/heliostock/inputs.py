@@ -64,7 +64,7 @@ class BtesInputs:
     t_min_c: float
     t_max_c: float
     tau_months: float
-    backend: str = "equivalent_capacity"
+    backend: str = "pygfunction"
 
     def validate(self) -> list[str]:
         warnings: list[str] = []

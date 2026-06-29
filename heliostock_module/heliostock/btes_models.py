@@ -150,19 +150,16 @@ def create_btes_model(
     initial_energy_kwh: float = 0.0,
     simulation_hours: int = 8760,
 ):
-    backend = str(config.backend or "equivalent_capacity").lower()
+    backend = str(config.backend or "pygfunction").lower()
     if backend == "pygfunction":
-        try:
-            model = PygfunctionBtesModel(
-                config,
-                initial_energy_kwh=initial_energy_kwh,
-                simulation_hours=simulation_hours,
-            )
-            if model.is_ready:
-                return model
-        except ImportError:
-            pass
-        return EquivalentCapacityBtesModel(config, initial_energy_kwh=initial_energy_kwh)
+        model = PygfunctionBtesModel(
+            config,
+            initial_energy_kwh=initial_energy_kwh,
+            simulation_hours=simulation_hours,
+        )
+        if model.is_ready:
+            return model
+        raise RuntimeError("pygfunction n'a pas pu initialiser le champ de sondes.")
     return EquivalentCapacityBtesModel(config, initial_energy_kwh=initial_energy_kwh)
 
 

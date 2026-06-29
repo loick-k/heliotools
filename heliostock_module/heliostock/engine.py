@@ -67,7 +67,7 @@ class BtesConfig:
     t_max_c: float = 40.0
     monthly_relaxation_tau_months: float = 24.0
     injection_efficiency: float = 0.90
-    backend: str = "equivalent_capacity"
+    backend: str = "pygfunction"
     ground_conductivity_w_m_k: float = 2.5
     ground_diffusivity_m2_s: float = 1.0e-6
     borehole_radius_m: float = 0.075
