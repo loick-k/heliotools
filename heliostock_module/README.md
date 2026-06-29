@@ -34,13 +34,11 @@ data/FRA_PL_Nantes.Atlantique.AP.072220_TMYx.zip
 data/FRA_PL_Angers.Loire.AP.073901_TMYx.zip
 ```
 
-Le profil de besoins peut etre charge par fichier Excel process. Sans fichier, le profil par defaut est un profil
-horaire 8760 h de demonstration, synthetique et anonymise :
+Le profil de besoins peut etre charge par fichier Excel process via l'interface Streamlit. Aucun fichier Excel de besoin
+process n'est embarque dans le depot public. Sans upload, l'interface propose seulement un tableau mensuel editable de
+secours, reparti ensuite sur les heures EPW.
 
-- `data/Besoin_horaire_demo_anonyme.xlsx`
-
-Les vrais profils industriels doivent etre charges par upload dans Streamlit et ne doivent pas etre versionnes dans le
-depot public.
+Les vrais profils industriels doivent rester locaux et ne doivent pas etre versionnes dans le depot public.
 
 Pour le fichier Excel process actuellement supporte, le mapping est :
 
@@ -483,8 +481,8 @@ P cabines recalee kW ou E cabines recalee kWh -> besoin BT 25 C
 Un ancien format journalier reste supporte : le module reconstruit alors un profil horaire en appliquant les puissances
 sur les heures de fonctionnement, par defaut `5h-21h`.
 
-Sans upload, l'interface charge automatiquement `data/Besoin_horaire_demo_anonyme.xlsx`, un profil de demonstration
-synthetique. Les fichiers de besoins reels sont ignores par Git via `.gitignore` et doivent rester locaux.
+Sans upload, l'interface bascule sur un tableau mensuel editable. Les fichiers de besoins reels sont ignores par Git via
+`.gitignore` et doivent rester locaux.
 
 Le calcul ne se lance qu'apres clic sur le bouton `Lancer le calcul`, avec une barre de progression.
 

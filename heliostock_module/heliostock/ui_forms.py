@@ -23,7 +23,6 @@ from .load_profiles import (
 from .ui_inputs import (
     COLLECTOR_LIBRARY,
     DEFAULT_EPW_STATIONS,
-    DEFAULT_PROCESS_DEMAND_XLSX,
     FixedEconomicsAssumptions,
     FixedGeoAssumptions,
     FixedSolarAssumptions,
@@ -114,7 +113,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
         st.caption(
             "Format supporté : 8760 h avec `P/E étuve recalée` pour le besoin HT 60 C "
             "et `P/E cabines recalée` pour le besoin BT 25 C. "
-            "Sans upload, un profil horaire de démonstration anonymisé est chargé par défaut."
+            "Le fichier reste local : aucun profil industriel n'est embarqué dans le dépôt public."
         )
         c_start, c_end, c_k_cab, c_k_etuve = st.columns(4)
         operating_start_hour = c_start.number_input("Heure debut fonctionnement", min_value=0, max_value=23, value=5, step=1)
@@ -124,22 +123,18 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
         hourly_demand_override = None
         hourly_profile_df = pd.DataFrame()
 
-        default_demand_file = DEFAULT_PROCESS_DEMAND_XLSX if DEFAULT_PROCESS_DEMAND_XLSX.exists() else None
-        demand_source = demand_file if demand_file is not None else default_demand_file
-
-        if demand_source is not None:
+        if demand_file is not None:
             try:
                 hourly_demand_override, demands, hourly_profile_df, demand_info = _hourly_demands_from_process_file(
-                    demand_source,
+                    demand_file,
                     hourly_weather,
                     operating_start_hour=int(operating_start_hour),
                     operating_end_hour=int(operating_end_hour),
                     cabin_scale_factor=float(cabin_scale_factor),
                     oven_scale_factor=float(oven_scale_factor),
                 )
-                source_label = "upload" if demand_file is not None else "démo anonymisée"
                 st.success(
-                    f"Profil process {source_label} chargé : "
+                    "Profil process upload chargé : "
                     f"{demand_info['rows']:.0f} lignes, "
                     f"HT {demand_info['ht_kwh'] / 1000:.0f} MWh/an, "
                     f"BT {demand_info['bt_kwh'] / 1000:.0f} MWh/an."
