@@ -77,6 +77,7 @@ def render_economics_tab(
     *,
     economic_comparison_df: pd.DataFrame,
     economic_comparison_chart_df: pd.DataFrame,
+    economic_trajectory_df: pd.DataFrame,
     recharge_value: dict[str, float | bool | str],
     heat_costs: dict[str, float | pd.DataFrame],
 ) -> None:
@@ -85,7 +86,7 @@ def render_economics_tab(
         "Lecture type Dim A / Dim B / Dim C : reference gaz, geothermie seule, geothermie + solaire a lineaire "
         "constant, puis geothermie + solaire avec lineaire reduit. La recharge solaire est analysee comme un "
         "service rendu au champ de sondes, sans economie P2 proportionnelle aux ml economises. Les couts variables "
-        "sont annualises a partir de la projection physique multiannuelle."
+        "sont calcules sur une trajectoire physique multiannuelle actualisee."
     )
     st.dataframe(round_display_df(economic_comparison_df), width="stretch", hide_index=True)
 
@@ -118,3 +119,9 @@ def render_economics_tab(
     st.markdown("### Detail economique par generateur")
     st.dataframe(round_display_df(_generator_economic_table(heat_costs)), width="stretch", hide_index=True)
     st.altair_chart(_heat_cost_vector_chart(heat_costs["cost_bars"]), width="stretch")
+
+    st.markdown("### Trajectoire annuelle utilisée pour l'économie")
+    st.caption(
+        "Si l'horizon économique dépasse les années simulées, la dernière année simulée est répétée comme année stabilisée."
+    )
+    st.dataframe(round_display_df(economic_trajectory_df), width="stretch", hide_index=True)

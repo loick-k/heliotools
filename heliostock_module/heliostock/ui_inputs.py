@@ -58,9 +58,9 @@ class FixedSolarAssumptions:
 @dataclass(frozen=True)
 class FixedGeoAssumptions:
     air_target_bt_c: float = 25.0
-    condenser_approach_k: float = 7.0
+    condenser_approach_k: float = 2.0
     evaporator_approach_k: float = 3.0
-    carnot_efficiency: float = 0.45
+    carnot_efficiency: float = 0.54
     cop_min: float = 2.0
     cop_max: float = 8.0
     t_initial_c: float = 12.0
@@ -69,7 +69,13 @@ class FixedGeoAssumptions:
     rho_cp_mj: float = 2.4
     tau_months: float = 24.0
     spacing_m: float = 10.0
+    ground_conductivity_w_m_k: float = 2.5
+    ground_diffusivity_m2_s: float = 1.0e-6
+    borehole_radius_m: float = 0.075
+    borehole_buried_depth_m: float = 4.0
+    borehole_thermal_resistance_m_k_w: float = 0.10
     probe_power_ratio_w_m: float = 60.0
+    max_injection_w_m: float = 60.0
     max_extraction_kwh_per_m_year: float = 70.0
     aux_pac_ratio: float = 0.15
     standby_power_kw: float = 0.05
@@ -87,9 +93,14 @@ class FixedGeoAssumptions:
                 ("Tmin champ", self.t_min_c, "C"),
                 ("Tmax champ BTES", self.t_max_c, "C"),
                 ("Capacite volumique sol", self.rho_cp_mj, "MJ/m3.K"),
-                ("Constante pertes champ", self.tau_months, "mois"),
                 ("Espacement moyen force", self.spacing_m, "m"),
-                ("Ratio puissance sondes", self.probe_power_ratio_w_m, "W/ml"),
+                ("Conductivite sol", self.ground_conductivity_w_m_k, "W/m.K"),
+                ("Diffusivite sol", self.ground_diffusivity_m2_s, "m2/s"),
+                ("Rayon forage", self.borehole_radius_m, "m"),
+                ("Profondeur enterree", self.borehole_buried_depth_m, "m"),
+                ("Resistance forage Rb_eff", self.borehole_thermal_resistance_m_k_w, "m.K/W"),
+                ("Puissance lineique extraction max", self.probe_power_ratio_w_m, "W/ml"),
+                ("Puissance lineique injection max", self.max_injection_w_m, "W/ml"),
                 ("Extraction max annuelle sondes", self.max_extraction_kwh_per_m_year, "kWh/ml.an"),
                 ("Forfait auxiliaires PAC/geothermie", self.aux_pac_ratio, "part elec compresseur"),
                 ("Veille/regulation PAC", self.standby_power_kw, "kW"),
@@ -101,6 +112,7 @@ class FixedGeoAssumptions:
 @dataclass(frozen=True)
 class FixedEconomicsAssumptions:
     analysis_years: int = 20
+    discount_rate_pct: float = 4.0
     other_public_aid_eur: float = 0.0
     ademe_eur_mwh_year: float = 63.0
 
@@ -108,6 +120,7 @@ class FixedEconomicsAssumptions:
         df = pd.DataFrame(
             [
                 ("Duree d'analyse", self.analysis_years, "ans"),
+                ("Taux d'actualisation", self.discount_rate_pct, "%/an"),
                 ("Autres aides publiques", self.other_public_aid_eur, "EUR"),
                 ("Aide ADEME forfaitaire solaire thermique", self.ademe_eur_mwh_year, "EUR/MWh.an"),
                 ("CAPEX solaire", "loi surfacique HelioStock", "EUR/m2"),

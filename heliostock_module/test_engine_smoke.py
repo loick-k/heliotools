@@ -12,7 +12,7 @@ from heliostock.engine import (
     SimulationConfig,
     default_industrial_demands_1gwh,
 )
-from heliostock.btes_models import EquivalentCapacityBtesModel, PygfunctionBtesModel, create_btes_model, pygfunction_available
+from heliostock.btes_models import PygfunctionBtesModel, create_btes_model, pygfunction_available
 from heliostock.app_service import HourlyCalculationRequest, ParametricRange, run_hourly_calculation
 from heliostock.economics import (
     compute_heat_costs,
@@ -41,7 +41,13 @@ from heliostock.ui_inputs import (
 )
 
 
+def _hourly_override(weather: list[HourlyWeather], *, ht_kwh: float, bt_kwh: float) -> dict[int, tuple[float, float]]:
+    return {hour.hour_index: (ht_kwh, bt_kwh) for hour in weather}
+
+
 def test_hourly_simulation_smoke():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=hour,
@@ -62,13 +68,14 @@ def test_hourly_simulation_smoke():
         weather=weather,
         demands=default_industrial_demands_1gwh(),
         config=config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=95.0, bt_kwh=135.0),
     )
     monthly = aggregate_hourly_results_monthly(results)
 
     assert len(results) == 24 * 31
     assert len(monthly) == 1
-    assert all(result.btes_temp_end_c <= config.btes.t_max_c + 1e-9 for result in results)
-    assert all(result.btes_temp_end_c >= config.btes.t_min_c - 1e-9 for result in results)
+    assert all(result.t_source_pac_c <= config.btes.t_max_c + 1e-9 for result in results)
+    assert all(result.t_source_pac_c >= config.btes.t_min_c - 1e-9 for result in results)
     assert all(result.solar_ht_potential_kwh >= 0 for result in results)
     assert sum(result.solar_ht_instant_kwh for result in results) == 0.0
     assert sum(result.solar_ht_direct_kwh for result in results) > 0
@@ -86,6 +93,8 @@ def test_hourly_simulation_smoke():
 
 
 def test_multiyear_simulation_keeps_btes_thermal_memory():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=hour,
@@ -106,6 +115,7 @@ def test_multiyear_simulation_keeps_btes_thermal_memory():
         weather=weather,
         demands=[MonthlyDemand(month=1, process_ht_kwh=7_000.0, process_bt_kwh=14_000.0)],
         config=config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=42.0, bt_kwh=84.0),
         simulation_years=3,
     )
     df = _hourly_results_to_dataframe(results)
@@ -114,27 +124,21 @@ def test_multiyear_simulation_keeps_btes_thermal_memory():
     assert len(results) == len(weather) * 3
     assert sorted(df["simulation_year"].unique().tolist()) == [1, 2, 3]
     assert len(summary) == 3
-    assert summary["T champ fin (C)"].iloc[-1] < summary["T champ fin (C)"].iloc[0]
+    assert summary["T source PAC fin (C)"].iloc[-1] < summary["T source PAC fin (C)"].iloc[0]
 
 
-def test_btes_backend_equivalent_capacity_energy_balance():
-    btes = BtesConfig(boreholes=10, depth_m=100.0, spacing_m=10.0)
-    model = EquivalentCapacityBtesModel(btes)
-
-    accepted = model.add_heat(1000.0)
-    extracted = model.extract_heat(250.0)
-
-    assert accepted == 1000.0
-    assert extracted == 250.0
-    assert abs(model.state().energy_kwh - 750.0) <= 1e-9
-
-
-def test_pygfunction_backend_request_falls_back_when_unavailable():
+def test_pygfunction_backend_is_required_without_fallback():
     btes = BtesConfig(boreholes=10, depth_m=100.0, spacing_m=10.0, backend="pygfunction")
-    model = create_btes_model(btes)
+    if not pygfunction_available():
+        try:
+            create_btes_model(btes)
+        except ImportError as exc:
+            assert "pygfunction est requis" in str(exc)
+            return
+        raise AssertionError("create_btes_model ne doit pas revenir silencieusement au capacitif")
 
-    assert hasattr(model, "temperature_c")
-    assert model.temperature_c() == btes.t_initial_c
+    model = create_btes_model(btes)
+    assert isinstance(model, PygfunctionBtesModel)
 
 
 def test_pygfunction_backend_is_used_when_available():
@@ -146,13 +150,14 @@ def test_pygfunction_backend_is_used_when_available():
 
     assert isinstance(model, PygfunctionBtesModel)
     initial_temp = model.temperature_c()
-    model.add_heat(10.0)
-    model.relax_to_ground()
+    model.commit_load(q_net_w_m=-10.0, q_extraction_w_m=0.0, q_injection_w_m=10.0)
 
     assert model.temperature_c() > initial_temp
 
 
 def test_hourly_energy_balances():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=hour,
@@ -177,7 +182,12 @@ def test_hourly_energy_balances():
         btes=BtesConfig(boreholes=80, depth_m=120.0, spacing_m=5.0, t_max_c=40.0),
         heat_pump=HeatPumpConfig(air_target_bt_c=25.0),
     )
-    results = simulate_hourly(weather=weather, demands=demands, config=config)
+    results = simulate_hourly(
+        weather=weather,
+        demands=demands,
+        config=config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=420.0, bt_kwh=300.0),
+    )
 
     previous_buffer = 0.0
     buffer_capacity = (
@@ -202,14 +212,12 @@ def test_hourly_energy_balances():
         if result.solar_to_btes_kwh > 1e-6:
             assert previous_buffer + result.solar_ht_from_buffer_kwh + result.solar_ht_buffer_loss_kwh >= buffer_capacity - 1e-6
 
-        assert abs(
-            result.btes_energy_start_kwh
-            + result.solar_to_btes_kwh
-            - result.btes_extracted_by_pac_kwh
-            - result.btes_loss_to_ground_kwh
-            + result.btes_natural_recharge_kwh
-            - result.btes_energy_end_kwh
-        ) <= 1e-6
+        expected_q_net = (
+            (result.btes_extracted_by_pac_kwh - result.solar_to_btes_kwh)
+            * 1000.0
+            / max(1e-9, config.btes.boreholes * config.btes.depth_m)
+        )
+        assert abs(result.q_net_w_m - expected_q_net) <= 1e-6
         assert abs(
             result.heat_bt_from_pac_kwh
             - result.btes_extracted_by_pac_kwh
@@ -219,6 +227,8 @@ def test_hourly_energy_balances():
 
 
 def test_hourly_night_has_zero_solar_efficiency_and_yield():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=0,
@@ -238,6 +248,7 @@ def test_hourly_night_has_zero_solar_efficiency_and_yield():
         weather=weather,
         demands=[MonthlyDemand(month=1, process_ht_kwh=10_000.0, process_bt_kwh=10_000.0)],
         config=config,
+        hourly_demand_override={0: (100.0, 100.0)},
     )
     result = results[0]
 
@@ -248,6 +259,8 @@ def test_hourly_night_has_zero_solar_efficiency_and_yield():
 
 
 def test_hourly_no_solar_case_has_no_solar_fluxes():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=hour,
@@ -269,6 +282,7 @@ def test_hourly_no_solar_case_has_no_solar_fluxes():
         weather=weather,
         demands=[MonthlyDemand(month=1, process_ht_kwh=10_000.0, process_bt_kwh=10_000.0)],
         config=no_solar_config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=100.0, bt_kwh=100.0),
     )
 
     assert sum(result.solar_ht_potential_kwh for result in results) == 0.0
@@ -278,6 +292,8 @@ def test_hourly_no_solar_case_has_no_solar_fluxes():
 
 
 def test_hourly_pac_power_limit_creates_bt_backup():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=0,
@@ -314,6 +330,8 @@ def test_hourly_pac_power_limit_creates_bt_backup():
 
 
 def test_pac_total_electricity_includes_auxiliaries_and_standby():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=0,
@@ -343,6 +361,8 @@ def test_pac_total_electricity_includes_auxiliaries_and_standby():
 
 
 def test_zero_pac_auxiliaries_keeps_legacy_compressor_electricity():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=0,
@@ -538,6 +558,7 @@ def test_run_hourly_scenario_returns_summaries_and_economics():
         economics=ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
+            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -616,6 +637,7 @@ def test_app_service_runs_calculation_without_streamlit():
         economics=EconomicsInputs(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
+            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -671,6 +693,7 @@ def test_scenario_p1_uses_total_pac_electricity_and_spf_is_below_machine_cop():
         economics=ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
+            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=0.0,
@@ -784,6 +807,7 @@ def test_scenario_inputs_build_configs():
         economics=EconomicsInputs(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
+            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -809,6 +833,8 @@ def test_scenario_inputs_build_configs():
 
 
 def _small_economic_scenario():
+    if not pygfunction_available():
+        return None
     weather = [
         HourlyWeather(
             hour_index=hour,
@@ -832,6 +858,7 @@ def _small_economic_scenario():
         economics=ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
+            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -846,6 +873,8 @@ def _small_economic_scenario():
 
 def test_economic_comparison_geo_only_forces_solar_area_to_zero():
     result = _small_economic_scenario()
+    if result is None:
+        return
     row = result.economic_comparison_df[result.economic_comparison_df["Scenario"] == "Geothermie seule"].iloc[0]
 
     assert float(row["Surface solaire (m2)"]) == 0.0
@@ -853,6 +882,8 @@ def test_economic_comparison_geo_only_forces_solar_area_to_zero():
 
 def test_same_borefield_scenario_keeps_geo_only_length():
     result = _small_economic_scenario()
+    if result is None:
+        return
     table = result.economic_comparison_df.set_index("Scenario")
 
     assert (
@@ -863,6 +894,8 @@ def test_same_borefield_scenario_keeps_geo_only_length():
 
 
 def test_borefield_savings_annualizes_multiyear_candidate_heat():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=0,
@@ -895,6 +928,8 @@ def test_borefield_savings_annualizes_multiyear_candidate_heat():
 
 def test_reduced_borefield_has_no_p2_savings_per_meter():
     result = _small_economic_scenario()
+    if result is None:
+        return
 
     assert float(result.recharge_value["p2_borefield_savings_eur_an"]) == 0.0
 

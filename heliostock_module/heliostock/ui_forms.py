@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 
 from .app_service import ParametricRange
-from .engine import HeatPumpConfig, MonthlyDemand, cop_from_btes_temperature
+from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
 from .hourly_engine import HourlyWeather
@@ -223,7 +223,7 @@ def render_geothermal_form(
             cop_max=geo_fixed.cop_max,
             max_thermal_power_kw=pre_pac_nominal_power_kw,
         )
-        pre_design_cop = cop_from_btes_temperature(geo_fixed.t_initial_c, pre_hp_for_design)
+        pre_design_cop = cop_from_source_temperature(geo_fixed.t_initial_c, pre_hp_for_design)
         pre_pac_heat_mwh = _estimate_capped_bt_heat_mwh(
             hourly_weather,
             demands,
@@ -292,6 +292,13 @@ def render_geothermal_form(
             t_min_c=geo_fixed.t_min_c,
             t_max_c=geo_fixed.t_max_c,
             tau_months=geo_fixed.tau_months,
+            ground_conductivity_w_m_k=geo_fixed.ground_conductivity_w_m_k,
+            ground_diffusivity_m2_s=geo_fixed.ground_diffusivity_m2_s,
+            borehole_radius_m=geo_fixed.borehole_radius_m,
+            borehole_buried_depth_m=geo_fixed.borehole_buried_depth_m,
+            borehole_thermal_resistance_m_k_w=geo_fixed.borehole_thermal_resistance_m_k_w,
+            max_extraction_w_m=geo_fixed.probe_power_ratio_w_m,
+            max_injection_w_m=geo_fixed.max_injection_w_m,
             backend=btes_backend,
         ),
         heat_pump=HeatPumpInputs(
@@ -350,6 +357,7 @@ def render_economics_form() -> EconomicsInputs:
     return EconomicsInputs(
         reference_energy_cost_eur_mwh=reference_energy_cost_eur_mwh,
         reference_energy_inflation_pct=reference_energy_inflation_pct,
+        discount_rate_pct=economics_fixed.discount_rate_pct,
         eta_appoint_eco=eta_appoint_eco,
         analysis_years=int(economics_fixed.analysis_years),
         auxiliary_electricity_ratio_pct=auxiliary_electricity_ratio_pct,

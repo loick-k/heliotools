@@ -158,6 +158,7 @@ def render_hourly_results(
         render_economics_tab(
             economic_comparison_df=scenario.economic_comparison_df,
             economic_comparison_chart_df=scenario.economic_comparison_chart_df,
+            economic_trajectory_df=scenario.economic_trajectory_df,
             recharge_value=scenario.recharge_value,
             heat_costs=scenario.heat_costs,
         )
@@ -203,10 +204,9 @@ def _render_btes_warnings(
     btes_backend_used: str,
     probe_power_ratio_w_m: float,
 ) -> None:
-    borefield_length_m = max(1e-9, float(scenario.config.btes.boreholes) * float(scenario.config.btes.depth_m))
-    max_extraction_w_m = float(hourly_df["btes_extracted_by_pac_kwh"].max()) * 1000.0 / borefield_length_m
-    max_injection_w_m = float(hourly_df["solar_to_btes_kwh"].max()) * 1000.0 / borefield_length_m
-    hours_at_tmin = int((hourly_df["btes_temp_end_c"] <= scenario.config.btes.t_min_c + 1e-6).sum())
+    max_extraction_w_m = float(hourly_df["q_extraction_w_m"].max())
+    max_injection_w_m = float(hourly_df["q_injection_w_m"].max())
+    hours_at_tmin = int((hourly_df["T_source_PAC_C"] <= scenario.config.btes.t_min_c + 1e-6).sum())
     warning_margin = 1.05
     if btes_backend_used == "pygfunction" and hours_at_tmin > 0:
         st.warning(
@@ -224,7 +224,7 @@ def _render_btes_warnings(
         st.warning(
             f"Puissance linéique d'injection max = {max_injection_w_m:.0f} W/ml, "
             f"au-dessus du ratio de prédimensionnement retenu ({probe_power_ratio_w_m:.0f} W/ml). "
-            "L'injection solaire n'est pas encore limitée par une puissance admissible par mètre de sonde."
+            "Vérifie la contrainte d'injection admissible dans les hypothèses géothermie."
         )
 
 
@@ -243,15 +243,15 @@ def _render_borefield_savings_explanation(
             Le résultat 8760 h affiché au-dessus utilise le **champ complet prédimensionné** :
             `{scenario.full_borefield_length_m:.0f} ml`.
 
-            Le calcul économique réduit ensuite le volume équivalent du BTES avec solaire jusqu'à retrouver au minimum ce COP
-            et ce niveau de couverture BT. Cette réduction n'est utilisée que dans le scénario économique
+            Le calcul économique réduit ensuite le nombre de sondes avec solaire, puis relance le moteur pygfunction,
+            jusqu'à retrouver au minimum ce COP et ce niveau de couverture BT. Cette réduction n'est utilisée que dans le scénario économique
             **Géothermie + solaire sondes réduites**.
             """
         )
 
 
 def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_btes_df: pd.DataFrame) -> None:
-    st.markdown("### Evolution multiannuelle du champ de sondes")
+    st.markdown("### Évolution multiannuelle du champ de sondes")
     if multiyear_btes_df.empty:
         st.info("Projection multiannuelle indisponible.")
         return
@@ -262,15 +262,15 @@ def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_bt
         f"sur {years_count} ans. Elle sert à visualiser la dérive thermique du champ ; "
         "les tableaux économiques restent calculés sur les indicateurs annuels."
     )
-    first_year_end = float(multiyear_btes_df[multiyear_btes_df["Annee"] == 1]["T champ fin (C)"].iloc[-1])
-    last_year_end = float(multiyear_btes_df[multiyear_btes_df["Annee"] == years_count]["T champ fin (C)"].iloc[-1])
-    period_min = float(multiyear_btes_df["T champ min (C)"].min())
-    hours_tmin = int(multiyear_btes_df["Heures a Tmin"].sum())
+    first_year_end = float(multiyear_btes_df[multiyear_btes_df["Annee"] == 1]["T source PAC fin (C)"].iloc[-1])
+    last_year_end = float(multiyear_btes_df[multiyear_btes_df["Annee"] == years_count]["T source PAC fin (C)"].iloc[-1])
+    period_min = float(multiyear_btes_df["T source PAC min (C)"].min())
+    hours_tmin = int(multiyear_btes_df["Heures sous Tmin source"].sum())
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("T fin an 1", f"{first_year_end:.0f} C")
-    m2.metric(f"T fin an {years_count}", f"{last_year_end:.0f} C", delta=f"{last_year_end - first_year_end:+.0f} C")
+    m1.metric("T source fin an 1", f"{first_year_end:.0f} C")
+    m2.metric(f"T source fin an {years_count}", f"{last_year_end:.0f} C", delta=f"{last_year_end - first_year_end:+.0f} C")
     m3.metric("T min période", f"{period_min:.0f} C")
-    m4.metric("Heures à Tmin", f"{hours_tmin:.0f} h")
+    m4.metric("Heures source Tmin", f"{hours_tmin:.0f} h")
     if not no_solar_multiyear_btes_df.empty:
         comparison_btes_df = pd.concat(
             [
@@ -353,16 +353,15 @@ def _render_monthly_tab(
         [
             hourly_by_month_df[["Mois", "Injection BTES (MWh)"]].rename(columns={"Injection BTES (MWh)": "Valeur"}).assign(Poste="Injection solaire BTES"),
             hourly_by_month_df[["Mois", "Extraction champ PAC (MWh)"]].rename(columns={"Extraction champ PAC (MWh)": "Valeur"}).assign(Poste="Extraction champ vers PAC"),
-            hourly_by_month_df[["Mois", "Recharge naturelle sol (MWh)"]].rename(columns={"Recharge naturelle sol (MWh)": "Valeur"}).assign(Poste="Recharge naturelle sol"),
+            hourly_by_month_df[["Mois", "Bilan net sol (MWh)"]].rename(columns={"Bilan net sol (MWh)": "Valeur"}).assign(Poste="Bilan net sol"),
         ],
         ignore_index=True,
     )
     ground_flux_df.loc[ground_flux_df["Poste"] == "Extraction champ vers PAC", "Valeur"] *= -1.0
     st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
     st.caption(
-        "Les extractions PAC sont affichées négatives. Les pertes champ vers sol ne sont pas tracées ici : "
-        "elles ne deviennent positives que lorsque le champ est plus chaud que le sol initial. Dans beaucoup de cas, "
-        "le champ reste sous cette référence après extraction PAC ; le terme affiché est alors une recharge naturelle du sol."
+        "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire. "
+        "Il n'y a plus de pertes/recharge naturelle capacitives : la dérive thermique est calculée par pygfunction."
     )
 
     st.markdown("### Production solaire valorisee : prechauffage HT et injection BTES")
@@ -451,7 +450,13 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
                         "electricity_system_total_kwh",
                         "electricity_pac_kwh",
                         "solar_ht_buffer_temp_end_c",
-                        "btes_temp_end_c",
+                        "T_paroi_forage_C",
+                        "T_source_PAC_C",
+                        "T_evaporateur_PAC_C",
+                        "T_fluide_injection_C",
+                        "q_extraction_W_m",
+                        "q_injection_W_m",
+                        "q_net_W_m",
                         "cop_pac",
                     ]
                 ]

@@ -23,17 +23,18 @@ def borefield_equivalent_savings(
 ) -> dict[str, float | bool]:
     """Estimate equivalent borefield length saving with solar recharge.
 
-    The BTES model is capacitive, so the search scales `volume_factor`.
-    With fixed spacing and borehole count, this is reported as an equivalent
-    linear-meter saving, not a detailed borefield design.
+    The search varies the actual number of boreholes and reruns the hourly
+    pygfunction backend. It is still a screening indicator, not a detailed
+    borefield design, but it no longer relies on a capacitive volume factor.
     """
 
     tolerance_bt = max(1.0, 0.001 * reference_bt_pac_kwh)
     base_length_m = max(0.0, config.btes.boreholes * config.btes.depth_m)
     years = max(1, int(simulation_years))
 
-    def run(scale: float) -> tuple[pd.DataFrame, float, float]:
-        scaled_btes = replace(config.btes, volume_factor=config.btes.volume_factor * scale)
+    def run(scale: float) -> tuple[pd.DataFrame, float, float, int]:
+        boreholes = max(1, int(round(config.btes.boreholes * scale)))
+        scaled_btes = replace(config.btes, boreholes=boreholes)
         scaled_config = replace(config, btes=scaled_btes)
         df = _hourly_results_to_dataframe(
             simulate_hourly(
@@ -46,15 +47,16 @@ def borefield_equivalent_savings(
         )
         cop = _mean_cop(df)
         bt_pac = float(df["heat_bt_from_pac_kwh"].sum()) / years
-        return df, cop, bt_pac
+        return df, cop, bt_pac, boreholes
 
-    _, full_cop, full_bt = run(1.0)
+    _, full_cop, full_bt, full_boreholes = run(1.0)
     if full_cop + 1e-9 < reference_cop or full_bt + tolerance_bt < reference_bt_pac_kwh:
         return {
             "found": False,
             "scale": 1.0,
             "reference_length_m": base_length_m,
             "equivalent_length_m": base_length_m,
+            "equivalent_boreholes": full_boreholes,
             "saved_length_m": 0.0,
             "saved_fraction": 0.0,
             "equivalent_cop": full_cop,
@@ -66,26 +68,29 @@ def borefield_equivalent_savings(
     best_scale = 1.0
     best_cop = full_cop
     best_bt = full_bt
+    best_boreholes = full_boreholes
 
     for _ in range(iterations):
         mid = (low + high) / 2.0
-        _, cop, bt_pac = run(mid)
+        _, cop, bt_pac, boreholes = run(mid)
         ok = cop + 1e-9 >= reference_cop and bt_pac + tolerance_bt >= reference_bt_pac_kwh
         if ok:
             best_scale = mid
             best_cop = cop
             best_bt = bt_pac
+            best_boreholes = boreholes
             high = mid
         else:
             low = mid
 
-    equivalent_length = base_length_m * best_scale
+    equivalent_length = max(0.0, best_boreholes * config.btes.depth_m)
     saved_length = max(0.0, base_length_m - equivalent_length)
     return {
         "found": True,
-        "scale": best_scale,
+        "scale": equivalent_length / max(1e-9, base_length_m),
         "reference_length_m": base_length_m,
         "equivalent_length_m": equivalent_length,
+        "equivalent_boreholes": best_boreholes,
         "saved_length_m": saved_length,
         "saved_fraction": saved_length / max(1e-9, base_length_m),
         "equivalent_cop": best_cop,

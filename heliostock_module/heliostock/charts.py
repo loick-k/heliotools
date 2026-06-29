@@ -9,18 +9,25 @@ def _temperature_chart(results_df: pd.DataFrame):
             "Jour annee",
             "solar_ht_buffer_temp_end_c",
             "collector_temp_ht_c",
-            "btes_temp_end_c",
+            "T_source_PAC_C",
+            "T_paroi_forage_C",
         ]
     ].rename(
         columns={
             "solar_ht_buffer_temp_end_c": "T ballon solaire (C)",
             "collector_temp_ht_c": "T capteur charge ballon (C)",
-            "btes_temp_end_c": "T champ BTES (C)",
+            "T_source_PAC_C": "Température source PAC (C)",
+            "T_paroi_forage_C": "Température paroi forage (C)",
         }
     )
     temp_long = temp_df.melt(
         id_vars=["Jour annee"],
-        value_vars=["T ballon solaire (C)", "T capteur charge ballon (C)", "T champ BTES (C)"],
+        value_vars=[
+            "T ballon solaire (C)",
+            "T capteur charge ballon (C)",
+            "Température source PAC (C)",
+            "Température paroi forage (C)",
+        ],
         var_name="Grandeur",
         value_name="Temperature (C)",
     )
@@ -43,10 +50,22 @@ def _temperature_chart(results_df: pd.DataFrame):
 
 def _multiyear_btes_temperature_chart(summary_df: pd.DataFrame):
     temp_long = summary_df[
-        ["Mois index", "Mois", "T champ fin (C)", "T champ min (C)", "T champ max (C)"]
+        [
+            "Mois index",
+            "Mois",
+            "T source PAC fin (C)",
+            "T source PAC min (C)",
+            "T source PAC max (C)",
+            "T paroi forage fin (C)",
+        ]
     ].melt(
         id_vars=["Mois index", "Mois"],
-        value_vars=["T champ fin (C)", "T champ min (C)", "T champ max (C)"],
+        value_vars=[
+            "T source PAC fin (C)",
+            "T source PAC min (C)",
+            "T source PAC max (C)",
+            "T paroi forage fin (C)",
+        ],
         var_name="Grandeur",
         value_name="Temperature (C)",
     )
@@ -55,7 +74,7 @@ def _multiyear_btes_temperature_chart(summary_df: pd.DataFrame):
         .mark_line(point=False, strokeWidth=1.8)
         .encode(
             x=alt.X("Mois index:Q", title="Mois de simulation"),
-            y=alt.Y("Temperature (C):Q", title="Temperature champ (C)"),
+            y=alt.Y("Temperature (C):Q", title="Température (C)"),
             color=alt.Color("Grandeur:N", title="Grandeur"),
             tooltip=[
                 "Mois:N",
@@ -73,15 +92,15 @@ def _multiyear_btes_temperature_comparison_chart(comparison_df: pd.DataFrame):
         .mark_line(point=False, strokeWidth=2.0)
         .encode(
             x=alt.X("Mois index:Q", title="Mois de simulation"),
-            y=alt.Y("T champ fin (C):Q", title="Temperature champ fin de mois (C)"),
+            y=alt.Y("T source PAC fin (C):Q", title="Température source PAC fin de mois (C)"),
             color=alt.Color("Scenario:N", title="Scenario"),
             tooltip=[
                 "Scenario:N",
                 "Mois:N",
-                alt.Tooltip("T champ fin (C):Q", format=".1f"),
-                alt.Tooltip("T champ min (C):Q", format=".1f"),
-                alt.Tooltip("T champ max (C):Q", format=".1f"),
-                alt.Tooltip("Heures a Tmin:Q", format=".0f"),
+                alt.Tooltip("T source PAC fin (C):Q", format=".1f"),
+                alt.Tooltip("T source PAC min (C):Q", format=".1f"),
+                alt.Tooltip("T source PAC max (C):Q", format=".1f"),
+                alt.Tooltip("Heures sous Tmin source:Q", format=".0f"),
             ],
         )
         .properties(height=390)
@@ -95,16 +114,14 @@ def _multiyear_btes_flux_chart(summary_df: pd.DataFrame):
             "Mois",
             "Injection BTES (MWh)",
             "Extraction PAC (MWh)",
-            "Pertes champ (MWh)",
-            "Recharge naturelle (MWh)",
+            "Q net sol (MWh)",
         ]
     ].melt(
         id_vars=["Mois index", "Mois"],
         value_vars=[
             "Injection BTES (MWh)",
             "Extraction PAC (MWh)",
-            "Pertes champ (MWh)",
-            "Recharge naturelle (MWh)",
+            "Q net sol (MWh)",
         ],
         var_name="Poste",
         value_name="MWh/mois",
@@ -218,7 +235,7 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 scale=alt.Scale(
                     domain=[
                         "Solaire thermique",
-                        "GÃ©othermie PAC",
+                        "Geothermie PAC",
                         "Geothermie PAC",
                         "Appoint HT",
                         "Appoint BT",

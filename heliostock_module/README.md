@@ -291,22 +291,17 @@ E_stock = V_sol * rhoCp_sol * (T_champ - T_sol_initial)
 T_champ = T_sol_initial + E_stock / (V_sol * rhoCp_sol)
 ```
 
-Le bilan horaire est :
+Cette ancienne formulation capacitive n'est plus active dans le flux principal. HelioStock utilise maintenant uniquement
+`pygfunction` pour le champ de sondes. Le modele ne calcule donc plus de `capacite restante`, de `pertes vers sol` ou de
+`recharge naturelle` par relaxation artificielle. Le champ est pilote par la charge lineique nette :
 
 ```text
-E_stock_h+1 = E_stock_h
-            + energie_injectee_h
-            - energie_extraite_PAC_h
-            - pertes_vers_sol_h
-            + recharge_naturelle_si_champ_froid_h
+q_net_W_m = q_extraction_W_m - q_injection_W_m
+q_extraction_W_m = Q_sol_extrait_kWh * 1000 / L_total_sondes_m
+q_injection_W_m = Q_sol_injecte_kWh * 1000 / L_total_sondes_m
 ```
 
-La relaxation horaire est orientee vers `T_sol_initial` :
-
-- si `T_champ > T_sol_initial`, le champ perd de la chaleur vers le sol ;
-- si `T_champ < T_sol_initial`, le sol environnant recharge naturellement le champ.
-
-Le champ est borne entre `Tmin champ` et `Tmax champ`.
+Convention : extraction PAC positive, injection solaire negative dans l'historique pygfunction.
 
 ### PAC geothermique
 
@@ -321,20 +316,23 @@ avec `ratio_PAC` saisi en `% Pmax BT`.
 Les hypothèses PAC du pré-dimensionnement peuvent ensuite être reprises telles quelles dans le calcul horaire ou
 modifiées dans le bloc `Données PAC géothermique du calcul horaire`.
 
-Le COP depend de la temperature du champ :
+Le COP depend de la temperature fluide source PAC :
 
 ```text
 COP = eta_PAC * T_cond,K / (T_cond,K - T_evap,K)
 T_cond ~= T_cible_BT + approche_condenseur
-T_evap ~= T_champ - approche_evaporateur
+T_evap ~= T_source_PAC - approche_evaporateur
+T_source_PAC ~= T_paroi_forage - q_extraction_W_m * Rb_eff
 ```
 
 Les valeurs par defaut sont volontairement conservatrices :
 
 ```text
-eta_PAC = 45 %
-approche_condenseur = 7 K
+eta_PAC = 54 %
+approche_condenseur = 2 K
 approche_evaporateur = 3 K
+COP min = 2
+COP max = 8
 ```
 
 Le code conserve le denominateur physique `T_cond - T_evap`.
@@ -364,7 +362,7 @@ electricite_PAC = Chaleur BT livree / COP
 chaleur_extraite_champ = Chaleur BT livree - electricite_PAC
 ```
 
-Si le champ ne contient pas assez d'energie disponible au-dessus de `Tmin champ`, la chaleur BT livree par PAC est limitee et un appoint BT est affiche.
+Si la puissance PAC, la puissance lineique d'extraction ou `Tmin source` limitent le fonctionnement, la chaleur BT livree par PAC est limitee et un appoint BT est affiche.
 
 ## Flux affiches
 
@@ -382,12 +380,12 @@ L'interface Streamlit expose notamment :
 - une monotone synchronisee des besoins HT/BT et des couvertures solaire/geothermie, avec tri par reference choisie ;
 - des monotones empilees type mix energetique : solaire thermique + appoint pour HT, geothermie PAC + appoint pour BT ;
 - la repartition solaire : charge ballon / prechauffage HT / injecte BTES / non valorise ;
-- les flux mensuels du sous-sol : injection solaire positive, extraction PAC negative, recharge naturelle ;
-- l'evolution multiannuelle du champ de sondes : temperature min/max/fin de mois, energie stockee, heures a Tmin et
+- les flux mensuels du sous-sol : injection solaire positive, extraction PAC negative, bilan net sol ;
+- l'evolution multiannuelle du champ de sondes : temperature source/paroi min/max/fin de mois, heures sous Tmin source et
   comparaison géothermie seule / géothermie + recharge solaire ;
 - la couverture des besoins HT et BT ;
 - le detail PAC : chaleur extraite du champ / electricite PAC ;
-- l'etat du champ : injection, extraction, pertes, recharge naturelle, temperatures.
+- l'etat du champ : injection, extraction, q_W/m, temperature paroi forage, temperature source PAC.
 - un onglet économie solaire : CAPEX brut/net, aide ADEME, coût solaire, temps de retour brut, cashflow cumulé.
 
 ## Economie solaire thermique
@@ -448,15 +446,21 @@ temperature de stockage pour l'injection BTES.
 
 ## Limites actuelles
 
-- calcul horaire EPW, avec import possible d'un profil process 8760 h ;
-- temperature source PAC du champ de sondes calculee par `pygfunction` ;
-- bilan energetique equivalent conserve pour borner l'injection, l'extraction et les limites `Tmin/Tmax` ;
-- pertes du champ modelisees par relaxation horaire vers la temperature naturelle du sol ;
+- calcul horaire EPW, avec import obligatoire d'un profil process 8760 h ;
+- moteur champ de sondes unique base sur `pygfunction`, sans fallback capacitif silencieux ;
+- charges envoyees au champ en W/m, avec extraction PAC positive et injection solaire negative ;
+- chaleur extraite du sol = chaleur BT livree par PAC - electricite compresseur ;
+- pas de stock energetique global du sol, pas de capacite restante simplifiee, pas de relaxation artificielle vers le sol ;
+- temperature source PAC estimee par `T_paroi_forage - q_extraction * Rb_eff` ;
+- couplage PAC/BTES explicite horaire, avec quelques iterations locales sur le COP ;
+- pas encore un dimensionnement reglementaire de champ de sondes ;
+- geometrie automatique approximative si aucun plan de champ reel n'est fourni ;
 - pas de dimensionnement hydraulique ni pertes reseau detaillees ;
-- les besoins process ne sont pas encore calcules depuis des debits horaires ;
+- les besoins process ne sont pas encore calcules depuis des debits horaires.
 
-`pygfunction` calcule la temperature source utilisee pour le COP PAC. Le bilan d'energie equivalent reste conserve pour
-les limites d'injection/extraction et les bornes `Tmin/Tmax`.
+`pygfunction` calcule la derive thermique du champ a partir de l'historique horaire net. Les limites PAC viennent de la
+puissance PAC installee, des puissances lineiques admissibles, de `Tmin source` et du COP minimum, pas d'une energie
+stockee globale.
 
 ## Bibliotheque capteurs
 

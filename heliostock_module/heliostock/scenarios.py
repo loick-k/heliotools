@@ -13,7 +13,7 @@ from .economics import (
     solar_recharge_value,
 )
 from .borefield_savings import borefield_equivalent_savings
-from .engine import MonthlyDemand, SimulationConfig, cop_from_btes_temperature
+from .engine import MonthlyDemand, SimulationConfig, cop_from_source_temperature
 from .geothermal_design import predimension_borefield
 from .hourly_engine import HourlyWeather, simulate_hourly
 from .load_profiles import _estimate_capped_bt_heat_mwh
@@ -32,6 +32,7 @@ ProgressCallback = Callable[[int, str], None]
 class ScenarioEconomicsConfig:
     reference_energy_cost_eur_mwh: float
     reference_energy_inflation_pct: float
+    discount_rate_pct: float
     eta_appoint_eco: float
     analysis_years: int
     auxiliary_electricity_ratio_pct: float
@@ -56,6 +57,7 @@ class ScenarioResult:
     heat_costs: dict[str, float | pd.DataFrame]
     economic_comparison_df: pd.DataFrame
     economic_comparison_chart_df: pd.DataFrame
+    economic_trajectory_df: pd.DataFrame
     recharge_value: dict[str, float | bool | str]
     solar_allocation: dict[str, float]
     total_ht_kwh: float
@@ -121,6 +123,7 @@ def solar_surface_parametric_study(
 ) -> pd.DataFrame:
     rows = []
     total_points = max(1, len(surfaces_m2))
+    simulation_years = max(1, int(analysis_years))
 
     for index, surface_m2 in enumerate(surfaces_m2, start=1):
         _notify(
@@ -136,8 +139,10 @@ def solar_surface_parametric_study(
                 demands,
                 variant_config,
                 hourly_demand_override=hourly_demand_override,
+                simulation_years=simulation_years,
             )
         )
+        variant_df = variant_df[variant_df["simulation_year"] == simulation_years].copy()
 
         total_ht_variant = float(variant_df["demand_ht_kwh"].sum())
         total_bt_variant = float(variant_df["demand_bt_kwh"].sum())
@@ -169,6 +174,7 @@ def solar_surface_parametric_study(
             reference_cop=no_solar_cop,
             reference_bt_pac_kwh=no_solar_total_pac_kwh,
             hourly_demand_override=hourly_demand_override,
+            simulation_years=simulation_years,
             iterations=12,
         )
         economic_borefield_length_m_variant = (
@@ -258,6 +264,7 @@ def pac_power_parametric_study(
 ) -> pd.DataFrame:
     rows = []
     total_points = max(1, len(pac_power_fractions_pct))
+    simulation_years = max(1, int(analysis_years))
 
     for index, fraction_pct in enumerate(pac_power_fractions_pct, start=1):
         _notify(
@@ -272,7 +279,7 @@ def pac_power_parametric_study(
         btes_variant = config.btes
         predesign_variant = None
         if use_probe_predesign:
-            design_cop = cop_from_btes_temperature(config.btes.t_initial_c, hp_variant)
+            design_cop = cop_from_source_temperature(config.btes.t_initial_c, hp_variant)
             heat_pac_mwh_year = _estimate_capped_bt_heat_mwh(
                 weather,
                 demands,
@@ -305,8 +312,10 @@ def pac_power_parametric_study(
                 demands,
                 variant_config,
                 hourly_demand_override=hourly_demand_override,
+                simulation_years=simulation_years,
             )
         )
+        variant_df = variant_df[variant_df["simulation_year"] == simulation_years].copy()
 
         total_ht_variant = float(variant_df["demand_ht_kwh"].sum())
         total_bt_variant = float(variant_df["demand_bt_kwh"].sum())
@@ -420,6 +429,142 @@ def _hourly_metrics(df: pd.DataFrame, *, annualization_years: int = 1) -> dict[s
         "global_ren_rate": max(0.0, min(1.0, 1.0 - non_ren_input / max(1e-9, total_need))),
         "backup_power_kw": backup_power_kw,
         "reference_gas_power_kw": float((df["demand_ht_kwh"].clip(lower=0.0) + df["demand_bt_kwh"].clip(lower=0.0)).max()),
+        "t_source_pac_min_c": float(df["T_source_PAC_C"].min()) if "T_source_PAC_C" in df else 0.0,
+        "t_source_pac_mean_c": float(df["T_source_PAC_C"].mean()) if "T_source_PAC_C" in df else 0.0,
+        "q_extraction_max_w_m": float(df["q_extraction_W_m"].max()) if "q_extraction_W_m" in df else 0.0,
+        "q_injection_max_w_m": float(df["q_injection_W_m"].max()) if "q_injection_W_m" in df else 0.0,
+    }
+
+
+def _annual_metrics_trajectory(df: pd.DataFrame, *, analysis_years: int) -> pd.DataFrame:
+    """Build one technical/economic row per analysis year.
+
+    If the economic horizon is longer than the simulated period, the final
+    simulated year is repeated as a stabilized year.
+    """
+
+    years = max(1, int(analysis_years))
+    rows: list[dict[str, float | int]] = []
+    grouped = {int(year): group for year, group in df.groupby("simulation_year", sort=True)}
+    last_group = grouped[max(grouped)] if grouped else df
+    for year in range(1, years + 1):
+        group = grouped.get(year, last_group)
+        heat_pac = float(group["heat_bt_from_pac_kwh"].sum())
+        elec_comp = float(group["electricity_compressor_kwh"].sum())
+        total_ht = float(group["demand_ht_kwh"].sum())
+        total_bt = float(group["demand_bt_kwh"].sum())
+        backup_ht = float(group["unmet_ht_kwh"].sum())
+        backup_bt = float(group["unmet_bt_kwh"].sum())
+        elec_total = float(group["electricity_pac_total_kwh"].sum())
+        solar_ht = float(group["solar_ht_direct_kwh"].sum())
+        non_ren = backup_ht + backup_bt + elec_total
+        useful = total_ht + total_bt
+        rows.append(
+            {
+                "Annee": year,
+                "E utile HT (MWh)": total_ht / 1000.0,
+                "E utile BT (MWh)": total_bt / 1000.0,
+                "E utile totale (MWh)": useful / 1000.0,
+                "Solaire HT (MWh)": solar_ht / 1000.0,
+                "Injection solaire BTES (MWh)": float(group["solar_to_btes_kwh"].sum()) / 1000.0,
+                "Chaleur PAC BT (MWh)": heat_pac / 1000.0,
+                "Appoint gaz HT (MWh)": backup_ht / 1000.0,
+                "Appoint gaz BT (MWh)": backup_bt / 1000.0,
+                "Appoint gaz total (MWh)": (backup_ht + backup_bt) / 1000.0,
+                "Electricite PAC (MWh)": elec_total / 1000.0,
+                "COP moyen": heat_pac / elec_comp if elec_comp > 0.0 else 0.0,
+                "T_source_PAC_min (C)": float(group["T_source_PAC_C"].min()) if "T_source_PAC_C" in group else 0.0,
+                "T_source_PAC_moy (C)": float(group["T_source_PAC_C"].mean()) if "T_source_PAC_C" in group else 0.0,
+                "q_extraction_W_m_max": float(group["q_extraction_W_m"].max()) if "q_extraction_W_m" in group else 0.0,
+                "q_injection_W_m_max": float(group["q_injection_W_m"].max()) if "q_injection_W_m" in group else 0.0,
+                "Taux EnR (%)": max(0.0, min(1.0, 1.0 - non_ren / max(1e-9, useful))) * 100.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _reference_gas_trajectory_from(trajectory_df: pd.DataFrame) -> pd.DataFrame:
+    reference_df = trajectory_df.copy()
+    reference_df["Solaire HT (MWh)"] = 0.0
+    reference_df["Injection solaire BTES (MWh)"] = 0.0
+    reference_df["Chaleur PAC BT (MWh)"] = 0.0
+    reference_df["Appoint gaz HT (MWh)"] = reference_df["E utile HT (MWh)"]
+    reference_df["Appoint gaz BT (MWh)"] = reference_df["E utile BT (MWh)"]
+    reference_df["Appoint gaz total (MWh)"] = reference_df["E utile totale (MWh)"]
+    reference_df["Electricite PAC (MWh)"] = 0.0
+    reference_df["COP moyen"] = 0.0
+    reference_df["T_source_PAC_min (C)"] = 0.0
+    reference_df["T_source_PAC_moy (C)"] = 0.0
+    reference_df["q_extraction_W_m_max"] = 0.0
+    reference_df["q_injection_W_m_max"] = 0.0
+    reference_df["Taux EnR (%)"] = 0.0
+    return reference_df
+
+
+def _discounted_multiyear_cost(
+    *,
+    trajectory_df: pd.DataFrame,
+    heat_costs: dict[str, float | pd.DataFrame],
+    economics: ScenarioEconomicsConfig,
+    capex_net_eur: float,
+    reference: bool = False,
+) -> dict[str, float]:
+    discount = max(0.0, float(economics.discount_rate_pct)) / 100.0
+    gas_inflation = max(0.0, float(economics.reference_energy_inflation_pct)) / 100.0
+    gas_useful_year_1 = max(0.0, economics.reference_energy_cost_eur_mwh) / max(1e-9, economics.eta_appoint_eco)
+    geo_p1_eur_mwh = 150.0
+    solar_p1_eur_mwh = _unit_cost(heat_costs, "Solaire thermique", "P1")
+    p2_annual = 0.0
+    capex_df = heat_costs.get("capex_summary", pd.DataFrame())
+    p_table = heat_costs.get("p1_p2_p4", pd.DataFrame())
+    if isinstance(p_table, pd.DataFrame) and not p_table.empty:
+        if reference:
+            delivered_ref = float(trajectory_df["E utile totale (MWh)"].mean())
+            p2_annual = float(heat_costs["reference_p2_eur_mwh"]) * delivered_ref
+        else:
+            p2_annual = 0.0
+            for generator in ["Solaire thermique", "Geothermie PAC", "Appoint gaz"]:
+                match = p_table[(p_table["Generateur"] == generator) & (p_table["Poste"] == "P2")]
+                if not match.empty:
+                    if generator == "Solaire thermique":
+                        energy = trajectory_df["Solaire HT (MWh)"].mean()
+                    elif generator == "Geothermie PAC":
+                        energy = trajectory_df["Chaleur PAC BT (MWh)"].mean()
+                    else:
+                        energy = trajectory_df["Appoint gaz total (MWh)"].mean()
+                    p2_annual += float(match["EUR/MWh"].iloc[0]) * float(energy)
+    if isinstance(capex_df, pd.DataFrame) and not capex_df.empty:
+        pass
+
+    discounted_cost = max(0.0, capex_net_eur)
+    discounted_useful = 0.0
+    p1_total_nominal = 0.0
+    p2_total_nominal = 0.0
+    p4_total_nominal = 0.0
+    for _, row in trajectory_df.iterrows():
+        year = int(row["Annee"])
+        discount_factor = 1.0 / ((1.0 + discount) ** max(0, year - 1))
+        gas_price = gas_useful_year_1 * ((1.0 + gas_inflation) ** max(0, year - 1))
+        if reference:
+            p1 = float(row["E utile totale (MWh)"]) * gas_price
+        else:
+            p1 = (
+                float(row["Appoint gaz total (MWh)"]) * gas_price
+                + float(row["Electricite PAC (MWh)"]) * geo_p1_eur_mwh
+                + float(row["Solaire HT (MWh)"]) * solar_p1_eur_mwh
+            )
+        p2 = p2_annual
+        p4 = max(0.0, capex_net_eur) / max(1, int(economics.analysis_years))
+        discounted_cost += (p1 + p2) * discount_factor
+        discounted_useful += float(row["E utile totale (MWh)"]) * discount_factor
+        p1_total_nominal += p1
+        p2_total_nominal += p2
+        p4_total_nominal += p4
+    return {
+        "discounted_heat_cost_eur_mwh": discounted_cost / max(1e-9, discounted_useful),
+        "p1_annual_eur": p1_total_nominal / max(1, len(trajectory_df)),
+        "p2_annual_eur": p2_total_nominal / max(1, len(trajectory_df)),
+        "p4_annual_eur": p4_total_nominal / max(1, len(trajectory_df)),
     }
 
 
@@ -701,7 +846,8 @@ def run_hourly_scenario(
 
     if bool(savings["found"]):
         _notify(progress, 88, "Simulation multiannuelle avec sondes reduites...")
-        reduced_btes = replace(config.btes, volume_factor=config.btes.volume_factor * float(savings["scale"]))
+        reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
+        reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
         reduced_config = replace(config, btes=reduced_btes)
         reduced_hourly_df = _hourly_results_to_dataframe(
             simulate_hourly(
@@ -778,6 +924,52 @@ def run_hourly_scenario(
     if not bool(savings["found"]):
         recharge_value["status"] = "non determine"
 
+    same_trajectory_df = _annual_metrics_trajectory(multiyear_df, analysis_years=int(economics.analysis_years))
+    geo_only_trajectory_df = _annual_metrics_trajectory(no_solar_multiyear_df, analysis_years=int(economics.analysis_years))
+    reduced_trajectory_df = _annual_metrics_trajectory(reduced_hourly_df, analysis_years=int(economics.analysis_years))
+    reference_trajectory_df = _reference_gas_trajectory_from(same_trajectory_df)
+
+    geo_only_capex = _capex_net_total(geo_only_heat_costs, ["Geothermie PAC", "Appoint gaz"])
+    same_capex = _capex_net_total(same_borefield_heat_costs, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
+    reduced_capex = _capex_net_total(heat_costs, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
+    reference_capex = float(heat_costs["reference_capex_eur"])
+    multiyear_costs_by_scenario = {
+        "Reference 100 % gaz": _discounted_multiyear_cost(
+            trajectory_df=reference_trajectory_df,
+            heat_costs=heat_costs,
+            economics=economics,
+            capex_net_eur=reference_capex,
+            reference=True,
+        ),
+        "Geothermie seule": _discounted_multiyear_cost(
+            trajectory_df=geo_only_trajectory_df,
+            heat_costs=geo_only_heat_costs,
+            economics=economics,
+            capex_net_eur=geo_only_capex,
+        ),
+        "Geothermie + solaire meme sondes": _discounted_multiyear_cost(
+            trajectory_df=same_trajectory_df,
+            heat_costs=same_borefield_heat_costs,
+            economics=economics,
+            capex_net_eur=same_capex,
+        ),
+        "Geothermie + solaire sondes reduites": _discounted_multiyear_cost(
+            trajectory_df=reduced_trajectory_df,
+            heat_costs=heat_costs,
+            economics=economics,
+            capex_net_eur=reduced_capex,
+        ),
+    }
+    economic_trajectory_df = pd.concat(
+        [
+            reference_trajectory_df.assign(Scenario="Reference 100 % gaz"),
+            geo_only_trajectory_df.assign(Scenario="Geothermie seule"),
+            same_trajectory_df.assign(Scenario="Geothermie + solaire meme sondes"),
+            reduced_trajectory_df.assign(Scenario="Geothermie + solaire sondes reduites"),
+        ],
+        ignore_index=True,
+    )
+
     _notify(progress, 95, "Construction des tableaux economiques...")
     economic_comparison_df = pd.DataFrame(
         [
@@ -788,7 +980,7 @@ def run_hourly_scenario(
                 delivered_mwh=reference_heat_mwh,
                 borefield_length_m=0.0,
                 saved_borefield_length_m=0.0,
-                capex_net_eur=float(heat_costs["reference_capex_eur"]),
+                capex_net_eur=reference_capex,
                 reference=True,
                 solar_area_m2=0.0,
             ),
@@ -799,7 +991,7 @@ def run_hourly_scenario(
                 delivered_mwh=reference_heat_mwh,
                 borefield_length_m=full_borefield_length_m,
                 saved_borefield_length_m=0.0,
-                capex_net_eur=_capex_net_total(geo_only_heat_costs, ["Geothermie PAC", "Appoint gaz"]),
+                capex_net_eur=geo_only_capex,
                 solar_area_m2=0.0,
             ),
             _comparison_row(
@@ -809,7 +1001,7 @@ def run_hourly_scenario(
                 delivered_mwh=reference_heat_mwh,
                 borefield_length_m=full_borefield_length_m,
                 saved_borefield_length_m=0.0,
-                capex_net_eur=_capex_net_total(same_borefield_heat_costs, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"]),
+                capex_net_eur=same_capex,
                 solar_area_m2=config.collector.area_m2,
             ),
             _comparison_row(
@@ -819,11 +1011,19 @@ def run_hourly_scenario(
                 delivered_mwh=reference_heat_mwh,
                 borefield_length_m=economic_borefield_length_m,
                 saved_borefield_length_m=float(savings["saved_length_m"]) if bool(savings["found"]) else 0.0,
-                capex_net_eur=_capex_net_total(heat_costs, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"]),
+                capex_net_eur=reduced_capex,
                 solar_area_m2=config.collector.area_m2,
             ),
         ]
     )
+    for index, row in economic_comparison_df.iterrows():
+        scenario_name = str(row["Scenario"])
+        costs = multiyear_costs_by_scenario[scenario_name]
+        economic_comparison_df.loc[index, "Cout chaleur global (EUR/MWh)"] = costs["discounted_heat_cost_eur_mwh"]
+        economic_comparison_df.loc[index, "P1 annuel (EUR/an)"] = costs["p1_annual_eur"]
+        economic_comparison_df.loc[index, "P2 annuel (EUR/an)"] = costs["p2_annual_eur"]
+        economic_comparison_df.loc[index, "P4 annuel (EUR/an)"] = costs["p4_annual_eur"]
+    economic_comparison_df["Méthode coût chaleur"] = "Actualisé multiannuel"
     economic_comparison_chart_df = economic_comparison_df.melt(
         id_vars=["Scenario"],
         value_vars=[
@@ -849,6 +1049,7 @@ def run_hourly_scenario(
         heat_costs=heat_costs,
         economic_comparison_df=economic_comparison_df,
         economic_comparison_chart_df=economic_comparison_chart_df,
+        economic_trajectory_df=economic_trajectory_df,
         recharge_value=recharge_value,
         solar_allocation=solar_allocation,
         total_ht_kwh=total_ht,

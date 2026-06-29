@@ -23,6 +23,13 @@ def _hourly_results_to_dataframe(results) -> pd.DataFrame:
     df["Puissance BT PAC (kW)"] = df["heat_bt_from_pac_kwh"]
     df["Puissance appoint BT (kW)"] = df["unmet_bt_kwh"]
     df["Puissance chaleur utile totale (kW)"] = df["solar_ht_direct_kwh"] + df["heat_bt_from_pac_kwh"]
+    df["T_paroi_forage_C"] = df["t_borehole_wall_c"]
+    df["T_source_PAC_C"] = df["t_source_pac_c"]
+    df["T_evaporateur_PAC_C"] = df["t_evaporator_pac_c"]
+    df["T_fluide_injection_C"] = df["t_fluide_injection_c"]
+    df["q_extraction_W_m"] = df["q_extraction_w_m"]
+    df["q_injection_W_m"] = df["q_injection_w_m"]
+    df["q_net_W_m"] = df["q_net_w_m"]
     return df
 
 
@@ -40,17 +47,27 @@ def _multiyear_btes_summary(results_df: pd.DataFrame, *, t_min_c: float) -> pd.D
                 "Annee": int(year),
                 "Mois index": (int(year) - 1) * 12 + int(month),
                 "Mois": f"A{int(year):02d}-{int(month):02d}",
-                "T champ fin (C)": float(group["btes_temp_end_c"].iloc[-1]),
-                "T champ min (C)": float(group["btes_temp_end_c"].min()),
-                "T champ max (C)": float(group["btes_temp_end_c"].max()),
-                "E champ fin (MWh)": float(group["btes_energy_end_kwh"].iloc[-1]) / 1000.0,
+                "T source PAC fin (C)": float(group["T_source_PAC_C"].iloc[-1]),
+                "T source PAC min (C)": float(group["T_source_PAC_C"].min()),
+                "T source PAC max (C)": float(group["T_source_PAC_C"].max()),
+                "T source PAC moyenne (C)": float(group["T_source_PAC_C"].mean()),
+                "T paroi forage fin (C)": float(group["T_paroi_forage_C"].iloc[-1]),
+                "T paroi forage min (C)": float(group["T_paroi_forage_C"].min()),
+                "T paroi forage max (C)": float(group["T_paroi_forage_C"].max()),
+                "T evaporateur PAC min (C)": float(group["T_evaporateur_PAC_C"].min()),
+                "Q net sol (MWh)": (
+                    float(group["btes_extracted_by_pac_kwh"].sum())
+                    - float(group["solar_to_btes_kwh"].sum())
+                ) / 1000.0,
                 "Injection BTES (MWh)": float(group["solar_to_btes_kwh"].sum()) / 1000.0,
                 "Extraction PAC (MWh)": float(group["btes_extracted_by_pac_kwh"].sum()) / 1000.0,
-                "Pertes champ (MWh)": float(group["btes_loss_to_ground_kwh"].sum()) / 1000.0,
-                "Recharge naturelle (MWh)": float(group["btes_natural_recharge_kwh"].sum()) / 1000.0,
+                "q extraction max (W/m)": float(group["q_extraction_W_m"].max()),
+                "q injection max (W/m)": float(group["q_injection_W_m"].max()),
+                "q net moyen (W/m)": float(group["q_net_W_m"].mean()),
                 "COP machine": heat_pac / elec_compressor if elec_compressor > 0 else 0.0,
                 "SPF PAC complet": heat_pac / elec_total if elec_total > 0 else 0.0,
-                "Heures a Tmin": int((group["btes_temp_end_c"] <= t_min_c + 1e-6).sum()),
+                "Heures sous Tmin source": int((group["T_source_PAC_C"] <= t_min_c + 1e-6).sum()),
+                "Heures COP max": int(group["cop_limited_max"].sum()),
             }
         )
     return pd.DataFrame(rows)
@@ -74,8 +91,7 @@ def _annual_hourly_summary(results_df: pd.DataFrame) -> pd.DataFrame:
         ("Electricite totale PAC", results_df["electricity_pac_total_kwh"].sum()),
         ("Electricite totale systeme", results_df["electricity_system_total_kwh"].sum()),
         ("Appoint BT", results_df["unmet_bt_kwh"].sum()),
-        ("Pertes champ vers sol", results_df["btes_loss_to_ground_kwh"].sum()),
-        ("Recharge naturelle depuis sol", results_df["btes_natural_recharge_kwh"].sum()),
+        ("Bilan net sol extraction - injection", results_df["btes_extracted_by_pac_kwh"].sum() - results_df["solar_to_btes_kwh"].sum()),
     ]
     out = pd.DataFrame(rows, columns=["Poste", "kWh/an"])
     out["MWh/an"] = out["kWh/an"] / 1000.0
@@ -104,12 +120,17 @@ def _hourly_by_month_summary(results_df: pd.DataFrame) -> pd.DataFrame:
                 "Elec compresseur PAC (MWh)": elec_compressor / 1000.0,
                 "Elec totale PAC (MWh)": elec_total / 1000.0,
                 "Appoint BT (MWh)": group["unmet_bt_kwh"].sum() / 1000.0,
-                "Pertes champ vers sol (MWh)": group["btes_loss_to_ground_kwh"].sum() / 1000.0,
-                "Recharge naturelle sol (MWh)": group["btes_natural_recharge_kwh"].sum() / 1000.0,
+                "Bilan net sol (MWh)": (group["btes_extracted_by_pac_kwh"].sum() - group["solar_to_btes_kwh"].sum()) / 1000.0,
                 "COP machine": group["heat_bt_from_pac_kwh"].sum() / max(1e-9, elec_compressor),
                 "SPF PAC complet": group["heat_bt_from_pac_kwh"].sum() / max(1e-9, elec_total),
                 "T ballon fin (C)": group["solar_ht_buffer_temp_end_c"].iloc[-1],
-                "T champ fin (C)": group["btes_temp_end_c"].iloc[-1],
+                "T source PAC fin (C)": group["T_source_PAC_C"].iloc[-1],
+                "T source PAC min (C)": group["T_source_PAC_C"].min(),
+                "T paroi forage fin (C)": group["T_paroi_forage_C"].iloc[-1],
+                "T evaporateur PAC min (C)": group["T_evaporateur_PAC_C"].min(),
+                "q extraction max (W/m)": group["q_extraction_W_m"].max(),
+                "q injection max (W/m)": group["q_injection_W_m"].max(),
+                "q net moyen (W/m)": group["q_net_W_m"].mean(),
                 "Rendement capteur ballon moyen": group["collector_eff_ht"].mean(),
             }
         )
@@ -206,7 +227,7 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
     elif mode == "BT":
         sort_column = "Puissance besoin BT (kW)"
         components = [
-            ("GÃ©othermie PAC", "Puissance BT PAC (kW)", 1),
+            ("Geothermie PAC", "Puissance BT PAC (kW)", 1),
             ("Appoint BT", "Puissance appoint BT (kW)", 2),
         ]
     elif mode == "GLOBAL":
@@ -217,7 +238,7 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
         )
         components = [
             ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
-            ("GÃ©othermie PAC", "Puissance BT PAC (kW)", 2),
+            ("Geothermie PAC", "Puissance BT PAC (kW)", 2),
             ("Appoint gaz", "Puissance appoint total (kW)", 3),
         ]
     else:

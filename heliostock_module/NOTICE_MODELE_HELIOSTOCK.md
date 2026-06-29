@@ -623,7 +623,64 @@ Q_solaire_BTES_potentiel =
     Q_solaire_BTES_brut * fraction_restante
 ```
 
-## 14. Modèle BTES capacitif global
+## 14. Modèle BTES / champ de sondes expert pygfunction
+
+HelioStock utilise désormais un seul backend actif pour le champ de sondes : `pygfunction`.
+
+Il n'y a plus de fallback silencieux vers un modèle capacitif. Si `pygfunction` n'est pas installé, l'application échoue
+explicitement avec le message d'installation.
+
+Convention de signe et d'unité :
+
+```text
+extraction PAC depuis le sol : positive
+injection solaire dans le sol : négative
+q_net_W_m = q_extraction_W_m - q_injection_W_m
+q_W_m = Q_kWh * 1000 / longueur_totale_sondes_m
+```
+
+La chaleur envoyée au champ n'est pas la chaleur utile BT livrée au process. Pour la PAC :
+
+```text
+Q_BT_livree = chaleur utile process BT
+Electricite_compresseur = Q_BT_livree / COP
+Q_sol_extrait = Q_BT_livree - Electricite_compresseur
+```
+
+Le COP dépend de la température fluide source PAC :
+
+```text
+COP = eta_carnot * T_cond,K / (T_cond,K - T_evap,K)
+T_cond_C = T_cible_BT + approche_condenseur
+T_evap_C = T_source_PAC - approche_evaporateur
+T_source_PAC ~= T_paroi_forage - q_extraction_W_m * Rb_eff
+```
+
+Cette correction `q * Rb_eff` est une approximation V1. Elle distingue la température de paroi forage calculée par
+`pygfunction` et la température fluide source utilisée pour la PAC. Elle ne doit pas être appliquée deux fois si un
+modèle hydraulique détaillé de sonde est ajouté plus tard.
+
+Le modèle principal ne calcule plus :
+
+- énergie stockée globale du sol ;
+- capacité restante du champ ;
+- relaxation artificielle vers `Tsol initial` ;
+- pertes/recharge naturelle capacitives ;
+- limitation PAC par une énergie disponible globale.
+
+Les limitations actives sont :
+
+- puissance PAC installée ;
+- puissance linéique maximale d'extraction/injection ;
+- température source minimale PAC ;
+- température maximale d'injection/champ ;
+- bornes COP min/max.
+
+Limites restantes : ce n'est pas encore un dimensionnement réglementaire. La géométrie automatique est approximative et
+doit être remplacée par une géométrie réelle en étude détaillée. Les résultats doivent être vérifiés par un BET
+géothermie ou un outil spécialisé avant engagement.
+
+### 14.1 Ancien modèle capacitif global, conservé comme historique non actif
 
 Fichier concerné : `heliostock/engine.py`, dataclass `BtesConfig`.
 
@@ -734,7 +791,7 @@ T_champ_apres_charge = T_sol_initial + E_BTES / C_sol
 
 ## 16. COP de la PAC géothermique
 
-Fichier concerné : `heliostock/engine.py`, fonction `cop_from_btes_temperature(...)`.
+Fichier concerné : `heliostock/engine.py`, fonction `cop_from_source_temperature(...)`.
 
 La PAC couvre le besoin basse température `air extérieur -> 25 °C`.
 
@@ -993,8 +1050,11 @@ Principales correspondances :
 | Injection BTES | `solar_to_btes_kwh` |
 | T ballon max | max de `solar_ht_buffer_temp_end_c` |
 | T ballon fin | dernière valeur de `solar_ht_buffer_temp_end_c` |
-| T champ BTES fin | dernière valeur de `btes_temp_end_c` |
-| COP PAC moyen | somme `heat_bt_from_pac_kwh` / somme `electricity_pac_kwh` |
+| Température source PAC | `T_source_PAC_C` |
+| Température paroi forage | `T_paroi_forage_C` |
+| Température évaporateur PAC | `T_evaporateur_PAC_C` |
+| Puissance linéique nette champ | `q_net_W_m` |
+| COP PAC moyen | somme `heat_bt_from_pac_kwh` / somme `electricity_compressor_kwh` |
 | Monotone synchronisée | les heures sont triées selon une référence choisie, puis toutes les courbes sont affichées dans ce même ordre |
 | Mix HT monotone | heures triées par `demand_ht_kwh`, aire empilée solaire thermique + appoint HT |
 | Mix BT monotone | heures triées par `demand_bt_kwh`, aire empilée PAC géothermie + appoint BT |
@@ -1091,7 +1151,7 @@ COP_reference = COP_sans_solaire
 Q_BT_reference = Q_BT_PAC_sans_solaire
 ```
 
-Ensuite le modèle relance le cas avec solaire en réduisant progressivement le `volume_factor` du BTES.
+Ensuite le modèle relance le cas avec solaire en réduisant progressivement le nombre de sondes.
 
 Le critère de validation est :
 
@@ -1102,16 +1162,19 @@ Q_BT_PAC_avec_solaire_reduit >= Q_BT_reference
 
 La recherche se fait par dichotomie.
 
-Comme le modèle BTES actuel est capacitif, cette réduction de `volume_factor` est traduite en longueur équivalente :
+La recherche modifie la géométrie simulée par `pygfunction` en diminuant le nombre de sondes, puis traduit le résultat
+en longueur équivalente :
 
 ```text
 L_reference = nombre_sondes * profondeur
-L_equivalente = L_reference * scale
+L_equivalente = nombre_sondes_reduit * profondeur
 L_economisee = L_reference - L_equivalente
 taux_economie = L_economisee / L_reference
 ```
 
-Interprétation importante : ce n'est pas encore un dimensionnement réel de champ de sondes. C'est un indicateur capacitif de potentiel d'économie de linéaire, utile pour comparer des variantes avant passage à un modèle type `pygfunction` ou `GHEtool`.
+Interprétation importante : ce n'est pas encore un dimensionnement réglementaire de champ de sondes. C'est un
+indicateur de potentiel d'économie de linéaire fondé sur le même moteur `pygfunction`, utile pour comparer des variantes
+avant étude détaillée.
 
 ### 22.6 Taux EnR global du projet
 

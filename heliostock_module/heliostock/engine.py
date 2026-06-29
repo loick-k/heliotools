@@ -3,9 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-KWH_PER_J = 1.0 / 3.6e6
-
-
 @dataclass(frozen=True)
 class MonthlyDemand:
     """Monthly process heat demands, already calculated upstream.
@@ -48,19 +45,11 @@ class CollectorConfig:
 
 @dataclass(frozen=True)
 class BtesConfig:
-    """Simplified equivalent-volume BTES model.
-
-    The model represents the borefield as an equivalent ground volume:
-    volume = boreholes * spacing^2 * depth * volume_factor
-
-    The stock energy is expressed relative to undisturbed ground temperature.
-    It can be negative down to t_min_c, representing a cooled borefield.
-    """
+    """Expert borefield assumptions for the pygfunction backend."""
 
     boreholes: int = 100
     depth_m: float = 100.0
     spacing_m: float = 5.0
-    volume_factor: float = 1.0
     volumetric_heat_capacity_j_m3_k: float = 2.4e6
     t_initial_c: float = 12.0
     t_min_c: float = 5.0
@@ -73,29 +62,8 @@ class BtesConfig:
     borehole_radius_m: float = 0.075
     borehole_buried_depth_m: float = 4.0
     borehole_thermal_resistance_m_k_w: float = 0.10
-
-    @property
-    def equivalent_volume_m3(self) -> float:
-        return max(
-            1.0,
-            self.boreholes
-            * self.depth_m
-            * self.spacing_m
-            * self.spacing_m
-            * self.volume_factor,
-        )
-
-    @property
-    def heat_capacity_kwh_k(self) -> float:
-        return self.equivalent_volume_m3 * self.volumetric_heat_capacity_j_m3_k * KWH_PER_J
-
-    @property
-    def max_energy_kwh(self) -> float:
-        return self.heat_capacity_kwh_k * (self.t_max_c - self.t_initial_c)
-
-    @property
-    def min_energy_kwh(self) -> float:
-        return self.heat_capacity_kwh_k * (self.t_min_c - self.t_initial_c)
+    max_extraction_w_m: float = 60.0
+    max_injection_w_m: float = 60.0
 
 
 @dataclass(frozen=True)
@@ -103,9 +71,9 @@ class HeatPumpConfig:
     """Heat pump COP law based on degraded Carnot COP."""
 
     air_target_bt_c: float = 25.0
-    condenser_approach_k: float = 7.0
+    condenser_approach_k: float = 2.0
     evaporator_approach_k: float = 3.0
-    carnot_efficiency: float = 0.45
+    carnot_efficiency: float = 0.54
     cop_min: float = 2.0
     cop_max: float = 8.0
     max_thermal_power_kw: float | None = None
@@ -144,16 +112,16 @@ def collector_efficiency(
     return max(0.0, min(eta, eta0))
 
 
-def cop_from_btes_temperature(t_btes_c: float, hp: HeatPumpConfig) -> float:
+def cop_from_source_temperature(t_source_pac_c: float, hp: HeatPumpConfig) -> float:
     """COP law for the low-temperature air preheating process.
 
     COP = eta_PAC * T_cond,K / (T_cond,K - T_evap,K)
     with T_cond ~= T_target_BT + condenser approach and
-    T_evap ~= T_btes - evaporator approach.
+    T_evap ~= T_source_PAC - evaporator approach.
     """
 
     t_cond_k = hp.air_target_bt_c + hp.condenser_approach_k + 273.15
-    t_evap_k = t_btes_c - hp.evaporator_approach_k + 273.15
+    t_evap_k = t_source_pac_c - hp.evaporator_approach_k + 273.15
     if t_evap_k <= 0:
         return hp.cop_min
     if t_evap_k >= t_cond_k:
@@ -161,14 +129,6 @@ def cop_from_btes_temperature(t_btes_c: float, hp: HeatPumpConfig) -> float:
     cop_carnot = t_cond_k / max(1e-6, t_cond_k - t_evap_k)
     cop = hp.carnot_efficiency * cop_carnot
     return max(hp.cop_min, min(hp.cop_max, cop))
-
-
-def btes_temperature_from_energy(energy_kwh: float, btes: BtesConfig) -> float:
-    return btes.t_initial_c + energy_kwh / max(1e-9, btes.heat_capacity_kwh_k)
-
-
-def clamp_btes_energy(energy_kwh: float, btes: BtesConfig) -> float:
-    return max(btes.min_energy_kwh, min(btes.max_energy_kwh, energy_kwh))
 
 
 def default_industrial_demands_1gwh() -> list[MonthlyDemand]:
