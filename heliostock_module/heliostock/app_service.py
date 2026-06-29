@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -57,6 +58,7 @@ class HourlyCalculationResult:
     pac_power_fraction_pct: float
     btes_backend: str
     warnings: tuple[str, ...]
+    performance_log_df: pd.DataFrame
 
 
 def _range_points(param_range: ParametricRange, label: str) -> tuple[list[float], list[str]]:
@@ -87,7 +89,32 @@ def run_hourly_calculation(
 ) -> HourlyCalculationResult:
     """Run the HelioStock calculation layer independently from Streamlit rendering."""
 
+    started_at = time.perf_counter()
+    last_at = started_at
+    performance_events: list[dict[str, float | int | str]] = []
+
+    def mark(tag: str, message: str, progress_value: int | None = None) -> None:
+        nonlocal last_at
+        now = time.perf_counter()
+        performance_events.append(
+            {
+                "Etape": tag,
+                "Message": message,
+                "Progression (%)": progress_value if progress_value is not None else "",
+                "Duree depuis etape precedente (s)": now - last_at,
+                "Duree cumulee (s)": now - started_at,
+            }
+        )
+        last_at = now
+
+    def progress_with_log(value: int, text: str) -> None:
+        mark("progress", text, value)
+        if progress is not None:
+            progress(value, text)
+
+    mark("start", "Demarrage du calcul HelioStock")
     warnings: list[str] = []
+    mark("inputs:start", "Calcul Pmax BT et construction des configurations")
     peak_bt_power_kw = _peak_bt_power_kw(
         request.weather,
         request.demands,
@@ -115,19 +142,24 @@ def run_hourly_calculation(
 
     config = scenario_inputs.to_simulation_config()
     economics = scenario_inputs.to_economics_config()
+    mark("inputs:end", "Configurations physique et economique pretes")
+    mark("scenario:start", "Scenario principal : annuel, multiannuel, economie")
     scenario = run_hourly_scenario(
         weather=request.weather,
         demands=request.demands,
         config=config,
         economics=economics,
         hourly_demand_override=request.hourly_demand_override,
-        progress=progress,
+        progress=progress_with_log,
     )
+    mark("scenario:end", "Scenario principal termine")
 
     parametric_pac_df = pd.DataFrame()
+    mark("param_pac:prepare", "Preparation de l'etude parametrique PAC")
     pac_fractions_pct, pac_warnings = _range_points(request.pac_parametric, "Etude PAC")
     warnings.extend(pac_warnings)
     if pac_fractions_pct:
+        mark("param_pac:start", f"Etude parametrique PAC : {len(pac_fractions_pct)} points")
         parametric_pac_df = pac_power_parametric_study(
             pac_power_fractions_pct=pac_fractions_pct,
             weather=request.weather,
@@ -152,13 +184,18 @@ def run_hourly_calculation(
             maintenance_cost_eur_m2_year=request.economics.maintenance_cost_eur_m2_year,
             ademe_eur_mwh_year=request.economics.ademe_eur_mwh_year,
             other_public_aid_eur=request.economics.other_public_aid_eur,
-            progress=progress,
+            progress=progress_with_log,
         )
+        mark("param_pac:end", "Etude parametrique PAC terminee")
+    else:
+        mark("param_pac:skip", "Etude parametrique PAC inactive")
 
     parametric_surface_df = pd.DataFrame()
+    mark("param_solar:prepare", "Preparation de l'etude parametrique solaire")
     surfaces_m2, surface_warnings = _range_points(request.solar_parametric, "Etude parametrique solaire")
     warnings.extend(surface_warnings)
     if surfaces_m2:
+        mark("param_solar:start", f"Etude parametrique solaire : {len(surfaces_m2)} points")
         parametric_surface_df = solar_surface_parametric_study(
             surfaces_m2=surfaces_m2,
             weather=request.weather,
@@ -181,8 +218,13 @@ def run_hourly_calculation(
             maintenance_cost_eur_m2_year=request.economics.maintenance_cost_eur_m2_year,
             ademe_eur_mwh_year=request.economics.ademe_eur_mwh_year,
             other_public_aid_eur=request.economics.other_public_aid_eur,
-            progress=progress,
+            progress=progress_with_log,
         )
+        mark("param_solar:end", "Etude parametrique solaire terminee")
+    else:
+        mark("param_solar:skip", "Etude parametrique solaire inactive")
+
+    mark("end", "Calcul HelioStock termine")
 
     return HourlyCalculationResult(
         scenario=scenario,
@@ -193,4 +235,5 @@ def run_hourly_calculation(
         pac_power_fraction_pct=float(request.pac_power_fraction_pct),
         btes_backend=config.btes.backend,
         warnings=tuple(warnings),
+        performance_log_df=pd.DataFrame(performance_events),
     )

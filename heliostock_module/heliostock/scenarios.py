@@ -604,7 +604,7 @@ def run_hourly_scenario(
     hourly_by_month_df = _hourly_by_month_summary(hourly_df)
 
     multiyear_years = max(1, int(economics.analysis_years))
-    _notify(progress, 55, f"Projection physique multiannuelle ({multiyear_years} ans)...")
+    _notify(progress, 55, f"Projection multiannuelle avec solaire ({multiyear_years} ans)...")
     multiyear_df = _hourly_results_to_dataframe(
         simulate_hourly(
             weather,
@@ -615,6 +615,7 @@ def run_hourly_scenario(
         )
     )
     multiyear_btes_df = _multiyear_btes_summary(multiyear_df, t_min_c=config.btes.t_min_c)
+    _notify(progress, 62, f"Projection multiannuelle sans solaire ({multiyear_years} ans)...")
     no_solar_multiyear_df = _hourly_results_to_dataframe(
         simulate_hourly(
             weather,
@@ -699,6 +700,7 @@ def run_hourly_scenario(
     reference_heat_mwh = same_metrics["total_need_mwh"]
 
     if bool(savings["found"]):
+        _notify(progress, 88, "Simulation multiannuelle avec sondes reduites...")
         reduced_btes = replace(config.btes, volume_factor=config.btes.volume_factor * float(savings["scale"]))
         reduced_config = replace(config, btes=reduced_btes)
         reduced_hourly_df = _hourly_results_to_dataframe(
@@ -714,6 +716,7 @@ def run_hourly_scenario(
         reduced_hourly_df = multiyear_df.copy()
     reduced_metrics = _hourly_metrics(reduced_hourly_df, annualization_years=multiyear_years)
 
+    _notify(progress, 90, "Construction des couts par scenario...")
     geo_only_heat_costs = _scenario_heat_costs(
         metrics=geo_only_metrics,
         economics=economics,
@@ -775,6 +778,7 @@ def run_hourly_scenario(
     if not bool(savings["found"]):
         recharge_value["status"] = "non determine"
 
+    _notify(progress, 95, "Construction des tableaux economiques...")
     economic_comparison_df = pd.DataFrame(
         [
             _comparison_row(

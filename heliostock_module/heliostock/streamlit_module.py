@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import time
+
 import pandas as pd
 import streamlit as st
 
@@ -91,12 +93,14 @@ def render_heliostock_hourly() -> pd.DataFrame:
             "pac_nominal_power_kw": calculation.pac_nominal_power_kw,
             "pac_power_fraction_pct": calculation.pac_power_fraction_pct,
             "btes_backend": calculation.btes_backend,
+            "performance_log_df": calculation.performance_log_df,
         }
     else:
         st.info("Affichage du dernier calcul. Modifie les paramètres puis clique sur **Lancer le calcul** pour recalculer.")
 
     last_result = st.session_state["heliostock_last_result"]
     scenario = last_result["scenario"]
+    render_started_at = time.perf_counter()
     hourly_df = render_hourly_results(
         scenario=scenario,
         parametric_pac_df=last_result["parametric_pac_df"],
@@ -108,6 +112,35 @@ def render_heliostock_hourly() -> pd.DataFrame:
         probe_power_ratio_w_m=geothermal_form.probe_power_ratio_w_m,
         hourly_profile_df=demand_form.hourly_profile_df,
     )
+    render_elapsed = time.perf_counter() - render_started_at
+    performance_log_df = last_result.get("performance_log_df", pd.DataFrame()).copy()
+    if not performance_log_df.empty:
+        previous_total = float(performance_log_df["Duree cumulee (s)"].iloc[-1])
+        performance_log_df = pd.concat(
+            [
+                performance_log_df,
+                pd.DataFrame(
+                    [
+                        {
+                            "Etape": "render:results",
+                            "Message": "Affichage Streamlit des resultats et graphiques",
+                            "Progression (%)": "",
+                            "Duree depuis etape precedente (s)": render_elapsed,
+                            "Duree cumulee (s)": previous_total + render_elapsed,
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        )
+    with st.expander("Journal performance du dernier calcul", expanded=False):
+        if performance_log_df.empty:
+            st.info("Aucun journal de performance disponible.")
+        else:
+            display_log = performance_log_df.copy()
+            for column in ["Duree depuis etape precedente (s)", "Duree cumulee (s)"]:
+                display_log[column] = display_log[column].astype(float).round(2)
+            st.dataframe(display_log, width="stretch", hide_index=True)
     return hourly_df
 
 
