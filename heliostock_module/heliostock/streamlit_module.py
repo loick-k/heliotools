@@ -1,0 +1,104 @@
+﻿from __future__ import annotations
+
+import pandas as pd
+import streamlit as st
+
+from .app_service import HourlyCalculationRequest, run_hourly_calculation
+from .ui_forms import (
+    render_demand_form,
+    render_economics_form,
+    render_geothermal_form,
+    render_parametric_forms,
+    render_solar_form,
+    render_weather_form,
+)
+from .ui_results import render_hourly_results
+
+
+def render_heliostock_hourly() -> pd.DataFrame:
+    """Render the hourly-only HelioStock module."""
+
+    st.header("HelioStock horaire")
+    st.caption(
+        "Resolution 8760 h EPW : capteurs -> ballon solaire journalier -> prechauffage HT, "
+        "surplus vers BTES, PAC geothermique pour le process BT."
+    )
+    st.info(
+        "Les kWh/mois servent uniquement de format de saisie fallback des besoins. "
+        "La resolution physique est toujours faite heure par heure sur les donnees EPW."
+    )
+
+    weather_form = render_weather_form()
+    demand_form = render_demand_form(weather_form.hourly_weather)
+    if not demand_form.valid:
+        return pd.DataFrame()
+
+    solar_form = render_solar_form()
+    geothermal_form = render_geothermal_form(
+        hourly_weather=weather_form.hourly_weather,
+        demands=demand_form.demands,
+        hourly_demand_override=demand_form.hourly_demand_override,
+    )
+    economics_inputs = render_economics_form()
+    parametric_forms = render_parametric_forms(solar_form.inputs.area_m2)
+
+    if not weather_form.hourly_weather:
+        return pd.DataFrame()
+
+    run_clicked = st.button("Lancer le calcul", type="primary", width="stretch")
+    if not run_clicked and "heliostock_last_result" not in st.session_state:
+        st.info("Paramètres prêts. Clique sur **Lancer le calcul** pour exécuter la simulation horaire.")
+        return pd.DataFrame()
+
+    if run_clicked:
+        progress = st.progress(0, text="Préparation des hypothèses de calcul...")
+        calculation = run_hourly_calculation(
+            HourlyCalculationRequest(
+                weather=weather_form.hourly_weather,
+                demands=demand_form.demands,
+                hourly_demand_override=demand_form.hourly_demand_override,
+                solar=solar_form.inputs,
+                btes=geothermal_form.btes,
+                heat_pump=geothermal_form.heat_pump,
+                economics=economics_inputs,
+                pac_power_fraction_pct=geothermal_form.pac_power_fraction_pct,
+                use_probe_predesign=geothermal_form.use_probe_predesign,
+                probe_power_ratio_w_m=geothermal_form.probe_power_ratio_w_m,
+                probe_energy_ratio_kwh_m=geothermal_form.probe_energy_ratio_kwh_m,
+                probe_unit_depth_m=geothermal_form.probe_unit_depth_m,
+                pac_parametric=parametric_forms.pac,
+                solar_parametric=parametric_forms.solar,
+            ),
+            progress=lambda value, text: progress.progress(value, text=text),
+        )
+        for warning in calculation.warnings:
+            st.warning(warning)
+        progress.progress(100, text="Calcul terminé.")
+        st.session_state["heliostock_last_result"] = {
+            "scenario": calculation.scenario,
+            "parametric_pac_df": calculation.parametric_pac_df,
+            "parametric_surface_df": calculation.parametric_surface_df,
+            "peak_bt_power_kw": calculation.peak_bt_power_kw,
+            "pac_nominal_power_kw": calculation.pac_nominal_power_kw,
+            "pac_power_fraction_pct": calculation.pac_power_fraction_pct,
+            "btes_backend": calculation.btes_backend,
+        }
+    else:
+        st.info("Affichage du dernier calcul. Modifie les paramètres puis clique sur **Lancer le calcul** pour recalculer.")
+
+    last_result = st.session_state["heliostock_last_result"]
+    scenario = last_result["scenario"]
+    hourly_df = render_hourly_results(
+        scenario=scenario,
+        parametric_pac_df=last_result["parametric_pac_df"],
+        parametric_surface_df=last_result["parametric_surface_df"],
+        peak_bt_power_kw=float(last_result["peak_bt_power_kw"]),
+        pac_nominal_power_kw=float(last_result["pac_nominal_power_kw"]),
+        pac_power_fraction_pct=float(last_result["pac_power_fraction_pct"]),
+        btes_backend_used=str(last_result.get("btes_backend", scenario.config.btes.backend)),
+        probe_power_ratio_w_m=geothermal_form.probe_power_ratio_w_m,
+        hourly_profile_df=demand_form.hourly_profile_df,
+    )
+    return hourly_df
+
+

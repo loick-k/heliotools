@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Streamlit local secrets
+.streamlit/secrets.toml
+
+# Local archives and exports
+*.zip
+!heliostock_module/data/*.zip
+*_export_*.zip
+*_backup_*/
+*backup*/
+
+# Codex/local workspace metadata
+.agents/
+.codex/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
