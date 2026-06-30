@@ -4,6 +4,7 @@ import tempfile
 
 import pandas as pd
 
+import heliostock.borefield_savings as borefield_savings_module
 import heliostock.scenarios as scenarios_module
 from heliostock.engine import (
     BtesConfig,
@@ -656,6 +657,177 @@ def test_solar_recharge_p2_is_counted_globally_as_geothermal_p2():
     assert float(multiyear["p2_annual_eur"]) == 3_000.0
 
 
+def test_multiyear_pac_electricity_cost_uses_economics_value():
+    trajectory = pd.DataFrame(
+        [
+            {
+                "Annee": 1,
+                "Solaire HT (MWh)": 0.0,
+                "Chaleur PAC BT (MWh)": 40.0,
+                "Appoint gaz total (MWh)": 0.0,
+                "Electricite PAC (MWh)": 10.0,
+                "E utile totale (MWh)": 40.0,
+            },
+            {
+                "Annee": 2,
+                "Solaire HT (MWh)": 0.0,
+                "Chaleur PAC BT (MWh)": 40.0,
+                "Appoint gaz total (MWh)": 0.0,
+                "Electricite PAC (MWh)": 10.0,
+                "E utile totale (MWh)": 40.0,
+            },
+        ]
+    )
+    costs = _multiyear_heat_cost(
+        trajectory_df=trajectory,
+        heat_costs={"p1_p2_p4": pd.DataFrame(), "capex_summary": pd.DataFrame()},
+        economics=ScenarioEconomicsConfig(
+            reference_energy_cost_eur_mwh=999.0,
+            reference_energy_inflation_pct=0.0,
+            eta_appoint_eco=1.0,
+            analysis_years=2,
+            auxiliary_electricity_ratio_pct=0.0,
+            electricity_cost_eur_mwh=123.0,
+            maintenance_cost_eur_m2_year=0.0,
+            ademe_eur_mwh_year=0.0,
+            other_public_aid_eur=0.0,
+            backup_p2_eur_kw_year=0.0,
+        ),
+        capex_net_eur=0.0,
+    )
+
+    assert float(costs["p1_cumulative_eur"]) == 20.0 * 123.0
+    assert float(costs["multiyear_heat_cost_eur_mwh"]) == (20.0 * 123.0) / 80.0
+
+
+def test_solar_recharge_p2_does_not_penalize_solar_ht_cost():
+    base_solar_economics = {
+        "p1_eur_mwh": 0.0,
+        "p2_eur_mwh": 0.0,
+        "p4_eur_mwh": 0.0,
+        "p2_annual_eur": 3_000.0,
+        "capex_eur": 0.0,
+        "ademe_aid_eur": 0.0,
+        "aid_total_eur": 0.0,
+        "net_capex_eur": 0.0,
+    }
+    no_recharge = compute_heat_costs(
+        solar_economics={**base_solar_economics, "annual_solar_total_mwh": 100.0},
+        annual_solar_mwh=100.0,
+        annual_pac_heat_mwh=200.0,
+        annual_pac_electricity_mwh=0.0,
+        pac_power_kw=0.0,
+        borefield_length_m=0.0,
+        full_borefield_length_m=0.0,
+        annual_backup_heat_mwh=0.0,
+        backup_power_kw=0.0,
+        reference_heat_mwh=300.0,
+        reference_power_kw=0.0,
+        analysis_years=20,
+        gas_reference_p1_eur_mwh_pci=70.0,
+        gas_reference_efficiency=1.0,
+        gas_reference_inflation_rate=0.0,
+        geothermal_p1_eur_mwh=200.0,
+    )
+    with_recharge = compute_heat_costs(
+        solar_economics={**base_solar_economics, "annual_solar_total_mwh": 300.0},
+        annual_solar_mwh=100.0,
+        annual_pac_heat_mwh=200.0,
+        annual_pac_electricity_mwh=0.0,
+        pac_power_kw=0.0,
+        borefield_length_m=0.0,
+        full_borefield_length_m=0.0,
+        annual_backup_heat_mwh=0.0,
+        backup_power_kw=0.0,
+        reference_heat_mwh=300.0,
+        reference_power_kw=0.0,
+        analysis_years=20,
+        gas_reference_p1_eur_mwh_pci=70.0,
+        gas_reference_efficiency=1.0,
+        gas_reference_inflation_rate=0.0,
+        geothermal_p1_eur_mwh=200.0,
+    )
+
+    assert float(no_recharge["solar_p2_ht_annual_eur"]) == 3_000.0
+    assert float(no_recharge["solar_p2_recharge_annual_eur"]) == 0.0
+    assert float(with_recharge["solar_p2_ht_annual_eur"]) == 1_000.0
+    assert float(with_recharge["solar_p2_recharge_annual_eur"]) == 2_000.0
+    assert float(with_recharge["geo_p2_with_recharge_annual_eur"]) == 2_000.0
+
+
+def test_four_economic_scenarios_have_simple_expected_multiyear_costs():
+    economics = ScenarioEconomicsConfig(
+        reference_energy_cost_eur_mwh=90.0,
+        reference_energy_inflation_pct=0.0,
+        eta_appoint_eco=1.0,
+        analysis_years=2,
+        auxiliary_electricity_ratio_pct=0.0,
+        electricity_cost_eur_mwh=100.0,
+        maintenance_cost_eur_m2_year=0.0,
+        ademe_eur_mwh_year=0.0,
+        other_public_aid_eur=0.0,
+        backup_p2_eur_kw_year=0.0,
+    )
+    heat_costs = {"p1_p2_p4": pd.DataFrame(), "capex_summary": pd.DataFrame()}
+
+    def trajectory(*, solar: float, pac_heat: float, pac_electricity: float, backup: float) -> pd.DataFrame:
+        useful = solar + pac_heat + backup
+        return pd.DataFrame(
+            [
+                {
+                    "Annee": year,
+                    "Solaire HT (MWh)": solar,
+                    "Chaleur PAC BT (MWh)": pac_heat,
+                    "Appoint gaz total (MWh)": backup,
+                    "Electricite PAC (MWh)": pac_electricity,
+                    "E utile totale (MWh)": useful,
+                }
+                for year in [1, 2]
+            ]
+        )
+
+    costs_by_scenario = {
+        "Reference 100 % gaz": _multiyear_heat_cost(
+            trajectory_df=trajectory(solar=0.0, pac_heat=0.0, pac_electricity=0.0, backup=100.0),
+            heat_costs=heat_costs,
+            economics=economics,
+            capex_net_eur=0.0,
+            reference=True,
+        ),
+        "Geothermie seule": _multiyear_heat_cost(
+            trajectory_df=trajectory(solar=0.0, pac_heat=80.0, pac_electricity=20.0, backup=20.0),
+            heat_costs=heat_costs,
+            economics=economics,
+            capex_net_eur=0.0,
+        ),
+        "Geothermie + solaire meme sondes": _multiyear_heat_cost(
+            trajectory_df=trajectory(solar=20.0, pac_heat=60.0, pac_electricity=15.0, backup=20.0),
+            heat_costs=heat_costs,
+            economics=economics,
+            capex_net_eur=0.0,
+        ),
+        "Geothermie + solaire sondes reduites": _multiyear_heat_cost(
+            trajectory_df=trajectory(solar=20.0, pac_heat=60.0, pac_electricity=14.0, backup=20.0),
+            heat_costs=heat_costs,
+            economics=economics,
+            capex_net_eur=0.0,
+        ),
+    }
+
+    assert set(costs_by_scenario) == {
+        "Reference 100 % gaz",
+        "Geothermie seule",
+        "Geothermie + solaire meme sondes",
+        "Geothermie + solaire sondes reduites",
+    }
+    assert float(costs_by_scenario["Reference 100 % gaz"]["multiyear_heat_cost_eur_mwh"]) == 90.0
+    assert float(costs_by_scenario["Geothermie seule"]["multiyear_heat_cost_eur_mwh"]) == 38.0
+    assert float(costs_by_scenario["Geothermie + solaire meme sondes"]["multiyear_heat_cost_eur_mwh"]) == 33.0
+    assert float(costs_by_scenario["Geothermie + solaire sondes reduites"]["multiyear_heat_cost_eur_mwh"]) == 32.0
+    assert float(costs_by_scenario["Geothermie + solaire sondes reduites"]["pac_electricity_cumulative_mwh"]) == 28.0
+    assert float(costs_by_scenario["Geothermie + solaire meme sondes"]["backup_gas_cumulative_mwh"]) == 40.0
+
+
 def test_postprocess_exports_year_metadata_and_signed_injection():
     df = _hourly_results_to_dataframe(
         [
@@ -1256,6 +1428,75 @@ def test_borefield_savings_annualizes_multiyear_candidate_heat():
 
     assert bool(savings["found"])
     assert abs(float(savings["equivalent_bt_pac_kwh"]) - 80.0) <= 1e-6
+
+
+def test_borefield_savings_fast_reuses_full_case_and_limits_simulations(monkeypatch):
+    weather = [
+        HourlyWeather(hour_index=hour, month=1, day=1, hour=hour + 1, tair_c=8.0, g_tilt_kwh_m2=0.0)
+        for hour in range(2)
+    ]
+    config = SimulationConfig(
+        collector=CollectorConfig(area_m2=500.0),
+        btes=BtesConfig(boreholes=10, depth_m=100.0, spacing_m=8.0, max_extraction_w_m=40.0, max_injection_w_m=40.0),
+        heat_pump=HeatPumpConfig(max_thermal_power_kw=80.0),
+    )
+    full_results = []
+    for year in [1, 2]:
+        for item in weather:
+            full_results.append(
+                _fake_hourly_result(
+                    simulation_year=year,
+                    hour_index=item.hour_index,
+                    demand_bt_kwh=100.0,
+                    heat_bt_from_pac_kwh=100.0,
+                    btes_extracted_by_pac_kwh=75.0,
+                    solar_to_btes_kwh=25.0,
+                    electricity_compressor_kwh=25.0,
+                    q_extraction_w_m=30.0,
+                    q_injection_w_m=10.0,
+                )
+            )
+    full_case_df = _hourly_results_to_dataframe(full_results)
+    calls = []
+
+    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+        calls.append(int(config.btes.boreholes))
+        results = []
+        for year in range(1, int(simulation_years) + 1):
+            for item in weather:
+                results.append(
+                    _fake_hourly_result(
+                        simulation_year=year,
+                        hour_index=item.hour_index,
+                        demand_bt_kwh=100.0,
+                        heat_bt_from_pac_kwh=100.0,
+                        btes_extracted_by_pac_kwh=75.0,
+                        solar_to_btes_kwh=25.0,
+                        electricity_compressor_kwh=25.0,
+                        q_extraction_w_m=30.0,
+                        q_injection_w_m=10.0,
+                    )
+                )
+        return results
+
+    monkeypatch.setattr(borefield_savings_module, "simulate_hourly", fake_simulate_hourly)
+    savings = borefield_savings_module.borefield_equivalent_savings(
+        weather=weather,
+        demands=[MonthlyDemand(month=1, process_ht_kwh=0.0, process_bt_kwh=200.0)],
+        config=config,
+        reference_final_cop=4.0,
+        reference_final_bt_pac_kwh=200.0,
+        reference_final_bt_coverage=1.0,
+        reference_final_source_limited_hours=0.0,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=0.0, bt_kwh=100.0),
+        simulation_years=2,
+        search_mode="fast",
+        full_case_df=full_case_df,
+    )
+
+    assert calls
+    assert 10 not in calls
+    assert int(savings["savings_simulations_count"]) <= 3
 
 
 def test_reduced_borefield_has_no_p2_savings_per_meter():

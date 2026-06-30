@@ -415,16 +415,35 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             disabled=display_year_mode != "personnalisee",
         )
         run_geo_only = st.checkbox("Scenario geothermie seule", value=True)
-        run_reduced_borefield = st.checkbox(
-            "Optimisation sondes reduites avec recharge solaire (calcul lourd)",
-            value=False,
+        savings_method_label = st.selectbox(
+            "Méthode économie de sondes",
+            options=["désactivée", "rapide prédimensionnement", "experte détaillée"],
+            index=1,
             disabled=not run_geo_only,
+        )
+        savings_mode_map = {
+            "désactivée": "none",
+            "rapide prédimensionnement": "fast",
+            "experte détaillée": "expert",
+        }
+        savings_search_mode = savings_mode_map[str(savings_method_label)]
+        run_reduced_borefield = savings_search_mode != "none" and bool(run_geo_only)
+        recharge_credit = st.number_input("Crédit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
+        reduced_borefield_safety_factor = st.number_input(
+            "Marge sécurité sondes réduites",
+            min_value=1.0,
+            max_value=2.0,
+            value=1.10,
+            step=0.05,
         )
         if not run_geo_only and run_reduced_borefield:
             run_reduced_borefield = False
+            savings_search_mode = "none"
         st.caption(
             "En projection multiannuelle, l'annee 1 et l'annee finale sont extraites de la meme simulation. "
-            "L'optimisation sondes reduites relance plusieurs simulations longues : activez-la seulement pour une passe finale."
+            "Le mode rapide estime d'abord le gain de sondes a partir du ratio energie injectee / energie extraite, "
+            "puis verifie avec quelques simulations pygfunction. Il est adapte au predimensionnement. "
+            "Le mode expert est un calcul lourd."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(
@@ -434,6 +453,9 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             custom_display_year=int(custom_display_year),
             run_geo_only=bool(run_geo_only),
             run_reduced_borefield=bool(run_reduced_borefield),
+            savings_search_mode=str(savings_search_mode),
+            recharge_credit=float(recharge_credit),
+            reduced_borefield_safety_factor=float(reduced_borefield_safety_factor),
         )
     )
 

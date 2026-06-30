@@ -38,6 +38,9 @@ class CalculationSelection:
     custom_display_year: int = 25
     run_geo_only: bool = True
     run_reduced_borefield: bool = False
+    savings_search_mode: str = "fast"
+    recharge_credit: float = 0.6
+    reduced_borefield_safety_factor: float = 1.10
 
 
 @dataclass(frozen=True)
@@ -165,9 +168,10 @@ def run_hourly_calculation(
         technical_simulation_years=request.calculation_selection.technical_simulation_years,
         display_year_mode=request.calculation_selection.display_year_mode,
         custom_display_year=request.calculation_selection.custom_display_year,
-        run_geo_only=request.calculation_selection.run_geo_only,
-        run_reduced_borefield=request.calculation_selection.run_reduced_borefield,
-        progress=progress_with_log,
+            run_geo_only=request.calculation_selection.run_geo_only,
+            run_reduced_borefield=request.calculation_selection.run_reduced_borefield,
+            savings_search_mode=request.calculation_selection.savings_search_mode,
+            progress=progress_with_log,
     )
     mark("scenario:end", "Scenario principal termine")
 
@@ -242,6 +246,9 @@ def run_hourly_calculation(
             maintenance_cost_eur_m2_year=request.economics.maintenance_cost_eur_m2_year,
             ademe_eur_mwh_year=request.economics.ademe_eur_mwh_year,
             other_public_aid_eur=request.economics.other_public_aid_eur,
+            savings_search_mode=request.calculation_selection.savings_search_mode,
+            recharge_credit=request.calculation_selection.recharge_credit,
+            reduced_borefield_safety_factor=request.calculation_selection.reduced_borefield_safety_factor,
             progress=progress_with_log,
         )
         mark("param_solar:end", "Etude parametrique solaire terminee")

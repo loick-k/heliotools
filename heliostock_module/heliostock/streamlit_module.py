@@ -55,6 +55,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
         return pd.DataFrame()
 
     if run_clicked:
+        st.session_state.pop("heliostock_last_result", None)
         progress = st.progress(0, text="Préparation des hypothèses de calcul...")
         try:
             calculation = run_hourly_calculation(
@@ -88,15 +89,17 @@ def render_heliostock_hourly() -> pd.DataFrame:
         for warning in calculation.warnings:
             st.warning(warning)
         progress.progress(100, text="Calcul terminé.")
+        calculation_id = str(time.time_ns())
         st.session_state["heliostock_last_result"] = {
+            "calculation_id": calculation_id,
             "scenario": calculation.scenario,
-            "parametric_pac_df": calculation.parametric_pac_df,
-            "parametric_surface_df": calculation.parametric_surface_df,
+            "parametric_pac_df": calculation.parametric_pac_df.copy(),
+            "parametric_surface_df": calculation.parametric_surface_df.copy(),
             "peak_bt_power_kw": calculation.peak_bt_power_kw,
             "pac_nominal_power_kw": calculation.pac_nominal_power_kw,
             "pac_power_fraction_pct": calculation.pac_power_fraction_pct,
             "btes_backend": calculation.btes_backend,
-            "performance_log_df": calculation.performance_log_df,
+            "performance_log_df": calculation.performance_log_df.copy(),
         }
     else:
         st.info("Affichage du dernier calcul. Modifie les paramètres puis clique sur **Lancer le calcul** pour recalculer.")
@@ -108,6 +111,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
         scenario=scenario,
         parametric_pac_df=last_result["parametric_pac_df"],
         parametric_surface_df=last_result["parametric_surface_df"],
+        calculation_id=str(last_result.get("calculation_id", "last")),
         peak_bt_power_kw=float(last_result["peak_bt_power_kw"]),
         pac_nominal_power_kw=float(last_result["pac_nominal_power_kw"]),
         pac_power_fraction_pct=float(last_result["pac_power_fraction_pct"]),

@@ -391,13 +391,21 @@ def _heat_cost_summary_chart(heat_cost_df: pd.DataFrame):
 
 
 def _parametric_surface_chart(parametric_df: pd.DataFrame):
-    chart_df = parametric_df.melt(
-        id_vars=["Surface solaire (m²)"],
-        value_vars=[
+    value_vars = [
+        column
+        for column in [
             "Coût chaleur Mix ENR (EUR/MWh)",
+            "Coût chaleur même linéaire (EUR/MWh)",
+            "Coût chaleur avec économie sondes (EUR/MWh)",
             "Taux EnR global (%)",
             "Couverture solaire HT (%)",
-        ],
+            "Simulations economie sondes",
+        ]
+        if column in parametric_df
+    ]
+    chart_df = parametric_df.melt(
+        id_vars=["Surface solaire (m²)"],
+        value_vars=value_vars,
         var_name="Indicateur",
         value_name="Valeur",
     )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import replace
 
 import pandas as pd
@@ -44,6 +45,48 @@ def _final_year_screening_metrics(
         ),
         "final_q_extraction_max_w_m": float(final_df["q_extraction_W_m"].max()) if "q_extraction_W_m" in final_df else 0.0,
         "final_q_injection_max_w_m": float(final_df["q_injection_W_m"].max()) if "q_injection_W_m" in final_df else 0.0,
+        "final_extracted_ground_kwh": float(final_df["btes_extracted_by_pac_kwh"].sum())
+        if "btes_extracted_by_pac_kwh" in final_df
+        else 0.0,
+        "final_injected_btes_kwh": float(final_df["solar_to_btes_kwh"].sum())
+        if "solar_to_btes_kwh" in final_df
+        else 0.0,
+    }
+
+
+def _mean_metrics(df: pd.DataFrame, years: int) -> tuple[float, float]:
+    return _mean_cop(df), float(df["heat_bt_from_pac_kwh"].sum()) / max(1, int(years))
+
+
+def _base_return(
+    *,
+    found: bool,
+    base_length_m: float,
+    boreholes: int,
+    equivalent_cop: float,
+    equivalent_bt_pac_kwh: float,
+    final_metrics: dict[str, float],
+    estimated_length_m: float | None,
+    simulations_count: int,
+) -> dict[str, float | bool | str]:
+    equivalent_length = max(0.0, float(boreholes) * float(final_metrics.get("depth_m", 0.0)))
+    if equivalent_length <= 0.0:
+        equivalent_length = base_length_m if not found else 0.0
+    saved_length = max(0.0, base_length_m - equivalent_length) if found else 0.0
+    return {
+        "found": bool(found),
+        "scale": equivalent_length / max(1e-9, base_length_m),
+        "reference_length_m": base_length_m,
+        "estimated_length_m": float(estimated_length_m if estimated_length_m is not None else equivalent_length),
+        "verified_length_m": equivalent_length,
+        "equivalent_length_m": equivalent_length,
+        "equivalent_boreholes": int(boreholes),
+        "saved_length_m": saved_length,
+        "saved_fraction": saved_length / max(1e-9, base_length_m),
+        "equivalent_cop": equivalent_cop,
+        "equivalent_bt_pac_kwh": equivalent_bt_pac_kwh,
+        "savings_simulations_count": int(simulations_count),
+        **{f"equivalent_{key}": value for key, value in final_metrics.items() if key != "depth_m"},
     }
 
 
@@ -59,7 +102,12 @@ def borefield_equivalent_savings(
     hourly_demand_override: dict[int, tuple[float, float]] | None = None,
     simulation_years: int = 1,
     min_scale: float = 0.05,
-    iterations: int = 16,
+    iterations: int = 8,
+    search_mode: str = "expert",
+    full_case_df: pd.DataFrame | None = None,
+    full_case_metrics: dict[str, float] | None = None,
+    recharge_credit: float = 0.6,
+    reduced_borefield_safety_factor: float = 1.10,
 ) -> dict[str, float | bool]:
     """Estimate equivalent borefield length saving with solar recharge.
 
@@ -71,11 +119,15 @@ def borefield_equivalent_savings(
     tolerance_bt = max(1.0, 0.001 * reference_final_bt_pac_kwh)
     base_length_m = max(0.0, config.btes.boreholes * config.btes.depth_m)
     years = max(1, int(simulation_years))
+    simulations_count = 0
+    mode = str(search_mode or "expert").lower()
 
     def run(scale: float) -> tuple[pd.DataFrame, float, float, int, dict[str, float]]:
+        nonlocal simulations_count
         boreholes = max(1, int(round(config.btes.boreholes * scale)))
         scaled_btes = replace(config.btes, boreholes=boreholes)
         scaled_config = replace(config, btes=scaled_btes)
+        simulations_count += 1
         df = _hourly_results_to_dataframe(
             simulate_hourly(
                 weather,
@@ -94,9 +146,46 @@ def borefield_equivalent_savings(
             gmi_t_max_c=config.btes.gmi_t_max_c,
             demand_bt_kwh=sum(max(0.0, bt) for _, bt in (hourly_demand_override or {}).values()),
         )
+        final_metrics["depth_m"] = float(config.btes.depth_m)
         return df, cop, bt_pac, boreholes, final_metrics
 
-    _, full_cop, full_bt, full_boreholes, full_final = run(1.0)
+    if mode in {"none", "off", "disabled", "desactivee", "désactivée"}:
+        empty_final = dict(full_case_metrics or {})
+        empty_final["depth_m"] = float(config.btes.depth_m)
+        return _base_return(
+            found=False,
+            base_length_m=base_length_m,
+            boreholes=config.btes.boreholes,
+            equivalent_cop=0.0,
+            equivalent_bt_pac_kwh=0.0,
+            final_metrics=empty_final,
+            estimated_length_m=base_length_m,
+            simulations_count=0,
+        )
+
+    if full_case_df is not None and not full_case_df.empty:
+        full_df = full_case_df
+        full_cop, full_bt = _mean_metrics(full_df, years)
+        full_boreholes = int(config.btes.boreholes)
+        full_final = dict(
+            full_case_metrics
+            or _final_year_screening_metrics(
+                full_df,
+                t_min_c=config.btes.t_min_c,
+                gmi_t_min_c=config.btes.gmi_t_min_c,
+                gmi_t_max_c=config.btes.gmi_t_max_c,
+                demand_bt_kwh=sum(max(0.0, bt) for _, bt in (hourly_demand_override or {}).values()),
+            )
+        )
+        full_final["depth_m"] = float(config.btes.depth_m)
+    elif full_case_metrics is not None:
+        full_cop = float(full_case_metrics.get("mean_cop", full_case_metrics.get("final_cop", 0.0)))
+        full_bt = float(full_case_metrics.get("mean_bt_pac_kwh", full_case_metrics.get("final_bt_pac_kwh", 0.0)))
+        full_boreholes = int(config.btes.boreholes)
+        full_final = dict(full_case_metrics)
+        full_final["depth_m"] = float(config.btes.depth_m)
+    else:
+        _, full_cop, full_bt, full_boreholes, full_final = run(1.0)
     required_final_cop = min(full_final["final_cop"], max(reference_final_cop, 0.0))
     required_final_bt = min(full_final["final_bt_pac_kwh"], max(reference_final_bt_pac_kwh, 0.0))
     required_final_coverage = min(full_final["final_bt_coverage"], max(reference_final_bt_coverage, 0.0))
@@ -126,8 +215,85 @@ def borefield_equivalent_savings(
             "saved_fraction": 0.0,
             "equivalent_cop": full_cop,
             "equivalent_bt_pac_kwh": full_bt,
+            "estimated_length_m": base_length_m,
+            "verified_length_m": base_length_m,
+            "savings_simulations_count": simulations_count,
             **{f"equivalent_{key}": value for key, value in full_final.items()},
         }
+
+    def final_ok(final_metrics: dict[str, float]) -> bool:
+        return (
+            final_metrics["final_cop"] + 1e-9 >= required_final_cop
+            and final_metrics["final_bt_pac_kwh"] + tolerance_bt >= required_final_bt
+            and final_metrics["final_bt_coverage"] + 1e-9 >= required_final_coverage
+            and final_metrics["final_hours_under_tmin"] <= full_final["final_hours_under_tmin"] + 1e-9
+            and final_metrics["final_hours_under_gmi_tmin"] <= 1e-9
+            and final_metrics["final_hours_over_gmi_tmax"] <= 1e-9
+            and final_metrics["final_source_limited_hours"] <= required_source_limited_hours + 1e-9
+            and final_metrics["final_t_source_min_c"] >= config.btes.t_min_c - 1e-6
+            and final_metrics["final_q_extraction_max_w_m"] <= config.btes.max_extraction_w_m + 1e-6
+            and final_metrics["final_q_injection_max_w_m"] <= config.btes.max_injection_w_m + 1e-6
+        )
+
+    if mode == "fast":
+        ratio_recharge = float(full_final.get("final_injected_btes_kwh", 0.0)) / max(
+            1e-9, float(full_final.get("final_extracted_ground_kwh", reference_final_bt_pac_kwh))
+        )
+        gain_fraction = max(0.0, min(0.85, float(recharge_credit) * ratio_recharge))
+        estimated_length = base_length_m * (1.0 - gain_fraction)
+        q_extract_peak_w = float(full_final.get("final_q_extraction_max_w_m", 0.0)) * base_length_m
+        q_inject_peak_w = float(full_final.get("final_q_injection_max_w_m", 0.0)) * base_length_m
+        min_extract = q_extract_peak_w / max(1e-9, float(config.btes.max_extraction_w_m))
+        min_inject = q_inject_peak_w / max(1e-9, float(config.btes.max_injection_w_m))
+        test_length = max(estimated_length, min_extract, min_inject, base_length_m * max(0.0, float(min_scale)))
+        test_length *= max(1.0, float(reduced_borefield_safety_factor))
+
+        def run_length(length_m: float):
+            boreholes = max(1, min(config.btes.boreholes, int(math.ceil(length_m / max(1e-9, config.btes.depth_m)))))
+            scale = boreholes / max(1, config.btes.boreholes)
+            return run(scale)
+
+        _, cop, bt_pac, boreholes, final_metrics = run_length(test_length)
+        if final_ok(final_metrics):
+            best_cop, best_bt, best_boreholes, best_final = cop, bt_pac, boreholes, final_metrics
+            smaller_length = max(base_length_m * max(0.0, float(min_scale)), boreholes * config.btes.depth_m * 0.90)
+            _, cop2, bt2, boreholes2, final2 = run_length(smaller_length)
+            if final_ok(final2):
+                best_cop, best_bt, best_boreholes, best_final = cop2, bt2, boreholes2, final2
+            return _base_return(
+                found=True,
+                base_length_m=base_length_m,
+                boreholes=best_boreholes,
+                equivalent_cop=best_cop,
+                equivalent_bt_pac_kwh=best_bt,
+                final_metrics=best_final,
+                estimated_length_m=estimated_length,
+                simulations_count=simulations_count,
+            )
+
+        larger_length = min(base_length_m, max(test_length * 1.20, test_length + config.btes.depth_m))
+        _, cop3, bt3, boreholes3, final3 = run_length(larger_length)
+        if final_ok(final3):
+            return _base_return(
+                found=True,
+                base_length_m=base_length_m,
+                boreholes=boreholes3,
+                equivalent_cop=cop3,
+                equivalent_bt_pac_kwh=bt3,
+                final_metrics=final3,
+                estimated_length_m=estimated_length,
+                simulations_count=simulations_count,
+            )
+        return _base_return(
+            found=False,
+            base_length_m=base_length_m,
+            boreholes=full_boreholes,
+            equivalent_cop=full_cop,
+            equivalent_bt_pac_kwh=full_bt,
+            final_metrics=full_final,
+            estimated_length_m=estimated_length,
+            simulations_count=simulations_count,
+        )
 
     low = min_scale
     high = 1.0
@@ -140,18 +306,7 @@ def borefield_equivalent_savings(
     for _ in range(iterations):
         mid = (low + high) / 2.0
         _, cop, bt_pac, boreholes, final_metrics = run(mid)
-        ok = (
-            final_metrics["final_cop"] + 1e-9 >= required_final_cop
-            and final_metrics["final_bt_pac_kwh"] + tolerance_bt >= required_final_bt
-            and final_metrics["final_bt_coverage"] + 1e-9 >= required_final_coverage
-            and final_metrics["final_hours_under_tmin"] <= full_final["final_hours_under_tmin"] + 1e-9
-            and final_metrics["final_hours_under_gmi_tmin"] <= 1e-9
-            and final_metrics["final_hours_over_gmi_tmax"] <= 1e-9
-            and final_metrics["final_source_limited_hours"] <= required_source_limited_hours + 1e-9
-            and final_metrics["final_t_source_min_c"] >= config.btes.t_min_c - 1e-6
-            and final_metrics["final_q_extraction_max_w_m"] <= config.btes.max_extraction_w_m + 1e-6
-            and final_metrics["final_q_injection_max_w_m"] <= config.btes.max_injection_w_m + 1e-6
-        )
+        ok = final_ok(final_metrics)
         if ok:
             best_scale = mid
             best_cop = cop
@@ -174,5 +329,8 @@ def borefield_equivalent_savings(
         "saved_fraction": saved_length / max(1e-9, base_length_m),
         "equivalent_cop": best_cop,
         "equivalent_bt_pac_kwh": best_bt,
+        "estimated_length_m": equivalent_length,
+        "verified_length_m": equivalent_length,
+        "savings_simulations_count": simulations_count,
         **{f"equivalent_{key}": value for key, value in best_final.items()},
     }

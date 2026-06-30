@@ -29,6 +29,7 @@ def render_hourly_results(
     scenario: ScenarioResult,
     parametric_pac_df: pd.DataFrame,
     parametric_surface_df: pd.DataFrame,
+    calculation_id: str,
     peak_bt_power_kw: float,
     pac_nominal_power_kw: float,
     pac_power_fraction_pct: float,
@@ -186,10 +187,10 @@ def render_hourly_results(
         )
 
     with tab_parametric_pac:
-        _render_parametric_pac_tab(parametric_pac_df)
+        _render_parametric_pac_tab(parametric_pac_df, calculation_id=calculation_id)
 
     with tab_parametric_solar:
-        _render_parametric_solar_tab(parametric_surface_df)
+        _render_parametric_solar_tab(parametric_surface_df, calculation_id=calculation_id)
 
     with tab_detail:
         _render_detail_tab(hourly_by_month_df, hourly_profile_df, hourly_df)
@@ -403,7 +404,7 @@ def _render_monthly_tab(
     c3.metric("Gain COP", f"{mean_cop - no_solar_cop:+.1f}", delta=f"{mean_cop:.1f} vs {no_solar_cop:.1f}")
 
 
-def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame) -> None:
+def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_id: str) -> None:
     st.markdown("### Etude parametrique géothermie seule : puissance PAC")
     st.caption("Dans cette étude, la surface solaire est forcée à 0. Le gaz couvre le besoin HT et le complément BT.")
     if parametric_pac_df.empty:
@@ -420,24 +421,48 @@ def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame) -> None:
     g1, g2 = st.columns(2)
     g1.metric("Besoin HT gaz", f"{best_row['Besoin HT gaz (MWh/an)']:.0f} MWh/an")
     g2.metric("Complément BT gaz", f"{best_row['Complément BT gaz (MWh/an)']:.0f} MWh/an")
-    st.altair_chart(_parametric_pac_chart(parametric_pac_df), width="stretch")
-    st.dataframe(round_display_df(parametric_pac_df), width="stretch", hide_index=True)
+    st.altair_chart(_parametric_pac_chart(parametric_pac_df), width="stretch", key=f"parametric_pac_chart_{calculation_id}")
+    st.dataframe(
+        round_display_df(parametric_pac_df),
+        width="stretch",
+        hide_index=True,
+        key=f"parametric_pac_table_{calculation_id}",
+    )
 
 
-def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame) -> None:
+def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame, *, calculation_id: str) -> None:
     st.markdown("### Etude parametrique sur la surface solaire thermique")
     if parametric_surface_df.empty:
         st.info("Active l'étude paramétrique dans l'expander `9) Etude parametrique surface solaire`, puis relance le calcul.")
         return
 
-    best_row = parametric_surface_df.sort_values("Coût chaleur Mix ENR (EUR/MWh)", ascending=True).iloc[0]
+    best_cost_column = (
+        "Coût chaleur avec économie sondes (EUR/MWh)"
+        if "Coût chaleur avec économie sondes (EUR/MWh)" in parametric_surface_df
+        else "Coût chaleur Mix ENR (EUR/MWh)"
+    )
+    best_row = parametric_surface_df.sort_values(best_cost_column, ascending=True).iloc[0]
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Meilleure surface coût", f"{best_row['Surface solaire (m²)']:.0f} m²")
-    c2.metric("Coût Mix EnR min", f"{best_row['Coût chaleur Mix ENR (EUR/MWh)']:.0f} EUR/MWh")
+    c2.metric("Coût avec économie sondes min", f"{best_row[best_cost_column]:.0f} EUR/MWh")
     c3.metric("Taux EnR global", f"{best_row['Taux EnR global (%)']:.0f} %")
     c4.metric("Couverture solaire HT", f"{best_row['Couverture solaire HT (%)']:.0f} %")
-    st.altair_chart(_parametric_surface_chart(parametric_surface_df), width="stretch")
-    st.dataframe(round_display_df(parametric_surface_df), width="stretch", hide_index=True)
+    if "Simulations economie sondes" in parametric_surface_df:
+        s1, s2, s3 = st.columns(3)
+        s1.metric("Linéaire estimé", f"{best_row.get('Lineaire estime (ml)', 0.0):.0f} ml")
+        s2.metric("Linéaire vérifié", f"{best_row.get('Lineaire verifie (ml)', 0.0):.0f} ml")
+        s3.metric("Simulations économie sondes", f"{int(best_row.get('Simulations economie sondes', 0))}")
+    st.altair_chart(
+        _parametric_surface_chart(parametric_surface_df),
+        width="stretch",
+        key=f"parametric_solar_chart_{calculation_id}",
+    )
+    st.dataframe(
+        round_display_df(parametric_surface_df),
+        width="stretch",
+        hide_index=True,
+        key=f"parametric_solar_table_{calculation_id}",
+    )
 
 
 def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.DataFrame, hourly_df: pd.DataFrame) -> None:
