@@ -4,6 +4,7 @@ import tempfile
 
 import pandas as pd
 
+import heliostock.scenarios as scenarios_module
 from heliostock.engine import (
     BtesConfig,
     CollectorConfig,
@@ -843,6 +844,79 @@ def test_run_hourly_scenario_returns_summaries_and_economics():
     assert "annual_solar_direct_ht_mwh" in result.solar_economics
 
 
+def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypatch):
+    weather = [
+        HourlyWeather(
+            hour_index=hour,
+            month=1,
+            day=1,
+            hour=hour + 1,
+            tair_c=8.0,
+            g_tilt_kwh_m2=0.0,
+        )
+        for hour in range(2)
+    ]
+    calls = []
+
+    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+        calls.append((float(config.collector.area_m2), int(simulation_years)))
+        results = []
+        for year in range(1, int(simulation_years) + 1):
+            for item in weather:
+                ht_kwh, bt_kwh = (hourly_demand_override or {}).get(item.hour_index, (10.0, 20.0))
+                results.append(
+                    _fake_hourly_result(
+                        simulation_year=year,
+                        hour_index=item.hour_index,
+                        month=item.month,
+                        day=item.day,
+                        hour=item.hour,
+                        tair_c=item.tair_c,
+                        demand_ht_kwh=ht_kwh,
+                        demand_bt_kwh=bt_kwh,
+                        heat_bt_from_pac_kwh=bt_kwh,
+                        btes_extracted_by_pac_kwh=bt_kwh * 0.75,
+                        electricity_compressor_kwh=bt_kwh * 0.25,
+                        electricity_pac_total_kwh=bt_kwh * 0.30,
+                        electricity_system_total_kwh=bt_kwh * 0.30,
+                        electricity_pac_kwh=bt_kwh * 0.25,
+                    )
+                )
+        return results
+
+    monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
+    result = scenarios_module.run_hourly_scenario(
+        weather=weather,
+        demands=_demand_aggregate(1, weather, ht_kwh=10.0, bt_kwh=20.0),
+        config=SimulationConfig(
+            collector=CollectorConfig(area_m2=500.0),
+            btes=BtesConfig(boreholes=20, depth_m=100.0, spacing_m=6.0),
+            heat_pump=HeatPumpConfig(max_thermal_power_kw=50.0),
+        ),
+        economics=ScenarioEconomicsConfig(
+            reference_energy_cost_eur_mwh=70.0,
+            reference_energy_inflation_pct=2.0,
+            eta_appoint_eco=0.9,
+            analysis_years=25,
+            auxiliary_electricity_ratio_pct=3.0,
+            electricity_cost_eur_mwh=180.0,
+            maintenance_cost_eur_m2_year=0.0,
+            ademe_eur_mwh_year=0.0,
+            other_public_aid_eur=0.0,
+            backup_p2_eur_kw_year=10.0,
+        ),
+        hourly_demand_override=_hourly_override(weather, ht_kwh=10.0, bt_kwh=20.0),
+        run_multiyear=True,
+        technical_simulation_years=25,
+        run_geo_only=True,
+        run_reduced_borefield=False,
+    )
+
+    assert calls == [(500.0, 25), (0.0, 25)]
+    assert set(result.hourly_df["simulation_year"].unique()) == {25}
+    assert set(result.no_solar_hourly_df["simulation_year"].unique()) == {25}
+
+
 def test_app_service_runs_calculation_without_streamlit():
     weather = [
         HourlyWeather(
@@ -1021,7 +1095,8 @@ def test_pac_power_parametric_study_runs_without_streamlit():
     assert len(df) == 2
     assert "P PAC (% Pmax BT)" in df.columns
     assert "Couverture PAC BT (%)" in df.columns
-    assert any("Mix ENR" in column for column in df.columns)
+    assert "Coût chaleur géothermie + appoint gaz (EUR/MWh)" in df.columns
+    assert not any("Mix ENR" in column for column in df.columns)
 
 
 def test_scenario_inputs_build_configs():

@@ -37,7 +37,7 @@ class CalculationSelection:
     display_year_mode: str = "finale"
     custom_display_year: int = 25
     run_geo_only: bool = True
-    run_reduced_borefield: bool = True
+    run_reduced_borefield: bool = False
 
 
 @dataclass(frozen=True)

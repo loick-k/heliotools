@@ -416,15 +416,15 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
         )
         run_geo_only = st.checkbox("Scenario geothermie seule", value=True)
         run_reduced_borefield = st.checkbox(
-            "Optimisation avec recharge solaire",
-            value=True,
+            "Optimisation sondes reduites avec recharge solaire (calcul lourd)",
+            value=False,
             disabled=not run_geo_only,
         )
         if not run_geo_only and run_reduced_borefield:
             run_reduced_borefield = False
         st.caption(
-            "Le calcul 1 an avec solaire reste le socle. Les autres cases ajoutent des simulations lourdes "
-            "uniquement quand elles sont necessaires."
+            "En projection multiannuelle, l'annee 1 et l'annee finale sont extraites de la meme simulation. "
+            "L'optimisation sondes reduites relance plusieurs simulations longues : activez-la seulement pour une passe finale."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(

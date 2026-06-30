@@ -212,8 +212,8 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 "Poste:N",
                 title="Poste",
                 scale=alt.Scale(
-                    domain=["Solaire thermique", "Géothermie PAC", "Appoint HT", "Appoint BT"],
-                    range=["#facc15", "#16a34a", "#9ca3af", "#6b7280"],
+                    domain=["Solaire thermique", "Géothermie PAC", "Geothermie PAC", "Appoint HT", "Appoint BT", "Appoint gaz"],
+                    range=["#facc15", "#16a34a", "#16a34a", "#4b5563", "#d1d5db", "#9ca3af"],
                 ),
             ),
             order=alt.Order("Ordre:Q", sort="ascending"),
@@ -244,13 +244,13 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 scale=alt.Scale(
                     domain=[
                         "Solaire thermique",
-                        "Geothermie PAC",
+                        "Géothermie PAC",
                         "Geothermie PAC",
                         "Appoint HT",
                         "Appoint BT",
                         "Appoint gaz",
                     ],
-                    range=["#facc15", "#16a34a", "#16a34a", "#9ca3af", "#6b7280", "#6b7280"],
+                    range=["#facc15", "#16a34a", "#16a34a", "#4b5563", "#d1d5db", "#9ca3af"],
                 ),
             ),
             order=alt.Order("Ordre:Q", sort="ascending"),
@@ -424,7 +424,7 @@ def _parametric_pac_chart(parametric_df: pd.DataFrame):
     chart_df = parametric_df.melt(
         id_vars=["P PAC (% Pmax BT)"],
         value_vars=[
-            "Coût chaleur Mix ENR (EUR/MWh)",
+            "Coût chaleur géothermie + appoint gaz (EUR/MWh)",
             "Taux EnR global (%)",
             "Couverture PAC BT (%)",
             "Appoint total (MWh/an)",

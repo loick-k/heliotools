@@ -426,7 +426,7 @@ def pac_power_parametric_study(
             {
                 "P PAC (% Pmax BT)": float(fraction_pct),
                 "P PAC (kW)": pac_kw,
-                "Coût chaleur Mix ENR (EUR/MWh)": float(multiyear_cost_variant["multiyear_heat_cost_eur_mwh"]),
+                "Coût chaleur géothermie + appoint gaz (EUR/MWh)": float(multiyear_cost_variant["multiyear_heat_cost_eur_mwh"]),
                 "Taux EnR global (%)": global_ren_rate_variant * 100.0,
                 "Couverture PAC BT (%)": pac_bt_coverage * 100.0,
                 "Besoin HT gaz (MWh/an)": total_backup_ht_variant / 1000.0,
@@ -860,49 +860,56 @@ def run_hourly_scenario(
     display_year_mode: str = "finale",
     custom_display_year: int | None = None,
     run_geo_only: bool = True,
-    run_reduced_borefield: bool = True,
+    run_reduced_borefield: bool = False,
     progress: ProgressCallback | None = None,
 ) -> ScenarioResult:
-    _notify(progress, 15, "Calcul horaire avec solaire...")
+    multiyear_years = max(1, int(technical_simulation_years or economics.analysis_years)) if run_multiyear else 1
+    _notify(
+        progress,
+        15,
+        f"Projection multiannuelle avec solaire ({multiyear_years} ans)..."
+        if run_multiyear
+        else "Calcul horaire avec solaire (1 an)...",
+    )
     hourly_df = _hourly_results_to_dataframe(
         simulate_hourly(
             weather,
             demands,
             config,
             hourly_demand_override=hourly_demand_override,
+            simulation_years=multiyear_years,
         )
     )
+    multiyear_df = hourly_df
+    if run_multiyear:
+        hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
 
     no_solar_config = replace(config, collector=replace(config.collector, area_m2=0.0))
     if run_geo_only:
-        _notify(progress, 35, "Calcul horaire sans solaire...")
+        _notify(
+            progress,
+            35,
+            f"Projection multiannuelle sans solaire ({multiyear_years} ans)..."
+            if run_multiyear
+            else "Calcul horaire sans solaire (1 an)...",
+        )
         no_solar_hourly_df = _hourly_results_to_dataframe(
             simulate_hourly(
                 weather,
                 demands,
                 no_solar_config,
                 hourly_demand_override=hourly_demand_override,
-            )
-        )
-    else:
-        no_solar_hourly_df = hourly_df.iloc[0:0].copy()
-
-    _notify(progress, 50, "Agrégation des résultats horaires...")
-    multiyear_years = max(1, int(technical_simulation_years or economics.analysis_years)) if run_multiyear else 1
-    if run_multiyear:
-        _notify(progress, 55, f"Projection multiannuelle avec solaire ({multiyear_years} ans)...")
-        multiyear_df = _hourly_results_to_dataframe(
-            simulate_hourly(
-                weather,
-                demands,
-                config,
-                hourly_demand_override=hourly_demand_override,
                 simulation_years=multiyear_years,
             )
         )
+        no_solar_multiyear_df = no_solar_hourly_df
+        if run_multiyear:
+            no_solar_hourly_df = no_solar_multiyear_df[no_solar_multiyear_df["simulation_year"] == 1].copy()
     else:
-        _notify(progress, 55, "Projection multiannuelle desactivee : economie basee sur l'annee 1.")
-        multiyear_df = hourly_df.copy()
+        no_solar_hourly_df = hourly_df.iloc[0:0].copy()
+        no_solar_multiyear_df = multiyear_df.iloc[0:0].copy()
+
+    _notify(progress, 50, "Agrégation des résultats horaires...")
     multiyear_btes_df = _multiyear_btes_summary(
         multiyear_df,
         t_min_c=config.btes.t_min_c,
@@ -911,19 +918,6 @@ def run_hourly_scenario(
         gmi_check_enabled=config.btes.gmi_check_enabled,
     )
     if run_geo_only:
-        if run_multiyear:
-            _notify(progress, 62, f"Projection multiannuelle sans solaire ({multiyear_years} ans)...")
-            no_solar_multiyear_df = _hourly_results_to_dataframe(
-                simulate_hourly(
-                    weather,
-                    demands,
-                    no_solar_config,
-                    hourly_demand_override=hourly_demand_override,
-                    simulation_years=multiyear_years,
-                )
-            )
-        else:
-            no_solar_multiyear_df = no_solar_hourly_df.copy()
         no_solar_multiyear_btes_df = _multiyear_btes_summary(
             no_solar_multiyear_df,
             t_min_c=config.btes.t_min_c,
@@ -932,7 +926,6 @@ def run_hourly_scenario(
             gmi_check_enabled=config.btes.gmi_check_enabled,
         )
     else:
-        no_solar_multiyear_df = hourly_df.iloc[0:0].copy()
         no_solar_multiyear_btes_df = pd.DataFrame()
 
     display_mode = str(display_year_mode).lower()

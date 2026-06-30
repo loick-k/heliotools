@@ -410,11 +410,12 @@ def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame) -> None:
         st.info("Active l'étude paramétrique dans l'expander `8) Etude parametrique PAC geothermie`, puis relance le calcul.")
         return
 
-    best_row = parametric_pac_df.sort_values("Coût chaleur Mix ENR (EUR/MWh)", ascending=True).iloc[0]
+    pac_cost_column = "Coût chaleur géothermie + appoint gaz (EUR/MWh)"
+    best_row = parametric_pac_df.sort_values(pac_cost_column, ascending=True).iloc[0]
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Meilleur % Pmax coût", f"{best_row['P PAC (% Pmax BT)']:.0f} %")
     c2.metric("P PAC correspondante", f"{best_row['P PAC (kW)']:.0f} kW")
-    c3.metric("Coût Mix EnR min", f"{best_row['Coût chaleur Mix ENR (EUR/MWh)']:.0f} EUR/MWh")
+    c3.metric("Coût géothermie + appoint gaz min", f"{best_row[pac_cost_column]:.0f} EUR/MWh")
     c4.metric("Couverture PAC BT", f"{best_row['Couverture PAC BT (%)']:.0f} %")
     g1, g2 = st.columns(2)
     g1.metric("Besoin HT gaz", f"{best_row['Besoin HT gaz (MWh/an)']:.0f} MWh/an")
