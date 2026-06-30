@@ -50,11 +50,9 @@ class BtesConfig:
     boreholes: int = 100
     depth_m: float = 100.0
     spacing_m: float = 5.0
-    volumetric_heat_capacity_j_m3_k: float = 2.4e6
     t_initial_c: float = 12.0
     t_min_c: float = 5.0
     t_max_c: float = 40.0
-    monthly_relaxation_tau_months: float = 24.0
     injection_efficiency: float = 0.90
     backend: str = "pygfunction"
     ground_conductivity_w_m_k: float = 2.5
@@ -130,17 +128,3 @@ def cop_from_source_temperature(t_source_pac_c: float, hp: HeatPumpConfig) -> fl
     cop = hp.carnot_efficiency * cop_carnot
     return max(hp.cop_min, min(hp.cop_max, cop))
 
-
-def default_industrial_demands_1gwh() -> list[MonthlyDemand]:
-    """Default monthly test case demands, in kWh/month.
-
-    The left column of the source case is mapped to HT preheating to 60 C,
-    and the right column is mapped to BT preheating to 25 C.
-    """
-
-    ht = [39261, 38922, 40944, 36916, 26051, 30145, 26062, 7407, 33897, 38709, 33124, 34773]
-    bt = [145565, 141910, 135911, 106353, 58639, 47197, 30948, 10409, 59871, 97891, 107148, 124946]
-    return [
-        MonthlyDemand(month=m, process_ht_kwh=ht[m - 1], process_bt_kwh=bt[m - 1])
-        for m in range(1, 13)
-    ]

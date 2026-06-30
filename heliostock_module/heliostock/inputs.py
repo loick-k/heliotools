@@ -59,11 +59,9 @@ class BtesInputs:
     boreholes: int
     depth_m: float
     spacing_m: float
-    rho_cp_mj_m3_k: float
     t_initial_c: float
     t_min_c: float
     t_max_c: float
-    tau_months: float
     ground_conductivity_w_m_k: float = 2.5
     ground_diffusivity_m2_s: float = 1.0e-6
     borehole_radius_m: float = 0.075
@@ -92,11 +90,9 @@ class BtesInputs:
             boreholes=int(self.boreholes),
             depth_m=self.depth_m,
             spacing_m=self.spacing_m,
-            volumetric_heat_capacity_j_m3_k=self.rho_cp_mj_m3_k * 1e6,
             t_initial_c=self.t_initial_c,
             t_min_c=self.t_min_c,
             t_max_c=self.t_max_c,
-            monthly_relaxation_tau_months=self.tau_months,
             backend=self.backend,
             ground_conductivity_w_m_k=self.ground_conductivity_w_m_k,
             ground_diffusivity_m2_s=self.ground_diffusivity_m2_s,
@@ -153,7 +149,6 @@ class HeatPumpInputs:
 class EconomicsInputs:
     reference_energy_cost_eur_mwh: float
     reference_energy_inflation_pct: float
-    discount_rate_pct: float
     eta_appoint_eco: float
     analysis_years: int
     auxiliary_electricity_ratio_pct: float
@@ -175,7 +170,6 @@ class EconomicsInputs:
         return ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=self.reference_energy_cost_eur_mwh,
             reference_energy_inflation_pct=self.reference_energy_inflation_pct,
-            discount_rate_pct=self.discount_rate_pct,
             eta_appoint_eco=self.eta_appoint_eco,
             analysis_years=int(self.analysis_years),
             auxiliary_electricity_ratio_pct=self.auxiliary_electricity_ratio_pct,

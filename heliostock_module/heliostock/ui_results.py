@@ -361,7 +361,7 @@ def _render_monthly_tab(
     st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
     st.caption(
         "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire. "
-        "Il n'y a plus de pertes/recharge naturelle capacitives : la dérive thermique est calculée par pygfunction."
+        "La dérive thermique du champ est calculée par pygfunction à partir des charges linéiques horaires."
     )
 
     st.markdown("### Production solaire valorisee : prechauffage HT et injection BTES")
@@ -469,8 +469,8 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
         st.markdown(
             """
             - Les besoins process doivent venir d'un fichier Excel horaire 8760 h.
-            - Les colonnes `E/P etuve recalee` alimentent le besoin HT 60 C.
-            - Les colonnes `E/P cabines recalee` alimentent le besoin BT 25 C.
+            - Les colonnes `E/P besoin HT` alimentent le besoin HT 60 C.
+            - Les colonnes `E/P besoin BT` alimentent le besoin BT 25 C.
             - Le stockage solaire journalier est un volume d'eau equivalent.
             - Le solaire charge le ballon ; il ne va jamais directement au process.
             - Le ballon prechauffe le process HT jusqu'a 60 C si son niveau de temperature le permet.

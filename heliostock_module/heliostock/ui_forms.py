@@ -106,8 +106,8 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
     with st.expander("2) Besoins process", expanded=True):
         demand_file = st.file_uploader("Fichier besoin process Excel 8760 h", type=["xlsx", "xls"])
         st.caption(
-            "Import obligatoire : 8760 lignes horaires avec `P/E etuve recalee` pour le besoin HT 60 C "
-            "et `P/E cabines recalee` pour le besoin BT 25 C. "
+            "Import obligatoire : 8760 lignes horaires avec `P/E besoin HT` pour le besoin 60 C "
+            "et `P/E besoin BT` pour le besoin 25 C. "
             "Le fichier reste local : aucun profil industriel n'est embarque dans le depot public."
         )
         hourly_demand_override = None
@@ -129,7 +129,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
                 f"BT {demand_info['bt_kwh'] / 1000:.0f} MWh/an."
             )
             st.caption(
-                "Mapping applique : `Etuves` -> process HT 60 C ; `Cabines` -> process BT 25 C. "
+                "Mapping applique : besoin HT -> process 60 C ; besoin BT -> process 25 C. "
                 "Les valeurs horaires recalees sont utilisees directement."
             )
         except Exception as exc:
@@ -287,11 +287,9 @@ def render_geothermal_form(
             boreholes=int(boreholes),
             depth_m=depth_m,
             spacing_m=geo_fixed.spacing_m,
-            rho_cp_mj_m3_k=geo_fixed.rho_cp_mj,
             t_initial_c=geo_fixed.t_initial_c,
             t_min_c=geo_fixed.t_min_c,
             t_max_c=geo_fixed.t_max_c,
-            tau_months=geo_fixed.tau_months,
             ground_conductivity_w_m_k=geo_fixed.ground_conductivity_w_m_k,
             ground_diffusivity_m2_s=geo_fixed.ground_diffusivity_m2_s,
             borehole_radius_m=geo_fixed.borehole_radius_m,
@@ -357,7 +355,6 @@ def render_economics_form() -> EconomicsInputs:
     return EconomicsInputs(
         reference_energy_cost_eur_mwh=reference_energy_cost_eur_mwh,
         reference_energy_inflation_pct=reference_energy_inflation_pct,
-        discount_rate_pct=economics_fixed.discount_rate_pct,
         eta_appoint_eco=eta_appoint_eco,
         analysis_years=int(economics_fixed.analysis_years),
         auxiliary_electricity_ratio_pct=auxiliary_electricity_ratio_pct,

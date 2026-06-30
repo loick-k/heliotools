@@ -41,8 +41,8 @@ Les vrais profils industriels doivent rester locaux et ne doivent pas etre versi
 
 Pour le fichier Excel process actuellement supporte, le mapping est :
 
-- `E etuve recalee kWh` / `P etuve recalee kW` -> besoin HT 60 C ;
-- `E cabines recalee kWh` / `P cabines recalee kW` -> besoin BT 25 C.
+- `E besoin HT kWh` / `P besoin HT kW` -> besoin HT 60 C ;
+- `E besoin BT kWh` / `P besoin BT kW` -> besoin BT 25 C.
 
 ## Integration dans une app Streamlit existante
 
@@ -82,12 +82,12 @@ Pour chaque heure EPW, le calcul suit l'ordre suivant :
 4. Pertes horaires du ballon vers l'ambiance du local, `20 C` par defaut.
 5. Decharge du ballon pour prechauffer le process HT, jusqu'a 60 C si le niveau de temperature le permet, puis appoint.
 6. Calcul du solaire restant valorisable a plus basse temperature pour injection dans le champ de sondes.
-7. Injection dans le champ, limitee par la capacite thermique restante, le rendement d'injection et `Tmax champ`.
+7. Injection dans le champ, limitee par la puissance lineique admissible, la temperature de paroi et le rendement d'injection.
 8. Couverture du process BT : air exterieur -> 25 C, par PAC geothermique, dans la limite de la puissance PAC retenue.
 9. Calcul du COP PAC a partir de la temperature du champ apres injection solaire.
-10. Appoint BT si le besoin horaire depasse la puissance PAC ou si le champ n'a pas assez d'energie au-dessus de `Tmin champ`.
+10. Appoint BT si le besoin horaire depasse la puissance PAC ou si la temperature source atteint la limite basse.
 11. Extraction de chaleur du champ par la PAC, bornee par `Tmin champ`.
-12. Relaxation thermique horaire du champ vers la temperature naturelle du sol.
+12. Mise a jour de l'historique thermique `pygfunction` par charge lineique nette.
 
 L'analyse economique solaire thermique est calculee apres la simulation horaire, uniquement a partir du prechauffage
 HT solaire direct :
@@ -276,24 +276,15 @@ fraction_restante = 1 - solaire_vers_ballon_h / potentiel_solaire_ballon_h
 potentiel_stockage_BTES_h = irradiation_h * surface * eta_stockage_BTES * rendement_systeme * fraction_restante
 injection_BTES = min(
   potentiel_stockage_BTES_h * rendement_injection,
-  capacite_restante_champ
+  puissance_lineique_injection_max,
+  limite_temperature_paroi
 )
 solaire_non_valorise = potentiel_stockage_BTES_h - injection_BTES
 ```
 
-### Stockage BTES simplifie
+### Champ de sondes BTES avec pygfunction
 
-Le champ est represente par une capacite thermique equivalente :
-
-```text
-V_sol = nombre_sondes * profondeur * espacement^2 * facteur_volume
-E_stock = V_sol * rhoCp_sol * (T_champ - T_sol_initial)
-T_champ = T_sol_initial + E_stock / (V_sol * rhoCp_sol)
-```
-
-Cette ancienne formulation capacitive n'est plus active dans le flux principal. HelioStock utilise maintenant uniquement
-`pygfunction` pour le champ de sondes. Le modele ne calcule donc plus de `capacite restante`, de `pertes vers sol` ou de
-`recharge naturelle` par relaxation artificielle. Le champ est pilote par la charge lineique nette :
+HelioStock utilise uniquement `pygfunction` pour le champ de sondes. Le champ est pilote par la charge lineique nette :
 
 ```text
 q_net_W_m = q_extraction_W_m - q_injection_W_m
@@ -423,12 +414,12 @@ coût_solaire = P1_auxiliaires + P2_maintenance + P4_investissement_net
 
 ## Import obligatoire des besoins horaires
 
-Le calcul physique fonctionne systematiquement sur un profil horaire 8760 h. L'interface ne propose plus de saisie
-mensuelle de secours. Le fichier Excel importe doit contenir directement les puissances ou energies horaires :
+Le calcul physique fonctionne systematiquement sur un profil horaire 8760 h. Le fichier Excel importe doit contenir
+directement les puissances ou energies horaires :
 
 ```text
-P etuve recalee kW ou E etuve recalee kWh -> besoin HT 60 C
-P cabines recalee kW ou E cabines recalee kWh -> besoin BT 25 C
+P besoin HT kW ou E besoin HT kWh -> besoin HT 60 C
+P besoin BT kW ou E besoin BT kWh -> besoin BT 25 C
 ```
 
 Sans fichier Excel 8760 h valide, le calcul n'est pas lance.
@@ -447,10 +438,9 @@ temperature de stockage pour l'injection BTES.
 ## Limites actuelles
 
 - calcul horaire EPW, avec import obligatoire d'un profil process 8760 h ;
-- moteur champ de sondes unique base sur `pygfunction`, sans fallback capacitif silencieux ;
+- moteur champ de sondes unique base sur `pygfunction`, sans backend alternatif silencieux ;
 - charges envoyees au champ en W/m, avec extraction PAC positive et injection solaire negative ;
 - chaleur extraite du sol = chaleur BT livree par PAC - electricite compresseur ;
-- pas de stock energetique global du sol, pas de capacite restante simplifiee, pas de relaxation artificielle vers le sol ;
 - temperature source PAC estimee par `T_paroi_forage - q_extraction * Rb_eff` ;
 - couplage PAC/BTES explicite horaire, avec quelques iterations locales sur le COP ;
 - pas encore un dimensionnement reglementaire de champ de sondes ;
@@ -459,8 +449,7 @@ temperature de stockage pour l'injection BTES.
 - les besoins process ne sont pas encore calcules depuis des debits horaires.
 
 `pygfunction` calcule la derive thermique du champ a partir de l'historique horaire net. Les limites PAC viennent de la
-puissance PAC installee, des puissances lineiques admissibles, de `Tmin source` et du COP minimum, pas d'une energie
-stockee globale.
+puissance PAC installee, des puissances lineiques admissibles, de `Tmin source` et du COP minimum.
 
 ## Bibliotheque capteurs
 
@@ -481,8 +470,8 @@ Les coefficients restent modifiables dans l'interface.
 L'interface accepte un fichier Excel process. Le format recommande est un profil 8760 h avec :
 
 ```text
-P etuve recalee kW ou E etuve recalee kWh -> besoin HT 60 C
-P cabines recalee kW ou E cabines recalee kWh -> besoin BT 25 C
+P besoin HT kW ou E besoin HT kWh -> besoin HT 60 C
+P besoin BT kW ou E besoin BT kWh -> besoin BT 25 C
 ```
 
 Les anciens formats journaliers ou mensuels ne sont plus acceptes dans l'interface. Les fichiers de besoins reels sont

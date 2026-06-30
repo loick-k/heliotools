@@ -25,7 +25,7 @@ def borefield_equivalent_savings(
 
     The search varies the actual number of boreholes and reruns the hourly
     pygfunction backend. It is still a screening indicator, not a detailed
-    borefield design, but it no longer relies on a capacitive volume factor.
+    borefield design, but it only varies pygfunction borefield geometry.
     """
 
     tolerance_bt = max(1.0, 0.001 * reference_bt_pac_kwh)

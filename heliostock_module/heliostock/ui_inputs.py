@@ -66,8 +66,6 @@ class FixedGeoAssumptions:
     t_initial_c: float = 12.0
     t_min_c: float = 5.0
     t_max_c: float = 40.0
-    rho_cp_mj: float = 2.4
-    tau_months: float = 24.0
     spacing_m: float = 10.0
     ground_conductivity_w_m_k: float = 2.5
     ground_diffusivity_m2_s: float = 1.0e-6
@@ -92,7 +90,6 @@ class FixedGeoAssumptions:
                 ("Tsol initial", self.t_initial_c, "C"),
                 ("Tmin champ", self.t_min_c, "C"),
                 ("Tmax champ BTES", self.t_max_c, "C"),
-                ("Capacite volumique sol", self.rho_cp_mj, "MJ/m3.K"),
                 ("Espacement moyen force", self.spacing_m, "m"),
                 ("Conductivite sol", self.ground_conductivity_w_m_k, "W/m.K"),
                 ("Diffusivite sol", self.ground_diffusivity_m2_s, "m2/s"),
@@ -112,7 +109,6 @@ class FixedGeoAssumptions:
 @dataclass(frozen=True)
 class FixedEconomicsAssumptions:
     analysis_years: int = 20
-    discount_rate_pct: float = 4.0
     other_public_aid_eur: float = 0.0
     ademe_eur_mwh_year: float = 63.0
 
@@ -120,7 +116,6 @@ class FixedEconomicsAssumptions:
         df = pd.DataFrame(
             [
                 ("Duree d'analyse", self.analysis_years, "ans"),
-                ("Taux d'actualisation", self.discount_rate_pct, "%/an"),
                 ("Autres aides publiques", self.other_public_aid_eur, "EUR"),
                 ("Aide ADEME forfaitaire solaire thermique", self.ademe_eur_mwh_year, "EUR/MWh.an"),
                 ("CAPEX solaire", "loi surfacique HelioStock", "EUR/m2"),

@@ -46,7 +46,6 @@ Les deux besoins process sont actuellement saisis en `kWh/mois`, puis répartis 
 | Surface capteurs | m² |
 | Volume ballon | L |
 | Capacité thermique eau | `1,163e-3 kWh/L.K` |
-| Capacité thermique volumique sol | J/m³.K |
 
 ## 3. Lecture météo EPW
 
@@ -160,99 +159,37 @@ Hypothèses associées :
 - pas de pertes neige/salissure explicites ;
 - l’albédo est constant.
 
-## 4. Répartition des besoins mensuels en horaire
+## 4. Import des besoins horaires 8760 h
 
-Fichier concerné : `heliostock/hourly_engine.py`, fonction `expand_monthly_demands_to_hourly(...)`.
+Fichier concerné : `heliostock/load_profiles.py`, fonction `_hourly_demands_from_process_file(...)`.
 
-Entrées actuelles :
-
-```text
-Q_HT_month[m]  [kWh/mois]
-Q_BT_month[m]  [kWh/mois]
-```
-
-Pour chaque mois `m`, le code compte le nombre d’heures EPW du mois :
-
-```text
-N_h_month[m] = nombre d'heures EPW du mois m
-```
-
-Puis :
-
-```text
-Q_HT_h = Q_HT_month[m] / N_h_month[m]
-Q_BT_h = Q_BT_month[m] / N_h_month[m]
-```
-
-Comme le pas vaut 1 h, les valeurs `Q_HT_h` et `Q_BT_h` sont aussi affichables comme puissances moyennes horaires en kW.
-
-Hypothèse importante : il n’y a pas encore de calendrier process, pas d’arrêt week-end, pas de saisonnalité intra-mensuelle, pas de pointe horaire réelle.
-
-### 4.1 Import du calendrier process Excel
-
-L'interface peut maintenant importer le fichier Excel de calendrier process fourni.
+Le moteur physique exige un profil horaire explicite transmis via `hourly_demand_override`. L'interface ne lance pas le
+calcul sans fichier Excel process valide.
 
 Format attendu dans la première feuille :
 
 ```text
-Date
-Fonctionnement
-P cabines kW
-E cabines MWh
-P étuve kW
-E étuve MWh
+Date heure
+P besoin HT kW ou E besoin HT kWh
+P besoin BT kW ou E besoin BT kWh
 ```
 
 Mapping retenu :
 
 ```text
-Etuve   -> besoin HT 60 °C
-Cabines -> besoin BT 25 °C
+Besoin HT -> process 60 °C
+Besoin BT -> process 25 °C
 ```
 
-Le fichier fourni est journalier, pas directement 8760 h. Le code reconstruit donc un profil horaire en appliquant les puissances sur les heures de fonctionnement.
-
-Par défaut :
+Les valeurs horaires sont utilisées directement :
 
 ```text
-fonctionnement = 5h -> 21h
-nombre_heures_ouvertes = 16 h/jour
+Q_HT_h = valeur horaire besoin HT
+Q_BT_h = valeur horaire besoin BT
 ```
 
-Pour chaque jour ouvert :
-
-```text
-P_HT_h_brut = E_étuve_MWh * 1000 / 16
-P_BT_h_brut = E_cabines_MWh * 1000 / 16
-```
-
-Les puissances sont ensuite recalées par coefficients de mesure :
-
-```text
-k_étuve = 0,955
-k_cabines = 0,821
-
-P_HT_h = P_HT_h_brut * k_étuve
-P_BT_h = P_BT_h_brut * k_cabines
-```
-
-Ces coefficients corrigent la surestimation du fichier process par rapport aux mesures.
-
-Ensuite :
-
-```text
-Q_HT_h = P_HT_h * 1h
-Q_BT_h = P_BT_h * 1h
-```
-
-Pour les jours fermés ou les heures hors fonctionnement :
-
-```text
-Q_HT_h = 0
-Q_BT_h = 0
-```
-
-Le rattachement au fichier météo se fait par couple `(mois, jour)`. L'année civile du fichier process n'est donc pas utilisée pour la correspondance EPW.
+Les agrégats mensuels encore présents dans certaines signatures servent uniquement de résumé de profil ou de compatibilité
+interne. Ils ne remplacent pas le profil horaire dans les tests ni dans le flux Streamlit.
 
 ## 5. Rendement des capteurs solaires thermiques
 
@@ -627,8 +564,7 @@ Q_solaire_BTES_potentiel =
 
 HelioStock utilise désormais un seul backend actif pour le champ de sondes : `pygfunction`.
 
-Il n'y a plus de fallback silencieux vers un modèle capacitif. Si `pygfunction` n'est pas installé, l'application échoue
-explicitement avec le message d'installation.
+Si `pygfunction` n'est pas installé, l'application échoue explicitement avec le message d'installation.
 
 Convention de signe et d'unité :
 
@@ -660,14 +596,6 @@ Cette correction `q * Rb_eff` est une approximation V1. Elle distingue la tempé
 `pygfunction` et la température fluide source utilisée pour la PAC. Elle ne doit pas être appliquée deux fois si un
 modèle hydraulique détaillé de sonde est ajouté plus tard.
 
-Le modèle principal ne calcule plus :
-
-- énergie stockée globale du sol ;
-- capacité restante du champ ;
-- relaxation artificielle vers `Tsol initial` ;
-- pertes/recharge naturelle capacitives ;
-- limitation PAC par une énergie disponible globale.
-
 Les limitations actives sont :
 
 - puissance PAC installée ;
@@ -680,113 +608,37 @@ Limites restantes : ce n'est pas encore un dimensionnement réglementaire. La g�
 doit être remplacée par une géométrie réelle en étude détaillée. Les résultats doivent être vérifiés par un BET
 géothermie ou un outil spécialisé avant engagement.
 
-### 14.1 Ancien modèle capacitif global, conservé comme historique non actif
-
-Fichier concerné : `heliostock/engine.py`, dataclass `BtesConfig`.
-
-Le modèle champ de sondes utilisé par l'interface est `pygfunction`. Il calcule la température source utilisée par le
-COP PAC à partir de l'historique horaire net du champ : extraction PAC positive, injection solaire négative. Le bilan
-d'énergie équivalent reste conservé pour borner l'injection, l'extraction et les limites `Tmin/Tmax`.
-
-Le champ de sondes est représenté par un volume de sol équivalent :
-
-```text
-V_sol =
-    nombre_sondes
-  * profondeur_sonde
-  * espacement^2
-  * facteur_volume
-```
-
-Le volume est borné à un minimum de `1 m³` pour éviter les divisions par zéro.
-
-Capacité thermique du champ :
-
-```text
-C_sol = V_sol * rhoCp_sol / 3,6e6
-```
-
-avec :
-
-- `rhoCp_sol` en J/m³.K ;
-- `C_sol` en kWh/K.
-
-Valeur par défaut :
-
-```text
-rhoCp_sol = 2,4e6 J/m³.K
-```
-
-L’énergie du champ est définie relativement à la température naturelle initiale :
-
-```text
-E_BTES = C_sol * (T_champ - T_sol_initial)
-```
-
-Température du champ :
-
-```text
-T_champ = T_sol_initial + E_BTES / C_sol
-```
-
-Bornes énergétiques :
-
-```text
-E_BTES_min = C_sol * (Tmin_champ - T_sol_initial)
-E_BTES_max = C_sol * (Tmax_champ - T_sol_initial)
-```
-
-Valeurs par défaut importantes :
-
-```text
-T_sol_initial = 12 °C
-Tmin_champ = 5 °C
-Tmax_champ = 40 °C
-```
-
-Le champ peut avoir une énergie négative si sa température passe sous `T_sol_initial`.
-
 ## 15. Injection solaire dans le BTES
 
-Capacité restante du champ :
+L'injection solaire est convertie en charge linéique sur la longueur totale de sondes :
 
 ```text
-capacite_restante_BTES = max(0, E_BTES_max - E_BTES)
+L_total_sondes_m = nombre_sondes * profondeur_sonde
+q_injection_W_m = Q_injection_BTES_kWh * 1000 / L_total_sondes_m
 ```
 
-Injection utile :
+La chaleur injectée est limitée par trois contraintes actives :
+
+- le potentiel solaire affecté au BTES après priorité au ballon ;
+- la puissance linéique maximale d'injection ;
+- la température de paroi maximale autorisée, via la résistance thermique de forage.
+
+Dans le moteur :
 
 ```text
-Q_injection_BTES =
-    min(
-        Q_solaire_BTES_potentiel * rendement_injection,
-        capacite_restante_BTES
-    )
+Q_injection_BTES = min(
+    Q_solaire_BTES_potentiel * rendement_injection,
+    max_injection_W_m * L_total_sondes_m / 1000,
+    max(0, (Tmax_champ - T_paroi_debut) / Rb_eff) * L_total_sondes_m / 1000
+)
 ```
 
-Valeur par défaut :
-
-```text
-rendement_injection = 0,90
-```
-
-Solaire non valorisé :
+Le flux non injecté reste non valorisé :
 
 ```text
 Q_solaire_non_valorise =
     max(0, Q_solaire_BTES_potentiel - Q_injection_BTES)
-```
-
-Mise à jour de l’énergie du champ :
-
-```text
-E_BTES = E_BTES + Q_injection_BTES
-```
-
-Température après charge :
-
-```text
-T_champ_apres_charge = T_sol_initial + E_BTES / C_sol
+    max(0, Q_solaire_BTES_potentiel - Q_injection_BTES)
 ```
 
 ## 16. COP de la PAC géothermique
@@ -804,7 +656,8 @@ T_cond_K = T_cible_BT + approche_condenseur + 273,15
 Température d’évaporation approchée :
 
 ```text
-T_evap_K = T_champ_apres_charge - approche_evaporateur + 273,15
+T_source_PAC = T_paroi_forage - q_extraction_W_m * Rb_eff
+T_evap_K = T_source_PAC - approche_evaporateur + 273,15
 ```
 
 COP de Carnot :
@@ -829,7 +682,7 @@ Valeurs par défaut :
 
 ```text
 T_cible_BT = 25 °C
-approche_condenseur = 7 K
+approche_condenseur = 2 K
 approche_evaporateur = 3 K
 rendement_Carnot_PAC = 0,45
 COP_min = 2
@@ -854,28 +707,36 @@ Besoin horaire :
 Q_BT_besoin_h
 ```
 
-Si `Q_BT_besoin_h > 0` et `COP > 1`, alors la fraction de chaleur livrée par la PAC qui vient du champ est :
+La chaleur livrée par PAC est d'abord limitée par la puissance PAC installée :
+
+```text
+Q_BT_PAC_cible = min(Q_BT_besoin_h, P_PAC_installee)
+```
+
+Si `Q_BT_PAC_cible > 0` et `COP > 1`, alors la fraction de chaleur livrée par la PAC qui vient du champ est :
 
 ```text
 fraction_champ = 1 - 1 / COP
 ```
 
-Énergie disponible dans le champ au-dessus de la borne froide :
+La chaleur extraite du champ est bornée par la puissance linéique maximale et par la température source minimale :
 
 ```text
-E_disponible_champ = max(0, E_BTES - E_BTES_min)
+Q_sol_max_puissance = max_extraction_W_m * L_total_sondes_m / 1000
+Q_sol_max_temperature = max(0, (T_paroi_debut - Tmin_champ) / Rb_eff) * L_total_sondes_m / 1000
+Q_sol_max = min(Q_sol_max_puissance, Q_sol_max_temperature)
 ```
 
-Chaleur BT maximale livrable par la PAC compte tenu du champ :
+Chaleur BT maximale livrable par la PAC compte tenu de ces limites :
 
 ```text
-Q_BT_max_PAC = E_disponible_champ / fraction_champ
+Q_BT_max_PAC = Q_sol_max / fraction_champ
 ```
 
 Chaleur BT réellement livrée :
 
 ```text
-Q_BT_PAC = min(Q_BT_besoin_h, Q_BT_max_PAC)
+Q_BT_PAC = min(Q_BT_PAC_cible, Q_BT_max_PAC)
 ```
 
 Électricité PAC :
@@ -890,16 +751,10 @@ Chaleur extraite du champ :
 Q_extrait_champ = Q_BT_PAC - W_PAC
 ```
 
-Mise à jour du champ :
+La charge nette envoyée à `pygfunction` est ensuite :
 
 ```text
-E_BTES = E_BTES - Q_extrait_champ
-```
-
-Puis bornage :
-
-```text
-E_BTES = max(E_BTES_min, min(E_BTES_max, E_BTES))
+q_net_W_m = q_extraction_W_m - q_injection_W_m
 ```
 
 Appoint BT :
@@ -908,66 +763,12 @@ Appoint BT :
 Q_appoint_BT = max(0, Q_BT_besoin_h - Q_BT_PAC)
 ```
 
-## 18. Relaxation thermique naturelle du champ
-
-Fichier concerné : `heliostock/hourly_engine.py`, fonction `_hourly_relaxation_to_ground(...)`.
-
-Le champ relaxe vers la température naturelle `T_sol_initial`, c’est-à-dire vers `E_BTES = 0`.
-
-Constante de temps entrée en mois :
-
-```text
-tau_months = monthly_relaxation_tau_months
-```
-
-Conversion horaire :
-
-```text
-tau_hours = tau_months * 30,4375 * 24
-```
-
-Fraction relaxée sur une heure :
-
-```text
-f_relax = 1 - exp(-1 / tau_hours)
-```
-
-Relaxation :
-
-```text
-Q_relax = E_BTES * f_relax
-```
-
-Mise à jour :
-
-```text
-E_BTES = E_BTES - Q_relax
-```
-
-Interprétation :
-
-- si `E_BTES > 0`, le champ est plus chaud que le sol naturel, donc `Q_relax > 0` : perte vers le sol ;
-- si `E_BTES < 0`, le champ est plus froid que le sol naturel, donc `Q_relax < 0` : recharge naturelle par le sol.
-
-Dans les résultats :
-
-```text
-pertes_champ_vers_sol = max(0, Q_relax)
-recharge_naturelle_depuis_sol = max(0, -Q_relax)
-```
-
-Valeur par défaut :
-
-```text
-tau_months = 24 mois
-```
-
 ## 19. Ordre exact de calcul sur une heure
 
 Pour chaque heure EPW, le moteur fait exactement :
 
-1. Lecture des besoins horaires HT et BT du mois.
-2. Calcul de `T_champ_debut`.
+1. Lecture des besoins horaires HT et BT du profil 8760 h.
+2. Lecture de l'état thermique `pygfunction` au début de l'heure.
 3. Calcul de `T_ballon_debut`.
 4. Calcul de `T_capteur_ballon`.
 5. Calcul du potentiel solaire à température ballon.
@@ -980,10 +781,10 @@ Pour chaque heure EPW, le moteur fait exactement :
 12. Calcul de `T_capteur_BTES`.
 13. Calcul du potentiel solaire à température BTES.
 14. Injection dans le BTES.
-15. Calcul du COP PAC avec la température du champ après injection.
-16. Couverture du besoin BT par PAC, limitée par l’énergie disponible dans le champ.
+15. Calcul du COP PAC avec la température source estimée.
+16. Couverture du besoin BT par PAC, limitée par la puissance PAC, la puissance linéique et `Tmin champ`.
 17. Extraction BTES par la PAC.
-18. Relaxation naturelle du champ vers `T_sol_initial`.
+18. Mise à jour `pygfunction` avec `q_net_W_m`.
 19. Stockage de tous les résultats horaires.
 
 ## 20. Bilans énergétiques vérifiés par les tests
@@ -1002,17 +803,14 @@ E_buffer_fin =
   - Q_pertes_ballon
 ```
 
-### 20.2 Bilan BTES
+### 20.2 Charge lineique BTES
 
 Pour chaque heure :
 
 ```text
-E_BTES_fin =
-    E_BTES_debut
-  + Q_injection_BTES
-  - Q_extrait_champ_PAC
-  - Q_pertes_champ_vers_sol
-  + Q_recharge_naturelle_depuis_sol
+q_net_W_m = q_extraction_W_m - q_injection_W_m
+q_extraction_W_m = Q_extrait_champ_PAC * 1000 / L_total_sondes_m
+q_injection_W_m = Q_injection_BTES * 1000 / L_total_sondes_m
 ```
 
 ### 20.3 Bilan PAC
@@ -1079,17 +877,8 @@ Dans les graphes mensuels du sous-sol :
 ```text
 injection solaire BTES > 0
 extraction champ vers PAC < 0
-recharge naturelle sol > 0
+bilan net sol = injection solaire - extraction PAC
 ```
-
-Les pertes champ vers sol ne sont pas tracées dans ce graphique. Dans le modèle, elles correspondent uniquement au cas où le champ est plus chaud que la température de sol initiale :
-
-```text
-si E_BTES > 0 -> pertes vers sol positives
-si E_BTES < 0 -> recharge naturelle positive
-```
-
-Si les pertes champ vers sol valent zéro, cela signifie que le champ n'est pas plus chaud que le sol initial au moment de la relaxation. Dans ce cas, le terme de relaxation est plutôt une recharge naturelle du sol vers le champ.
 
 ## 22. Indicateurs économiques préparatoires
 
@@ -1684,8 +1473,6 @@ espacement = 5 m
 Tsol initiale = 12 °C
 Tmin champ = 5 °C
 Tmax champ = 40 °C
-rhoCp sol = 2,4 MJ/m³.K
-tau relaxation = 24 mois
 rendement injection = 90 %
 ```
 
@@ -1693,9 +1480,9 @@ rendement injection = 90 %
 
 ```text
 T cible BT = 25 °C
-approche condenseur = 7 K
+approche condenseur = 2 K
 approche évaporateur = 3 K
-rendement Carnot = 45 %
+rendement Carnot = 54 %
 COP min = 2
 COP max = 8
 ```
@@ -1706,8 +1493,7 @@ Le modèle est volontairement une V1 horaire, pas un outil de dimensionnement d�
 
 Limites actuelles :
 
-- si aucun Excel process n'est chargé : besoins process répartis uniformément dans chaque mois ;
-- si Excel process chargé : profil reconstruit depuis un calendrier journalier, pas encore depuis un fichier 8760 h natif ;
+- fichier Excel process 8760 h obligatoire pour lancer le calcul dans l'interface ;
 - pas de débit d’air explicite dans le moteur ;
 - préchauffage HT calculé par ratio de relèvement de température sur un besoin déjà exprimé en kWh ;
 - pas de dynamique hydraulique détaillée ;
@@ -1720,18 +1506,17 @@ Limites actuelles :
 - modèle g-functions assuré par `pygfunction` ;
 - résistance thermique sonde/sol simplifiée dans le backend `pygfunction` ;
 - interférences temporelles détaillées entre sondes limitées au backend `pygfunction` ;
-- pas de limite explicite de puissance linéique par mètre de sonde ;
+- limites de puissance linéique encore simplifiées par valeurs forfaitaires ;
 - modèle économique limité au solaire thermique, sans CAPEX/OPEX géothermie.
 
 ## 26. Points à améliorer en V1+
 
 Priorités techniques :
 
-1. Remplacer le calendrier process journalier par un vrai profil 8760 h natif.
-2. Renommer dans le code `solar_ht_direct_kwh` en `solar_ht_preheat_kwh` pour supprimer l’ambiguïté historique.
-3. Renforcer les profils horaires process et les tests de non-régression énergétique.
-4. Ajouter une vraie limite de puissance d’injection/extraction BTES par mètre de sonde.
-5. Consolider le backend `pygfunction` et comparer ensuite avec `GHEtool`.
-6. Ajouter une modélisation plus réaliste du ballon : stratification ou au minimum nœuds haut/bas.
-7. Ajouter des profils d’exploitation : horaires ouvrés, week-ends, arrêts, saisonnalité process.
-8. Ajouter la partie économique géothermie : CAPEX champ de sondes, PAC, appoint, OPEX et valorisation de l’économie de sondes.
+1. Renommer dans le code `solar_ht_direct_kwh` en `solar_ht_preheat_kwh` pour supprimer l’ambiguïté historique.
+2. Renforcer les profils horaires process et les tests de non-régression énergétique.
+3. Consolider les limites de puissance d’injection/extraction BTES par mètre de sonde.
+4. Consolider le backend `pygfunction` et comparer ensuite avec `GHEtool`.
+5. Ajouter une modélisation plus réaliste du ballon : stratification ou au minimum nœuds haut/bas.
+6. Ajouter des profils d’exploitation : horaires ouvrés, week-ends, arrêts, saisonnalité process.
+7. Ajouter la partie économique géothermie : CAPEX champ de sondes, PAC, appoint, OPEX et valorisation de l’économie de sondes.

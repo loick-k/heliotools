@@ -290,7 +290,7 @@ def compute_heat_costs(
     gas_reference_p1_eur_mwh_pci: float,
     gas_reference_efficiency: float,
     gas_reference_inflation_rate: float,
-    geothermal_p1_eur_mwh: float = 150.0,
+    geothermal_p1_eur_mwh: float,
     geothermal_pac_capex_eur_kw: float = 1460.0,
     geothermal_borefield_capex_eur_m: float = 100.0,
     geothermal_ademe_eur_mwh_year: float = 50.0,

@@ -10,7 +10,6 @@ from heliostock.engine import (
     HeatPumpConfig,
     MonthlyDemand,
     SimulationConfig,
-    default_industrial_demands_1gwh,
 )
 from heliostock.btes_models import PygfunctionBtesModel, create_btes_model, pygfunction_available
 from heliostock.app_service import HourlyCalculationRequest, ParametricRange, run_hourly_calculation
@@ -45,6 +44,16 @@ def _hourly_override(weather: list[HourlyWeather], *, ht_kwh: float, bt_kwh: flo
     return {hour.hour_index: (ht_kwh, bt_kwh) for hour in weather}
 
 
+def _demand_aggregate(month: int, weather: list[HourlyWeather], *, ht_kwh: float, bt_kwh: float) -> list[MonthlyDemand]:
+    return [
+        MonthlyDemand(
+            month=month,
+            process_ht_kwh=ht_kwh * len(weather),
+            process_bt_kwh=bt_kwh * len(weather),
+        )
+    ]
+
+
 def test_hourly_simulation_smoke():
     if not pygfunction_available():
         return
@@ -64,11 +73,12 @@ def test_hourly_simulation_smoke():
         btes=BtesConfig(boreholes=100, depth_m=100.0, spacing_m=5.0, t_max_c=40.0),
         heat_pump=HeatPumpConfig(air_target_bt_c=25.0),
     )
+    hourly_override = _hourly_override(weather, ht_kwh=95.0, bt_kwh=135.0)
     results = simulate_hourly(
         weather=weather,
-        demands=default_industrial_demands_1gwh(),
+        demands=_demand_aggregate(1, weather, ht_kwh=95.0, bt_kwh=135.0),
         config=config,
-        hourly_demand_override=_hourly_override(weather, ht_kwh=95.0, bt_kwh=135.0),
+        hourly_demand_override=hourly_override,
     )
     monthly = aggregate_hourly_results_monthly(results)
 
@@ -127,7 +137,7 @@ def test_multiyear_simulation_keeps_btes_thermal_memory():
     assert summary["T source PAC fin (C)"].iloc[-1] < summary["T source PAC fin (C)"].iloc[0]
 
 
-def test_pygfunction_backend_is_required_without_fallback():
+def test_pygfunction_backend_is_required_without_alternative_backend():
     btes = BtesConfig(boreholes=10, depth_m=100.0, spacing_m=10.0, backend="pygfunction")
     if not pygfunction_available():
         try:
@@ -135,7 +145,7 @@ def test_pygfunction_backend_is_required_without_fallback():
         except ImportError as exc:
             assert "pygfunction est requis" in str(exc)
             return
-        raise AssertionError("create_btes_model ne doit pas revenir silencieusement au capacitif")
+        raise AssertionError("create_btes_model ne doit pas revenir silencieusement a un backend alternatif")
 
     model = create_btes_model(btes)
     assert isinstance(model, PygfunctionBtesModel)
@@ -415,6 +425,7 @@ def test_mix_backup_gas_p1_uses_same_inflated_cost_as_reference_gas():
         gas_reference_p1_eur_mwh_pci=70.0,
         gas_reference_efficiency=0.82,
         gas_reference_inflation_rate=0.03,
+        geothermal_p1_eur_mwh=200.0,
         backup_p1_eur_mwh=70.0,
         backup_p2_eur_kw_year=10.0,
     )
@@ -479,7 +490,7 @@ def test_fixed_ui_assumptions_keep_expected_defaults():
     assert list(DEFAULT_EPW_STATIONS.keys())[0] == "Nantes"
     assert solar.daily_buffer_l_per_m2 == 60.0
     assert geo.spacing_m == 10.0
-    assert geo.carnot_efficiency == 0.45
+    assert geo.carnot_efficiency == 0.54
     assert geo.max_extraction_kwh_per_m_year == 70.0
     assert economics.analysis_years == 20
     assert economics.ademe_eur_mwh_year == 63.0
@@ -502,14 +513,14 @@ def test_borefield_predesign_uses_prudent_max_of_power_and_annual_extraction():
     assert predesign.required_length_m >= length_energy
 
 
-def test_hourly_8760_process_profile_maps_etuves_to_ht_and_cabines_to_bt():
+def test_hourly_8760_process_profile_maps_generic_ht_and_bt_columns():
     with tempfile.TemporaryDirectory() as tmp:
         workbook = Path(tmp) / "besoin_horaire.xlsx"
         pd.DataFrame(
             {
                 "Date heure": pd.date_range("2001-01-01", periods=24, freq="h"),
-                "E cabines recalée kWh": [2.0] * 24,
-                "E étuve recalée kWh": [1.0] * 24,
+                "E besoin BT kWh": [2.0] * 24,
+                "E besoin HT kWh": [1.0] * 24,
             }
         ).to_excel(workbook, index=False)
         weather = [
@@ -551,14 +562,14 @@ def test_run_hourly_scenario_returns_summaries_and_economics():
         btes=BtesConfig(boreholes=60, depth_m=100.0, spacing_m=5.0, t_max_c=40.0),
         heat_pump=HeatPumpConfig(air_target_bt_c=25.0, max_thermal_power_kw=80.0),
     )
+    hourly_override = _hourly_override(weather, ht_kwh=125.0, bt_kwh=80.0)
     result = run_hourly_scenario(
         weather=weather,
-        demands=[MonthlyDemand(month=1, process_ht_kwh=9_000.0, process_bt_kwh=6_000.0)],
+        demands=_demand_aggregate(1, weather, ht_kwh=125.0, bt_kwh=80.0),
         config=config,
         economics=ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
-            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -568,6 +579,7 @@ def test_run_hourly_scenario_returns_summaries_and_economics():
             other_public_aid_eur=0.0,
             backup_p2_eur_kw_year=10.0,
         ),
+        hourly_demand_override=hourly_override,
     )
 
     assert len(result.hourly_df) == 24 * 3
@@ -597,8 +609,8 @@ def test_app_service_runs_calculation_without_streamlit():
     ]
     request = HourlyCalculationRequest(
         weather=weather,
-        demands=[MonthlyDemand(month=1, process_ht_kwh=2_400.0, process_bt_kwh=2_400.0)],
-        hourly_demand_override=None,
+        demands=_demand_aggregate(1, weather, ht_kwh=100.0, bt_kwh=100.0),
+        hourly_demand_override=_hourly_override(weather, ht_kwh=100.0, bt_kwh=100.0),
         solar=SolarInputs(
             area_m2=100.0,
             eta0=0.8,
@@ -618,17 +630,15 @@ def test_app_service_runs_calculation_without_streamlit():
             boreholes=20,
             depth_m=100.0,
             spacing_m=10.0,
-            rho_cp_mj_m3_k=2.4,
             t_initial_c=12.0,
             t_min_c=5.0,
             t_max_c=40.0,
-            tau_months=24.0,
         ),
         heat_pump=HeatPumpInputs(
             air_target_bt_c=25.0,
-            condenser_approach_k=7.0,
+            condenser_approach_k=2.0,
             evaporator_approach_k=3.0,
-            carnot_efficiency=0.45,
+            carnot_efficiency=0.54,
             cop_min=2.0,
             cop_max=8.0,
             pac_power_fraction_pct=100.0,
@@ -637,7 +647,6 @@ def test_app_service_runs_calculation_without_streamlit():
         economics=EconomicsInputs(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
-            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -688,12 +697,11 @@ def test_scenario_p1_uses_total_pac_electricity_and_spf_is_below_machine_cop():
     )
     result = run_hourly_scenario(
         weather=weather,
-        demands=[MonthlyDemand(month=1, process_ht_kwh=0.0, process_bt_kwh=2_400.0)],
+        demands=_demand_aggregate(1, weather, ht_kwh=0.0, bt_kwh=100.0),
         config=config,
         economics=ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
-            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=0.0,
@@ -703,15 +711,16 @@ def test_scenario_p1_uses_total_pac_electricity_and_spf_is_below_machine_cop():
             other_public_aid_eur=0.0,
             backup_p2_eur_kw_year=10.0,
         ),
+        hourly_demand_override=_hourly_override(weather, ht_kwh=0.0, bt_kwh=100.0),
     )
     p1_table = result.heat_costs["p1_p2_p4"]
     geo_p1 = float(
         p1_table[(p1_table["Generateur"] == "Geothermie PAC") & (p1_table["Poste"] == "P1")]["EUR/MWh"].iloc[0]
     )
-    compressor_only_p1 = (result.total_compressor_kwh / 1000.0 * 150.0) / (result.total_pac_kwh / 1000.0)
+    expected_p1 = (result.total_elec_kwh / 1000.0 * 200.0) / (result.total_pac_kwh / 1000.0)
 
     assert result.total_elec_kwh > result.total_compressor_kwh
-    assert geo_p1 > compressor_only_p1
+    assert abs(geo_p1 - expected_p1) <= 1e-9
     assert result.mean_cop >= result.spf_pac_total
     assert not any("solar_pump" in column.lower() for column in result.hourly_df.columns)
     assert not any("injection_pump" in column.lower() for column in result.hourly_df.columns)
@@ -737,9 +746,9 @@ def test_pac_power_parametric_study_runs_without_streamlit():
     df = pac_power_parametric_study(
         pac_power_fractions_pct=[50.0, 100.0],
         weather=weather,
-        demands=[MonthlyDemand(month=1, process_ht_kwh=2_400.0, process_bt_kwh=2_400.0)],
+        demands=_demand_aggregate(1, weather, ht_kwh=100.0, bt_kwh=100.0),
         config=config,
-        hourly_demand_override=None,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=100.0, bt_kwh=100.0),
         peak_bt_power_kw=100.0,
         use_probe_predesign=False,
         probe_power_ratio_w_m=60.0,
@@ -787,18 +796,16 @@ def test_scenario_inputs_build_configs():
             boreholes=42,
             depth_m=120.0,
             spacing_m=5.0,
-            rho_cp_mj_m3_k=2.4,
             t_initial_c=12.0,
             t_min_c=5.0,
             t_max_c=40.0,
-            tau_months=24.0,
             backend="pygfunction",
         ),
         heat_pump=HeatPumpInputs(
             air_target_bt_c=25.0,
-            condenser_approach_k=7.0,
+            condenser_approach_k=2.0,
             evaporator_approach_k=3.0,
-            carnot_efficiency=0.45,
+            carnot_efficiency=0.54,
             cop_min=2.0,
             cop_max=8.0,
             pac_power_fraction_pct=80.0,
@@ -807,7 +814,6 @@ def test_scenario_inputs_build_configs():
         economics=EconomicsInputs(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
-            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -826,7 +832,6 @@ def test_scenario_inputs_build_configs():
     assert config.collector.area_m2 == 750.0
     assert config.collector.daily_buffer_delta_t_k == 60.0
     assert config.btes.boreholes == 42
-    assert config.btes.volumetric_heat_capacity_j_m3_k == 2.4e6
     assert config.btes.backend == "pygfunction"
     assert config.heat_pump.max_thermal_power_kw == 400.0
     assert economics.analysis_years == 20
@@ -851,14 +856,14 @@ def _small_economic_scenario():
         btes=BtesConfig(boreholes=50, depth_m=100.0, spacing_m=5.0, t_initial_c=12.0, t_min_c=5.0, t_max_c=40.0),
         heat_pump=HeatPumpConfig(air_target_bt_c=25.0, max_thermal_power_kw=120.0),
     )
+    hourly_override = _hourly_override(weather, ht_kwh=160.0, bt_kwh=96.0)
     return run_hourly_scenario(
         weather=weather,
-        demands=[MonthlyDemand(month=1, process_ht_kwh=20_000.0, process_bt_kwh=12_000.0)],
+        demands=_demand_aggregate(1, weather, ht_kwh=160.0, bt_kwh=96.0),
         config=config,
         economics=ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=70.0,
             reference_energy_inflation_pct=3.0,
-            discount_rate_pct=4.0,
             eta_appoint_eco=0.82,
             analysis_years=20,
             auxiliary_electricity_ratio_pct=3.0,
@@ -868,6 +873,7 @@ def _small_economic_scenario():
             other_public_aid_eur=0.0,
             backup_p2_eur_kw_year=10.0,
         ),
+        hourly_demand_override=hourly_override,
     )
 
 

@@ -32,7 +32,6 @@ ProgressCallback = Callable[[int, str], None]
 class ScenarioEconomicsConfig:
     reference_energy_cost_eur_mwh: float
     reference_energy_inflation_pct: float
-    discount_rate_pct: float
     eta_appoint_eco: float
     analysis_years: int
     auxiliary_electricity_ratio_pct: float
@@ -215,6 +214,7 @@ def solar_surface_parametric_study(
             gas_reference_p1_eur_mwh_pci=reference_energy_cost_eur_mwh,
             gas_reference_efficiency=eta_appoint_eco,
             gas_reference_inflation_rate=reference_energy_inflation_pct / 100.0,
+            geothermal_p1_eur_mwh=electricity_cost_eur_mwh,
             backup_p2_eur_kw_year=backup_p2_eur_kw_year,
         )
 
@@ -370,6 +370,7 @@ def pac_power_parametric_study(
             gas_reference_p1_eur_mwh_pci=reference_energy_cost_eur_mwh,
             gas_reference_efficiency=eta_appoint_eco,
             gas_reference_inflation_rate=reference_energy_inflation_pct / 100.0,
+            geothermal_p1_eur_mwh=electricity_cost_eur_mwh,
             backup_p2_eur_kw_year=backup_p2_eur_kw_year,
         )
 
@@ -501,7 +502,7 @@ def _reference_gas_trajectory_from(trajectory_df: pd.DataFrame) -> pd.DataFrame:
     return reference_df
 
 
-def _discounted_multiyear_cost(
+def _multiyear_heat_cost(
     *,
     trajectory_df: pd.DataFrame,
     heat_costs: dict[str, float | pd.DataFrame],
@@ -509,10 +510,9 @@ def _discounted_multiyear_cost(
     capex_net_eur: float,
     reference: bool = False,
 ) -> dict[str, float]:
-    discount = max(0.0, float(economics.discount_rate_pct)) / 100.0
     gas_inflation = max(0.0, float(economics.reference_energy_inflation_pct)) / 100.0
     gas_useful_year_1 = max(0.0, economics.reference_energy_cost_eur_mwh) / max(1e-9, economics.eta_appoint_eco)
-    geo_p1_eur_mwh = 150.0
+    geo_p1_eur_mwh = max(0.0, float(economics.electricity_cost_eur_mwh))
     solar_p1_eur_mwh = _unit_cost(heat_costs, "Solaire thermique", "P1")
     p2_annual = 0.0
     capex_df = heat_costs.get("capex_summary", pd.DataFrame())
@@ -536,14 +536,13 @@ def _discounted_multiyear_cost(
     if isinstance(capex_df, pd.DataFrame) and not capex_df.empty:
         pass
 
-    discounted_cost = max(0.0, capex_net_eur)
-    discounted_useful = 0.0
+    total_cost = max(0.0, capex_net_eur)
+    total_useful = 0.0
     p1_total_nominal = 0.0
     p2_total_nominal = 0.0
     p4_total_nominal = 0.0
     for _, row in trajectory_df.iterrows():
         year = int(row["Annee"])
-        discount_factor = 1.0 / ((1.0 + discount) ** max(0, year - 1))
         gas_price = gas_useful_year_1 * ((1.0 + gas_inflation) ** max(0, year - 1))
         if reference:
             p1 = float(row["E utile totale (MWh)"]) * gas_price
@@ -555,13 +554,13 @@ def _discounted_multiyear_cost(
             )
         p2 = p2_annual
         p4 = max(0.0, capex_net_eur) / max(1, int(economics.analysis_years))
-        discounted_cost += (p1 + p2) * discount_factor
-        discounted_useful += float(row["E utile totale (MWh)"]) * discount_factor
+        total_cost += p1 + p2
+        total_useful += float(row["E utile totale (MWh)"])
         p1_total_nominal += p1
         p2_total_nominal += p2
         p4_total_nominal += p4
     return {
-        "discounted_heat_cost_eur_mwh": discounted_cost / max(1e-9, discounted_useful),
+        "multiyear_heat_cost_eur_mwh": total_cost / max(1e-9, total_useful),
         "p1_annual_eur": p1_total_nominal / max(1, len(trajectory_df)),
         "p2_annual_eur": p2_total_nominal / max(1, len(trajectory_df)),
         "p4_annual_eur": p4_total_nominal / max(1, len(trajectory_df)),
@@ -612,6 +611,7 @@ def _scenario_heat_costs(
         gas_reference_p1_eur_mwh_pci=economics.reference_energy_cost_eur_mwh,
         gas_reference_efficiency=economics.eta_appoint_eco,
         gas_reference_inflation_rate=economics.reference_energy_inflation_pct / 100.0,
+        geothermal_p1_eur_mwh=economics.electricity_cost_eur_mwh,
         backup_p2_eur_kw_year=economics.backup_p2_eur_kw_year,
     )
 
@@ -934,26 +934,26 @@ def run_hourly_scenario(
     reduced_capex = _capex_net_total(heat_costs, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
     reference_capex = float(heat_costs["reference_capex_eur"])
     multiyear_costs_by_scenario = {
-        "Reference 100 % gaz": _discounted_multiyear_cost(
+        "Reference 100 % gaz": _multiyear_heat_cost(
             trajectory_df=reference_trajectory_df,
             heat_costs=heat_costs,
             economics=economics,
             capex_net_eur=reference_capex,
             reference=True,
         ),
-        "Geothermie seule": _discounted_multiyear_cost(
+        "Geothermie seule": _multiyear_heat_cost(
             trajectory_df=geo_only_trajectory_df,
             heat_costs=geo_only_heat_costs,
             economics=economics,
             capex_net_eur=geo_only_capex,
         ),
-        "Geothermie + solaire meme sondes": _discounted_multiyear_cost(
+        "Geothermie + solaire meme sondes": _multiyear_heat_cost(
             trajectory_df=same_trajectory_df,
             heat_costs=same_borefield_heat_costs,
             economics=economics,
             capex_net_eur=same_capex,
         ),
-        "Geothermie + solaire sondes reduites": _discounted_multiyear_cost(
+        "Geothermie + solaire sondes reduites": _multiyear_heat_cost(
             trajectory_df=reduced_trajectory_df,
             heat_costs=heat_costs,
             economics=economics,
@@ -1019,11 +1019,11 @@ def run_hourly_scenario(
     for index, row in economic_comparison_df.iterrows():
         scenario_name = str(row["Scenario"])
         costs = multiyear_costs_by_scenario[scenario_name]
-        economic_comparison_df.loc[index, "Cout chaleur global (EUR/MWh)"] = costs["discounted_heat_cost_eur_mwh"]
+        economic_comparison_df.loc[index, "Cout chaleur global (EUR/MWh)"] = costs["multiyear_heat_cost_eur_mwh"]
         economic_comparison_df.loc[index, "P1 annuel (EUR/an)"] = costs["p1_annual_eur"]
         economic_comparison_df.loc[index, "P2 annuel (EUR/an)"] = costs["p2_annual_eur"]
         economic_comparison_df.loc[index, "P4 annuel (EUR/an)"] = costs["p4_annual_eur"]
-    economic_comparison_df["Méthode coût chaleur"] = "Actualisé multiannuel"
+    economic_comparison_df["Méthode coût chaleur"] = "Multiannuel nominal"
     economic_comparison_chart_df = economic_comparison_df.melt(
         id_vars=["Scenario"],
         value_vars=[

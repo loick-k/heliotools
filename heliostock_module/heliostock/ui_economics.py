@@ -86,7 +86,7 @@ def render_economics_tab(
         "Lecture type Dim A / Dim B / Dim C : reference gaz, geothermie seule, geothermie + solaire a lineaire "
         "constant, puis geothermie + solaire avec lineaire reduit. La recharge solaire est analysee comme un "
         "service rendu au champ de sondes, sans economie P2 proportionnelle aux ml economises. Les couts variables "
-        "sont calcules sur une trajectoire physique multiannuelle actualisee."
+        "sont calcules sur une trajectoire physique multiannuelle nominale."
     )
     st.dataframe(round_display_df(economic_comparison_df), width="stretch", hide_index=True)
 

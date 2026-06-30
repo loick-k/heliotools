@@ -52,24 +52,24 @@ def _hourly_demands_from_8760_profile(
 ) -> tuple[dict[int, tuple[float, float]], list[MonthlyDemand], pd.DataFrame, dict[str, float | str]]:
     """Build hourly HT/BT needs from an 8760 h process power/energy profile.
 
-    Expected V2 workbook:
-    - `E étuve recalée kWh` or `P étuve recalée kW` = HT process to 60 C;
-    - `E cabines recalée kWh` or `P cabines recalée kW` = BT process to 25 C.
+    Expected workbook:
+    - `E besoin HT kWh` or `P besoin HT kW` = HT process to 60 C;
+    - `E besoin BT kWh` or `P besoin BT kW` = BT process to 25 C.
 
     If energy columns are present, they are used directly. Otherwise, power kW
     is interpreted as kWh over each one-hour step.
     """
 
     df = pd.read_excel(excel_file, sheet_name=0)
-    ht_energy_col = _column_by_normalized_name(df, ["E etuve recalee kWh", "E etuves recalee kWh"])
-    bt_energy_col = _column_by_normalized_name(df, ["E cabines recalee kWh", "E cabine recalee kWh"])
-    ht_power_col = _column_by_normalized_name(df, ["P etuve recalee kW", "P etuves recalee kW"])
-    bt_power_col = _column_by_normalized_name(df, ["P cabines recalee kW", "P cabine recalee kW"])
+    ht_energy_col = _column_by_normalized_name(df, ["E besoin HT kWh", "Besoin HT kWh", "E HT kWh"])
+    bt_energy_col = _column_by_normalized_name(df, ["E besoin BT kWh", "Besoin BT kWh", "E BT kWh"])
+    ht_power_col = _column_by_normalized_name(df, ["P besoin HT kW", "Puissance HT kW", "P HT kW"])
+    bt_power_col = _column_by_normalized_name(df, ["P besoin BT kW", "Puissance BT kW", "P BT kW"])
 
     if ht_energy_col is None and ht_power_col is None:
-        raise ValueError("Colonne HT introuvable : attendu `E/P étuve recalée`.")
+        raise ValueError("Colonne HT introuvable : attendu `E/P besoin HT`.")
     if bt_energy_col is None and bt_power_col is None:
-        raise ValueError("Colonne BT introuvable : attendu `E/P cabines recalée`.")
+        raise ValueError("Colonne BT introuvable : attendu `E/P besoin BT`.")
 
     weather_count = len(weather)
     if len(df) < weather_count:
@@ -116,8 +116,6 @@ def _hourly_demands_from_8760_profile(
         "operating_hours_per_day": 0.0,
         "ht_kwh": float(hourly_profile_df["demand_ht_kwh"].sum()),
         "bt_kwh": float(hourly_profile_df["demand_bt_kwh"].sum()),
-        "cabin_scale_factor": 1.0,
-        "oven_scale_factor": 1.0,
     }
     return hourly_override, monthly_demands, hourly_profile_df, info
 
@@ -125,114 +123,29 @@ def _hourly_demands_from_8760_profile(
 def _hourly_demands_from_process_file(
     excel_file,
     weather,
-    *,
-    operating_start_hour: int = 5,
-    operating_end_hour: int = 21,
-    cabin_scale_factor: float = 0.821,
-    oven_scale_factor: float = 0.955,
 ) -> tuple[dict[int, tuple[float, float]], list[MonthlyDemand], pd.DataFrame, dict[str, float | str]]:
     df_preview = pd.read_excel(excel_file, sheet_name=0, nrows=5)
     normalized_columns = {_normalize_column_name(column) for column in df_preview.columns}
     hourly_markers = {
-        "e etuve recalee kwh",
-        "e etuves recalee kwh",
-        "e cabines recalee kwh",
-        "p etuve recalee kw",
-        "p etuves recalee kw",
-        "p cabines recalee kw",
+        "e besoin ht kwh",
+        "besoin ht kwh",
+        "e ht kwh",
+        "p besoin ht kw",
+        "puissance ht kw",
+        "p ht kw",
+        "e besoin bt kwh",
+        "besoin bt kwh",
+        "e bt kwh",
+        "p besoin bt kw",
+        "puissance bt kw",
+        "p bt kw",
     }
     if normalized_columns & hourly_markers:
         return _hourly_demands_from_8760_profile(excel_file, weather)
     raise ValueError(
         "Format besoin invalide : HelioStock attend un profil horaire 8760 h avec "
-        "`P/E etuve recalee` et `P/E cabines recalee`."
+        "`P/E besoin HT` et `P/E besoin BT`."
     )
-
-
-def _hourly_demands_from_process_calendar(
-    excel_file,
-    weather,
-    *,
-    operating_start_hour: int = 5,
-    operating_end_hour: int = 21,
-    cabin_scale_factor: float = 0.821,
-    oven_scale_factor: float = 0.955,
-) -> tuple[dict[int, tuple[float, float]], list[MonthlyDemand], pd.DataFrame, dict[str, float]]:
-    """Build hourly HT/BT needs from the provided daily process calendar.
-
-    Expected file shape, based on the current user workbook:
-    - one row per day;
-    - `P étuve kW` / `E étuve MWh` = HT process air to 60 C;
-    - `P cabines kW` / `E cabines MWh` = BT process air to 25 C;
-    - `Fonctionnement` = 1 for open days, 0 for closed days.
-    """
-
-    df = pd.read_excel(excel_file, sheet_name=0)
-    required = {"Date", "Fonctionnement", "P cabines kW", "E cabines MWh", "P étuve kW", "E étuve MWh"}
-    missing = required - set(df.columns)
-    if missing:
-        raise ValueError(f"Colonnes manquantes dans le fichier besoin horaire/journalier : {sorted(missing)}")
-
-    operating_hours = max(1, int(operating_end_hour) - int(operating_start_hour))
-    profile_by_day: dict[tuple[int, int], tuple[float, float]] = {}
-
-    clean = df.copy()
-    clean["Date"] = pd.to_datetime(clean["Date"], errors="coerce")
-    clean = clean.dropna(subset=["Date"])
-    for _, row in clean.iterrows():
-        month = int(row["Date"].month)
-        day = int(row["Date"].day)
-        is_open = float(row.get("Fonctionnement", 0.0) or 0.0) > 0.0
-        if not is_open:
-            profile_by_day[(month, day)] = (0.0, 0.0)
-            continue
-
-        ht_kw_from_energy = max(0.0, float(row.get("E étuve MWh", 0.0) or 0.0) * 1000.0 / operating_hours)
-        bt_kw_from_energy = max(0.0, float(row.get("E cabines MWh", 0.0) or 0.0) * 1000.0 / operating_hours)
-        ht_kw_raw = ht_kw_from_energy if ht_kw_from_energy > 0.0 else max(0.0, float(row.get("P étuve kW", 0.0) or 0.0))
-        bt_kw_raw = bt_kw_from_energy if bt_kw_from_energy > 0.0 else max(0.0, float(row.get("P cabines kW", 0.0) or 0.0))
-        ht_kw = ht_kw_raw * max(0.0, float(oven_scale_factor))
-        bt_kw = bt_kw_raw * max(0.0, float(cabin_scale_factor))
-        profile_by_day[(month, day)] = (ht_kw, bt_kw)
-
-    hourly_override: dict[int, tuple[float, float]] = {}
-    rows = []
-    for w in weather:
-        day_profile = profile_by_day.get((w.month, w.day), (0.0, 0.0))
-        is_operating_hour = int(operating_start_hour) <= int(w.hour) < int(operating_end_hour)
-        ht_kwh = day_profile[0] if is_operating_hour else 0.0
-        bt_kwh = day_profile[1] if is_operating_hour else 0.0
-        hourly_override[w.hour_index] = (ht_kwh, bt_kwh)
-        rows.append(
-            {
-                "hour_index": w.hour_index,
-                "month": w.month,
-                "day": w.day,
-                "hour": w.hour,
-                "demand_ht_kwh": ht_kwh,
-                "demand_bt_kwh": bt_kwh,
-            }
-        )
-
-    hourly_profile_df = pd.DataFrame(rows)
-    monthly_demands = [
-        MonthlyDemand(
-            month=month,
-            process_ht_kwh=float(group["demand_ht_kwh"].sum()),
-            process_bt_kwh=float(group["demand_bt_kwh"].sum()),
-        )
-        for month, group in hourly_profile_df.groupby("month", sort=True)
-    ]
-    info = {
-        "rows": float(len(clean)),
-        "operating_days": float((clean["Fonctionnement"].fillna(0).astype(float) > 0).sum()),
-        "operating_hours_per_day": float(operating_hours),
-        "ht_kwh": float(hourly_profile_df["demand_ht_kwh"].sum()),
-        "bt_kwh": float(hourly_profile_df["demand_bt_kwh"].sum()),
-        "cabin_scale_factor": float(cabin_scale_factor),
-        "oven_scale_factor": float(oven_scale_factor),
-    }
-    return hourly_override, monthly_demands, hourly_profile_df, info
 
 
 def _peak_bt_power_kw(
