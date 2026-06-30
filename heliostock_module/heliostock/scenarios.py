@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Callable
@@ -138,17 +139,32 @@ def _simulate_hourly_dataframe(
     simulation_years: int,
     simulation_cache: SimulationCache | None,
 ) -> pd.DataFrame:
-    return _hourly_results_to_dataframe(
-        _simulate_hourly_cached(
-            weather=weather,
-            demands=demands,
-            config=config,
-            hourly_demand_override=hourly_demand_override,
-            simulation_years=simulation_years,
-            simulation_cache=simulation_cache,
-            cache_mode="pygfunction",
-        )
+    results = _simulate_hourly_cached(
+        weather=weather,
+        demands=demands,
+        config=config,
+        hourly_demand_override=hourly_demand_override,
+        simulation_years=simulation_years,
+        simulation_cache=simulation_cache,
+        cache_mode="pygfunction",
     )
+    started_at = time.perf_counter()
+    df = _hourly_results_to_dataframe(results)
+    elapsed = time.perf_counter() - started_at
+    if simulation_cache is not None:
+        simulation_cache.record_event(
+            "postprocess:dataframe",
+            "Conversion resultats horaires en DataFrame",
+            {
+                "Mode simulation": "pygfunction",
+                "Annees simulees": int(simulation_years),
+                "Pas meteo": int(len(weather)),
+                "Heures simulees": int(len(results)),
+                "Lignes DataFrame": int(len(df)),
+                "Duree dataframe (s)": elapsed,
+            },
+        )
+    return df
 
 
 def solar_surface_parametric_study(
@@ -206,16 +222,13 @@ def solar_surface_parametric_study(
         )
 
         variant_config = replace(config, collector=replace(config.collector, area_m2=float(surface_m2)))
-        variant_multiyear_df = _hourly_results_to_dataframe(
-            _simulate_hourly_cached(
-                weather=weather,
-                demands=demands,
-                config=variant_config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=simulation_years,
-                simulation_cache=simulation_cache,
-                cache_mode="pygfunction",
-            )
+        variant_multiyear_df = _simulate_hourly_dataframe(
+            weather=weather,
+            demands=demands,
+            config=variant_config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=simulation_years,
+            simulation_cache=simulation_cache,
         )
         variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
         economic_metrics_variant = _hourly_metrics(variant_multiyear_df, annualization_years=simulation_years)
@@ -463,16 +476,13 @@ def pac_power_parametric_study(
             heat_pump=hp_variant,
             btes=btes_variant,
         )
-        variant_multiyear_df = _hourly_results_to_dataframe(
-            _simulate_hourly_cached(
-                weather=weather,
-                demands=demands,
-                config=variant_config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=simulation_years,
-                simulation_cache=simulation_cache,
-                cache_mode="pygfunction",
-            )
+        variant_multiyear_df = _simulate_hourly_dataframe(
+            weather=weather,
+            demands=demands,
+            config=variant_config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=simulation_years,
+            simulation_cache=simulation_cache,
         )
         variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
         economic_metrics_variant = _hourly_metrics(variant_multiyear_df, annualization_years=simulation_years)
@@ -1205,16 +1215,13 @@ def run_hourly_scenario(
             reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
             reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
             reduced_config = replace(config, btes=reduced_btes)
-            reduced_hourly_df = _hourly_results_to_dataframe(
-                _simulate_hourly_cached(
-                    weather=weather,
-                    demands=demands,
-                    config=reduced_config,
-                    hourly_demand_override=hourly_demand_override,
-                    simulation_years=multiyear_years,
-                    simulation_cache=simulation_cache,
-                    cache_mode="pygfunction",
-                )
+            reduced_hourly_df = _simulate_hourly_dataframe(
+                weather=weather,
+                demands=demands,
+                config=reduced_config,
+                hourly_demand_override=hourly_demand_override,
+                simulation_years=multiyear_years,
+                simulation_cache=simulation_cache,
             )
     else:
         reduced_hourly_df = multiyear_df.copy()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass
+from threading import Lock
 from typing import Callable
 
 import pandas as pd
@@ -107,21 +108,41 @@ def run_hourly_calculation(
 
     started_at = time.perf_counter()
     last_at = started_at
-    performance_events: list[dict[str, float | int | str | None]] = []
+    performance_events: list[dict[str, object]] = []
+    performance_lock = Lock()
 
-    def mark(tag: str, message: str, progress_value: int | None = None) -> None:
+    def _append_performance_event(
+        tag: str,
+        message: str,
+        progress_value: int | None = None,
+        *,
+        metrics: dict[str, object] | None = None,
+        update_last_step: bool = True,
+    ) -> None:
         nonlocal last_at
-        now = time.perf_counter()
-        performance_events.append(
-            {
+        with performance_lock:
+            now = time.perf_counter()
+            duration_since_previous = now - last_at if update_last_step else None
+            row: dict[str, object] = {
                 "Etape": tag,
                 "Message": message,
                 "Progression (%)": float(progress_value) if progress_value is not None else None,
-                "Duree depuis etape precedente (s)": now - last_at,
+                "Duree depuis etape precedente (s)": duration_since_previous,
                 "Duree cumulee (s)": now - started_at,
             }
-        )
-        last_at = now
+            row.update(metrics or {})
+            performance_events.append(row)
+            if update_last_step:
+                last_at = now
+
+    def mark(tag: str, message: str, progress_value: int | None = None) -> None:
+        _append_performance_event(tag, message, progress_value, update_last_step=True)
+
+    def record_simulation_event(event: dict[str, object]) -> None:
+        tag = str(event.get("Etape", "simulation"))
+        message = str(event.get("Message", "Evenement simulation"))
+        metrics = {key: value for key, value in event.items() if key not in {"Etape", "Message"}}
+        _append_performance_event(tag, message, metrics=metrics, update_last_step=False)
 
     def progress_with_log(value: int, text: str) -> None:
         mark("progress", text, value)
@@ -159,7 +180,7 @@ def run_hourly_calculation(
     config = scenario_inputs.to_simulation_config()
     economics = scenario_inputs.to_economics_config()
     mark("inputs:end", "Configurations physique et economique pretes")
-    simulation_cache = SimulationCache()
+    simulation_cache = SimulationCache(event_callback=record_simulation_event)
     quick_preview = bool(request.calculation_selection.quick_preview)
     if quick_preview:
         warnings.append(
@@ -278,18 +299,30 @@ def run_hourly_calculation(
         f"{cache_summary['misses']} calculs, "
         f"{cache_summary['entries']} entrees",
     )
+    _append_performance_event(
+        "cache:details",
+        "Synthese detaillee du cache simulations",
+        metrics={
+            "Cache hits": int(cache_summary["hits"]),
+            "Cache misses": int(cache_summary["misses"]),
+            "Entrees cache": int(cache_summary["entries"]),
+            "Simulations lancees": int(cache_summary["misses"]),
+        },
+        update_last_step=False,
+    )
     mark("end", "Calcul HelioStock termine")
 
     performance_log_df = pd.DataFrame(performance_events)
     if not performance_log_df.empty:
         performance_log_df["Etape"] = performance_log_df["Etape"].astype("string")
         performance_log_df["Message"] = performance_log_df["Message"].astype("string")
-        performance_log_df["Progression (%)"] = pd.to_numeric(
-            performance_log_df["Progression (%)"],
-            errors="coerce",
-        ).astype("Float64")
-        for column in ["Duree depuis etape precedente (s)", "Duree cumulee (s)"]:
-            performance_log_df[column] = pd.to_numeric(performance_log_df[column], errors="coerce").astype(float)
+        string_columns = {"Etape", "Message", "Mode simulation", "Cache"}
+        for column in performance_log_df.columns:
+            if column in string_columns:
+                performance_log_df[column] = performance_log_df[column].astype("string")
+            else:
+                performance_log_df[column] = pd.to_numeric(performance_log_df[column], errors="coerce")
+        performance_log_df["Progression (%)"] = performance_log_df["Progression (%)"].astype("Float64")
 
     return HourlyCalculationResult(
         scenario=scenario,

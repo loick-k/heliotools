@@ -1343,6 +1343,12 @@ def test_app_service_runs_calculation_without_streamlit():
     assert result.parametric_surface_df.empty
     assert str(result.performance_log_df["Progression (%)"].dtype) == "Float64"
     assert result.performance_log_df["Progression (%)"].dropna().map(type).eq(float).all()
+    assert "Duree pygfunction (s)" in result.performance_log_df
+    assert "Duree dataframe (s)" in result.performance_log_df
+    assert "Heures simulees" in result.performance_log_df
+    assert "Simulations lancees" in result.performance_log_df
+    assert (result.performance_log_df["Etape"] == "simulate:pygfunction").any()
+    assert (result.performance_log_df["Etape"] == "postprocess:dataframe").any()
 
 
 def test_quick_preview_forces_one_year_without_heavy_options():

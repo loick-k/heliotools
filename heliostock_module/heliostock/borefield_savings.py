@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import replace
 
 import pandas as pd
@@ -152,9 +153,22 @@ def borefield_equivalent_savings(
                 simulation_years=years,
             )
         )
-        df = _hourly_results_to_dataframe(
-            results
-        )
+        started_at = time.perf_counter()
+        df = _hourly_results_to_dataframe(results)
+        elapsed = time.perf_counter() - started_at
+        if simulation_cache is not None:
+            simulation_cache.record_event(
+                "postprocess:dataframe",
+                "Conversion resultats horaires en DataFrame (economie sondes)",
+                {
+                    "Mode simulation": "borefield_savings",
+                    "Annees simulees": int(years),
+                    "Pas meteo": int(len(weather)),
+                    "Heures simulees": int(len(results)),
+                    "Lignes DataFrame": int(len(df)),
+                    "Duree dataframe (s)": elapsed,
+                },
+            )
         cop = _mean_cop(df)
         bt_pac = float(df["heat_bt_from_pac_kwh"].sum()) / years
         final_metrics = _final_year_screening_metrics(

@@ -143,6 +143,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                             "Progression (%)": None,
                             "Duree depuis etape precedente (s)": render_elapsed,
                             "Duree cumulee (s)": previous_total + render_elapsed,
+                            "Duree rendu Streamlit (s)": render_elapsed,
                         }
                     ]
                 ),

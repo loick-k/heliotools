@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, is_dataclass
 from threading import Lock
-from typing import Any
+from typing import Any, Callable
 
 from .engine import MonthlyDemand, SimulationConfig
 from .hourly_engine import HourlyResult, HourlyWeather, simulate_hourly
@@ -59,11 +60,12 @@ def _override_signature(
 class SimulationCache:
     """In-memory cache for repeated hourly pygfunction simulations in one run."""
 
-    def __init__(self) -> None:
+    def __init__(self, event_callback: Callable[[dict[str, Any]], None] | None = None) -> None:
         self._store: dict[tuple[Any, ...], tuple[HourlyResult, ...]] = {}
         self.hits = 0
         self.misses = 0
         self._lock = Lock()
+        self._event_callback = event_callback
 
     @property
     def entries(self) -> int:
@@ -79,6 +81,16 @@ class SimulationCache:
         simulation_years: int = 1,
         mode: str = "hourly",
     ) -> list[HourlyResult]:
+        hours_simulated = int(len(weather) * max(1, int(simulation_years)))
+        common_metrics = {
+            "Mode simulation": str(mode),
+            "Annees simulees": int(simulation_years),
+            "Pas meteo": int(len(weather)),
+            "Heures simulees": hours_simulated,
+            "Surface solaire (m2)": float(config.collector.area_m2),
+            "Sondes": int(config.btes.boreholes),
+            "Lineaire sondes (ml)": float(config.btes.boreholes) * float(config.btes.depth_m),
+        }
         key = (
             str(mode),
             int(simulation_years),
@@ -91,9 +103,22 @@ class SimulationCache:
             cached = self._store.get(key)
             if cached is not None:
                 self.hits += 1
+                self.record_event(
+                    "simulate:cache_hit",
+                    f"Simulation reutilisee depuis le cache ({mode})",
+                    {
+                        **common_metrics,
+                        "Cache": "hit",
+                        "Cache hits": int(self.hits),
+                        "Cache misses": int(self.misses),
+                        "Simulations lancees": 0,
+                        "Duree pygfunction (s)": 0.0,
+                    },
+                )
                 return list(cached)
             self.misses += 1
 
+        started_at = time.perf_counter()
         results = tuple(
             simulate_hourly(
                 weather,
@@ -103,9 +128,34 @@ class SimulationCache:
                 simulation_years=simulation_years,
             )
         )
+        elapsed = time.perf_counter() - started_at
         with self._lock:
             self._store[key] = results
+            hits = int(self.hits)
+            misses = int(self.misses)
+        self.record_event(
+            "simulate:pygfunction",
+            f"Simulation pygfunction calculee ({mode})",
+            {
+                **common_metrics,
+                "Cache": "miss",
+                "Cache hits": hits,
+                "Cache misses": misses,
+                "Simulations lancees": 1,
+                "Duree pygfunction (s)": elapsed,
+            },
+        )
         return list(results)
+
+    def record_event(self, tag: str, message: str, metrics: dict[str, Any] | None = None) -> None:
+        if self._event_callback is not None:
+            self._event_callback(
+                {
+                    "Etape": tag,
+                    "Message": message,
+                    **(metrics or {}),
+                }
+            )
 
     def summary(self) -> dict[str, int]:
         with self._lock:
