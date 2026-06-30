@@ -108,6 +108,8 @@ def solar_surface_parametric_study(
     hourly_demand_override: dict[int, tuple[float, float]] | None,
     no_solar_cop: float,
     no_solar_total_pac_kwh: float,
+    no_solar_bt_coverage: float,
+    no_solar_source_limited_hours: float,
     pac_nominal_power_kw: float,
     full_borefield_length_m: float,
     reference_gas_power_kw: float,
@@ -187,8 +189,10 @@ def solar_surface_parametric_study(
             weather=weather,
             demands=demands,
             config=variant_config,
-            reference_cop=no_solar_cop,
-            reference_bt_pac_kwh=no_solar_total_pac_kwh,
+            reference_final_cop=no_solar_cop,
+            reference_final_bt_pac_kwh=no_solar_total_pac_kwh,
+            reference_final_bt_coverage=no_solar_bt_coverage,
+            reference_final_source_limited_hours=no_solar_source_limited_hours,
             hourly_demand_override=hourly_demand_override,
             simulation_years=simulation_years,
             iterations=12,
@@ -1005,6 +1009,12 @@ def run_hourly_scenario(
         no_solar_economic_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years)
     else:
         no_solar_economic_metrics = None
+    no_solar_reference_coverage = no_solar_total_pac / max(1e-9, float(no_solar_displayed_hourly_df["demand_bt_kwh"].sum())) if not no_solar_displayed_hourly_df.empty else 0.0
+    no_solar_reference_limited_hours = (
+        float(no_solar_displayed_hourly_df["Limite_temperature_source"].sum())
+        if not no_solar_displayed_hourly_df.empty and "Limite_temperature_source" in no_solar_displayed_hourly_df
+        else 0.0
+    )
 
     _notify(progress, 70, "Calcul de l'économie équivalente de sondes...")
     if no_solar_economic_metrics is not None:
@@ -1012,8 +1022,10 @@ def run_hourly_scenario(
             weather=weather,
             demands=demands,
             config=config,
-            reference_cop=no_solar_economic_metrics["mean_cop"],
-            reference_bt_pac_kwh=no_solar_economic_metrics["pac_heat_mwh"] * 1000.0,
+            reference_final_cop=no_solar_cop,
+            reference_final_bt_pac_kwh=no_solar_total_pac,
+            reference_final_bt_coverage=no_solar_reference_coverage,
+            reference_final_source_limited_hours=no_solar_reference_limited_hours,
             hourly_demand_override=hourly_demand_override,
             simulation_years=multiyear_years,
         )

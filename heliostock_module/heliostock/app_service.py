@@ -221,6 +221,13 @@ def run_hourly_calculation(
             hourly_demand_override=request.hourly_demand_override,
             no_solar_cop=scenario.no_solar_cop,
             no_solar_total_pac_kwh=scenario.no_solar_total_pac_kwh,
+            no_solar_bt_coverage=scenario.no_solar_total_pac_kwh
+            / max(1e-9, float(scenario.no_solar_hourly_df["demand_bt_kwh"].sum())),
+            no_solar_source_limited_hours=(
+                float(scenario.no_solar_hourly_df["Limite_temperature_source"].sum())
+                if "Limite_temperature_source" in scenario.no_solar_hourly_df
+                else 0.0
+            ),
             pac_nominal_power_kw=scenario_inputs.pac_nominal_power_kw,
             full_borefield_length_m=scenario.full_borefield_length_m,
             reference_gas_power_kw=scenario.reference_gas_power_kw,

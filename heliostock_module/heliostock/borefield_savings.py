@@ -52,8 +52,10 @@ def borefield_equivalent_savings(
     weather: list[HourlyWeather],
     demands: list[MonthlyDemand],
     config: SimulationConfig,
-    reference_cop: float,
-    reference_bt_pac_kwh: float,
+    reference_final_cop: float,
+    reference_final_bt_pac_kwh: float,
+    reference_final_bt_coverage: float,
+    reference_final_source_limited_hours: float,
     hourly_demand_override: dict[int, tuple[float, float]] | None = None,
     simulation_years: int = 1,
     min_scale: float = 0.05,
@@ -66,7 +68,7 @@ def borefield_equivalent_savings(
     borefield design, but it only varies pygfunction borefield geometry.
     """
 
-    tolerance_bt = max(1.0, 0.001 * reference_bt_pac_kwh)
+    tolerance_bt = max(1.0, 0.001 * reference_final_bt_pac_kwh)
     base_length_m = max(0.0, config.btes.boreholes * config.btes.depth_m)
     years = max(1, int(simulation_years))
 
@@ -95,9 +97,10 @@ def borefield_equivalent_savings(
         return df, cop, bt_pac, boreholes, final_metrics
 
     _, full_cop, full_bt, full_boreholes, full_final = run(1.0)
-    reference_final_cop = min(full_final["final_cop"], max(reference_cop, 0.0))
-    reference_final_bt = min(full_final["final_bt_pac_kwh"], max(reference_bt_pac_kwh, 0.0))
-    reference_final_coverage = full_final["final_bt_coverage"]
+    required_final_cop = min(full_final["final_cop"], max(reference_final_cop, 0.0))
+    required_final_bt = min(full_final["final_bt_pac_kwh"], max(reference_final_bt_pac_kwh, 0.0))
+    required_final_coverage = min(full_final["final_bt_coverage"], max(reference_final_bt_coverage, 0.0))
+    required_source_limited_hours = max(0.0, reference_final_source_limited_hours)
     full_final_valid = (
         full_final["final_hours_under_tmin"] <= 1e-9
         and full_final["final_hours_under_gmi_tmin"] <= 1e-9
@@ -106,7 +109,13 @@ def borefield_equivalent_savings(
         and full_final["final_q_extraction_max_w_m"] <= config.btes.max_extraction_w_m + 1e-6
         and full_final["final_q_injection_max_w_m"] <= config.btes.max_injection_w_m + 1e-6
     )
-    if full_cop + 1e-9 < reference_cop or full_bt + tolerance_bt < reference_bt_pac_kwh or not full_final_valid:
+    if (
+        full_final["final_cop"] + 1e-9 < required_final_cop
+        or full_final["final_bt_pac_kwh"] + tolerance_bt < required_final_bt
+        or full_final["final_bt_coverage"] + 1e-9 < required_final_coverage
+        or full_final["final_source_limited_hours"] > required_source_limited_hours + 1e-9
+        or not full_final_valid
+    ):
         return {
             "found": False,
             "scale": 1.0,
@@ -132,15 +141,13 @@ def borefield_equivalent_savings(
         mid = (low + high) / 2.0
         _, cop, bt_pac, boreholes, final_metrics = run(mid)
         ok = (
-            cop + 1e-9 >= reference_cop
-            and bt_pac + tolerance_bt >= reference_bt_pac_kwh
-            and final_metrics["final_cop"] + 1e-9 >= reference_final_cop
-            and final_metrics["final_bt_pac_kwh"] + tolerance_bt >= reference_final_bt
-            and final_metrics["final_bt_coverage"] + 1e-9 >= reference_final_coverage
+            final_metrics["final_cop"] + 1e-9 >= required_final_cop
+            and final_metrics["final_bt_pac_kwh"] + tolerance_bt >= required_final_bt
+            and final_metrics["final_bt_coverage"] + 1e-9 >= required_final_coverage
             and final_metrics["final_hours_under_tmin"] <= full_final["final_hours_under_tmin"] + 1e-9
             and final_metrics["final_hours_under_gmi_tmin"] <= 1e-9
             and final_metrics["final_hours_over_gmi_tmax"] <= 1e-9
-            and final_metrics["final_source_limited_hours"] <= full_final["final_source_limited_hours"] + 1e-9
+            and final_metrics["final_source_limited_hours"] <= required_source_limited_hours + 1e-9
             and final_metrics["final_t_source_min_c"] >= config.btes.t_min_c - 1e-6
             and final_metrics["final_q_extraction_max_w_m"] <= config.btes.max_extraction_w_m + 1e-6
             and final_metrics["final_q_injection_max_w_m"] <= config.btes.max_injection_w_m + 1e-6
