@@ -169,6 +169,7 @@ def borefield_equivalent_savings(
                     "Duree dataframe (s)": elapsed,
                 },
             )
+        del results
         cop = _mean_cop(df)
         bt_pac = float(df["heat_bt_from_pac_kwh"].sum()) / years
         final_metrics = _final_year_screening_metrics(

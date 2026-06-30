@@ -1112,6 +1112,7 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
         for hour in range(2)
     ]
     calls = []
+    progress_messages = []
 
     def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
         calls.append((float(config.collector.area_m2), int(simulation_years)))
@@ -1165,9 +1166,13 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
         technical_simulation_years=25,
         run_geo_only=True,
         run_reduced_borefield=False,
+        progress=lambda value, text: progress_messages.append(text),
     )
 
-    assert sorted(calls) == [(0.0, 25), (500.0, 25)]
+    assert calls == [(500.0, 25), (0.0, 25)]
+    assert "Simulation solaire 25 ans - demarrage" in progress_messages
+    assert "Simulation sans solaire 25 ans - demarrage" in progress_messages
+    assert "Nettoyage memoire" in progress_messages
     assert set(result.hourly_df["simulation_year"].unique()) == {25}
     assert set(result.no_solar_hourly_df["simulation_year"].unique()) == {25}
 

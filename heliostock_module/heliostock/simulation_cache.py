@@ -71,6 +71,23 @@ class SimulationCache:
     def entries(self) -> int:
         return len(self._store)
 
+    def clear_entries(self, *, reason: str = "Nettoyage memoire") -> None:
+        with self._lock:
+            cleared = len(self._store)
+            self._store.clear()
+            hits = int(self.hits)
+            misses = int(self.misses)
+        self.record_event(
+            "memory:cleanup",
+            reason,
+            {
+                "Entrees cache supprimees": int(cleared),
+                "Cache hits": hits,
+                "Cache misses": misses,
+                "Entrees cache": 0,
+            },
+        )
+
     def simulate(
         self,
         weather: list[HourlyWeather],

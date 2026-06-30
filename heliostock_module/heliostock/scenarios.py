@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import gc
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Callable
 
@@ -29,6 +29,7 @@ from .simulation_cache import SimulationCache
 
 
 ProgressCallback = Callable[[int, str], None]
+PYGFUNCTION_PARALLEL_ENABLED = False
 
 
 @dataclass(frozen=True)
@@ -164,6 +165,7 @@ def _simulate_hourly_dataframe(
                 "Duree dataframe (s)": elapsed,
             },
         )
+    del results
     return df
 
 
@@ -218,7 +220,7 @@ def solar_surface_parametric_study(
         _notify(
             progress,
             min(99, 85 + int(14 * index / total_points)),
-            f"Etude parametrique solaire : {surface_m2:.0f} m2 ({index}/{total_points})...",
+            f"Etude parametrique surface {index}/{total_points} : {surface_m2:.0f} m2",
         )
 
         variant_config = replace(config, collector=replace(config.collector, area_m2=float(surface_m2)))
@@ -388,6 +390,12 @@ def solar_surface_parametric_study(
                 "CAPEX solaire net (kEUR)": float(solar_economics_variant["net_capex_eur"]) / 1000.0,
             }
         )
+        if simulation_cache is not None:
+            simulation_cache.clear_entries(
+                reason=f"Nettoyage memoire apres surface solaire {index}/{total_points}"
+            )
+        del variant_multiyear_df, variant_df
+        gc.collect()
 
     return pd.DataFrame(rows)
 
@@ -440,7 +448,7 @@ def pac_power_parametric_study(
         _notify(
             progress,
             min(99, 85 + int(14 * index / total_points)),
-            f"Etude parametrique PAC : {fraction_pct:.0f} % Pmax ({index}/{total_points})...",
+            f"Etude parametrique PAC {index}/{total_points} : {fraction_pct:.0f} % Pmax",
         )
 
         pac_kw = max(0.0, peak_bt_power_kw) * max(0.0, float(fraction_pct)) / 100.0
@@ -566,6 +574,12 @@ def pac_power_parametric_study(
                 "Nombre sondes predim": predesign_variant.boreholes if predesign_variant else btes_variant.boreholes,
             }
         )
+        if simulation_cache is not None:
+            simulation_cache.clear_entries(
+                reason=f"Nettoyage memoire apres point PAC {index}/{total_points}"
+            )
+        del variant_multiyear_df, variant_df
+        gc.collect()
 
     return pd.DataFrame(rows)
 
@@ -1008,39 +1022,54 @@ def run_hourly_scenario(
     if run_geo_only:
         _notify(
             progress,
-            35,
-            f"Projection multiannuelle sans solaire ({multiyear_years} ans)..."
-            if run_multiyear
-            else "Calcul horaire sans solaire (1 an)...",
+            16,
+            f"Simulation solaire {multiyear_years} ans - demarrage",
         )
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            solar_future = executor.submit(
-                _simulate_hourly_dataframe,
-                weather=weather,
-                demands=demands,
-                config=config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=multiyear_years,
-                simulation_cache=simulation_cache,
-            )
-            no_solar_future = executor.submit(
-                _simulate_hourly_dataframe,
-                weather=weather,
-                demands=demands,
-                config=no_solar_config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=multiyear_years,
-                simulation_cache=simulation_cache,
-            )
-            multiyear_df = solar_future.result()
-            no_solar_hourly_df = no_solar_future.result()
+        multiyear_df = _simulate_hourly_dataframe(
+            weather=weather,
+            demands=demands,
+            config=config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=multiyear_years,
+            simulation_cache=simulation_cache,
+        )
+        _notify(
+            progress,
+            30,
+            f"Simulation solaire {multiyear_years} ans - agregation",
+        )
         hourly_df = multiyear_df
         if run_multiyear:
             hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
+        _notify(
+            progress,
+            35,
+            f"Simulation sans solaire {multiyear_years} ans - demarrage",
+        )
+        no_solar_hourly_df = _simulate_hourly_dataframe(
+            weather=weather,
+            demands=demands,
+            config=no_solar_config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=multiyear_years,
+            simulation_cache=simulation_cache,
+        )
+        _notify(
+            progress,
+            45,
+            f"Simulation sans solaire {multiyear_years} ans - agregation",
+        )
         no_solar_multiyear_df = no_solar_hourly_df
         if run_multiyear:
             no_solar_hourly_df = no_solar_multiyear_df[no_solar_multiyear_df["simulation_year"] == 1].copy()
+        _notify(progress, 48, "Nettoyage memoire")
+        gc.collect()
     else:
+        _notify(
+            progress,
+            16,
+            f"Simulation solaire {multiyear_years} ans - demarrage",
+        )
         hourly_df = _simulate_hourly_dataframe(
             weather=weather,
             demands=demands,
@@ -1049,11 +1078,18 @@ def run_hourly_scenario(
             simulation_years=multiyear_years,
             simulation_cache=simulation_cache,
         )
+        _notify(
+            progress,
+            35,
+            f"Simulation solaire {multiyear_years} ans - agregation",
+        )
         multiyear_df = hourly_df
         if run_multiyear:
             hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
         no_solar_hourly_df = hourly_df.iloc[0:0].copy()
         no_solar_multiyear_df = multiyear_df.iloc[0:0].copy()
+        _notify(progress, 48, "Nettoyage memoire")
+        gc.collect()
 
     _notify(progress, 50, "Agrégation des résultats horaires...")
     multiyear_btes_df = _multiyear_btes_summary(
@@ -1459,7 +1495,7 @@ def run_hourly_scenario(
         value_name="Valeur",
     )
 
-    return ScenarioResult(
+    result = ScenarioResult(
         config=config,
         hourly_df=hourly_df,
         no_solar_hourly_df=no_solar_hourly_df,
@@ -1509,3 +1545,7 @@ def run_hourly_scenario(
         economic_years_used=int(economics.analysis_years),
         gmi_check_enabled=bool(config.btes.gmi_check_enabled),
     )
+    if simulation_cache is not None:
+        simulation_cache.clear_entries(reason="Nettoyage memoire apres scenario principal")
+    gc.collect()
+    return result
