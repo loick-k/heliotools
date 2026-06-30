@@ -6,6 +6,7 @@ import pandas as pd
 
 import heliostock.borefield_savings as borefield_savings_module
 import heliostock.scenarios as scenarios_module
+import heliostock.simulation_cache as simulation_cache_module
 from heliostock.engine import (
     BtesConfig,
     CollectorConfig,
@@ -35,6 +36,7 @@ from heliostock.scenarios import (
     pac_power_parametric_study,
     run_hourly_scenario,
 )
+from heliostock.simulation_cache import SimulationCache
 from heliostock.ui_formatting import round_display_df
 from heliostock.ui_inputs import (
     DEFAULT_EPW_STATIONS,
@@ -111,6 +113,69 @@ def _fake_hourly_result(**overrides) -> HourlyResult:
     )
     base.update(overrides)
     return HourlyResult(**base)
+
+
+def test_simulation_cache_reuses_identical_hourly_simulations(monkeypatch):
+    weather = [
+        HourlyWeather(
+            hour_index=0,
+            month=1,
+            day=1,
+            hour=1,
+            tair_c=8.0,
+            g_tilt_kwh_m2=0.0,
+        )
+    ]
+    demands = [MonthlyDemand(month=1, process_ht_kwh=0.0, process_bt_kwh=100.0)]
+    config = SimulationConfig(
+        collector=CollectorConfig(area_m2=0.0),
+        btes=BtesConfig(boreholes=4, depth_m=100.0),
+        heat_pump=HeatPumpConfig(max_thermal_power_kw=50.0),
+    )
+    calls = []
+
+    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+        calls.append((float(config.collector.area_m2), int(simulation_years)))
+        return [
+            _fake_hourly_result(
+                simulation_year=1,
+                hour_index=weather[0].hour_index,
+                demand_bt_kwh=100.0,
+            )
+        ]
+
+    monkeypatch.setattr(simulation_cache_module, "simulate_hourly", fake_simulate_hourly)
+    cache = SimulationCache()
+    override = _hourly_override(weather, ht_kwh=0.0, bt_kwh=100.0)
+
+    first = cache.simulate(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=override,
+        simulation_years=25,
+        mode="same",
+    )
+    second = cache.simulate(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=override,
+        simulation_years=25,
+        mode="same",
+    )
+    cache.simulate(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=override,
+        simulation_years=1,
+        mode="same",
+    )
+
+    assert first == second
+    assert calls == [(0.0, 25), (0.0, 1)]
+    assert cache.summary() == {"hits": 1, "misses": 2, "entries": 2}
 
 
 def test_hourly_simulation_smoke():

@@ -23,6 +23,7 @@ from .postprocess import (
     _hourly_results_to_dataframe,
     _multiyear_btes_summary,
 )
+from .simulation_cache import SimulationCache
 
 
 ProgressCallback = Callable[[int, str], None]
@@ -99,6 +100,34 @@ def _notify(progress: ProgressCallback | None, value: int, text: str) -> None:
         progress(value, text)
 
 
+def _simulate_hourly_cached(
+    *,
+    weather: list[HourlyWeather],
+    demands: list[MonthlyDemand],
+    config: SimulationConfig,
+    hourly_demand_override: dict[int, tuple[float, float]] | None,
+    simulation_years: int,
+    simulation_cache: SimulationCache | None,
+    cache_mode: str,
+):
+    if simulation_cache is not None:
+        return simulation_cache.simulate(
+            weather,
+            demands,
+            config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=simulation_years,
+            mode=cache_mode,
+        )
+    return simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=hourly_demand_override,
+        simulation_years=simulation_years,
+    )
+
+
 def solar_surface_parametric_study(
     *,
     surfaces_m2: list[float],
@@ -127,6 +156,7 @@ def solar_surface_parametric_study(
     savings_search_mode: str = "fast",
     recharge_credit: float = 0.6,
     reduced_borefield_safety_factor: float = 1.10,
+    simulation_cache: SimulationCache | None = None,
     progress: ProgressCallback | None = None,
 ) -> pd.DataFrame:
     rows = []
@@ -154,12 +184,14 @@ def solar_surface_parametric_study(
 
         variant_config = replace(config, collector=replace(config.collector, area_m2=float(surface_m2)))
         variant_multiyear_df = _hourly_results_to_dataframe(
-            simulate_hourly(
-                weather,
-                demands,
-                variant_config,
+            _simulate_hourly_cached(
+                weather=weather,
+                demands=demands,
+                config=variant_config,
                 hourly_demand_override=hourly_demand_override,
                 simulation_years=simulation_years,
+                simulation_cache=simulation_cache,
+                cache_mode="pygfunction",
             )
         )
         variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
@@ -213,6 +245,7 @@ def solar_surface_parametric_study(
             full_case_metrics=full_case_metrics,
             recharge_credit=recharge_credit,
             reduced_borefield_safety_factor=reduced_borefield_safety_factor,
+            simulation_cache=simulation_cache,
         )
         economic_borefield_length_m_variant = (
             float(savings_variant["equivalent_length_m"])
@@ -348,6 +381,7 @@ def pac_power_parametric_study(
     maintenance_cost_eur_m2_year: float,
     ademe_eur_mwh_year: float,
     other_public_aid_eur: float,
+    simulation_cache: SimulationCache | None = None,
     progress: ProgressCallback | None = None,
 ) -> pd.DataFrame:
     rows = []
@@ -407,12 +441,14 @@ def pac_power_parametric_study(
             btes=btes_variant,
         )
         variant_multiyear_df = _hourly_results_to_dataframe(
-            simulate_hourly(
-                weather,
-                demands,
-                variant_config,
+            _simulate_hourly_cached(
+                weather=weather,
+                demands=demands,
+                config=variant_config,
                 hourly_demand_override=hourly_demand_override,
                 simulation_years=simulation_years,
+                simulation_cache=simulation_cache,
+                cache_mode="pygfunction",
             )
         )
         variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
@@ -924,6 +960,7 @@ def run_hourly_scenario(
     run_geo_only: bool = True,
     run_reduced_borefield: bool = False,
     savings_search_mode: str = "fast",
+    simulation_cache: SimulationCache | None = None,
     progress: ProgressCallback | None = None,
 ) -> ScenarioResult:
     multiyear_years = max(1, int(technical_simulation_years or economics.analysis_years)) if run_multiyear else 1
@@ -935,12 +972,14 @@ def run_hourly_scenario(
         else "Calcul horaire avec solaire (1 an)...",
     )
     hourly_df = _hourly_results_to_dataframe(
-        simulate_hourly(
-            weather,
-            demands,
-            config,
+        _simulate_hourly_cached(
+            weather=weather,
+            demands=demands,
+            config=config,
             hourly_demand_override=hourly_demand_override,
             simulation_years=multiyear_years,
+            simulation_cache=simulation_cache,
+            cache_mode="pygfunction",
         )
     )
     multiyear_df = hourly_df
@@ -957,12 +996,14 @@ def run_hourly_scenario(
             else "Calcul horaire sans solaire (1 an)...",
         )
         no_solar_hourly_df = _hourly_results_to_dataframe(
-            simulate_hourly(
-                weather,
-                demands,
-                no_solar_config,
+            _simulate_hourly_cached(
+                weather=weather,
+                demands=demands,
+                config=no_solar_config,
                 hourly_demand_override=hourly_demand_override,
                 simulation_years=multiyear_years,
+                simulation_cache=simulation_cache,
+                cache_mode="pygfunction",
             )
         )
         no_solar_multiyear_df = no_solar_hourly_df
@@ -1086,6 +1127,7 @@ def run_hourly_scenario(
             simulation_years=multiyear_years,
             search_mode=savings_search_mode if run_reduced_borefield else "none",
             full_case_df=multiyear_df,
+            simulation_cache=simulation_cache,
         )
     else:
         savings = {"found": False, "saved_length_m": 0.0, "equivalent_length_m": 0.0}
@@ -1128,12 +1170,14 @@ def run_hourly_scenario(
         reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
         reduced_config = replace(config, btes=reduced_btes)
         reduced_hourly_df = _hourly_results_to_dataframe(
-            simulate_hourly(
-                weather,
-                demands,
-                reduced_config,
+            _simulate_hourly_cached(
+                weather=weather,
+                demands=demands,
+                config=reduced_config,
                 hourly_demand_override=hourly_demand_override,
                 simulation_years=multiyear_years,
+                simulation_cache=simulation_cache,
+                cache_mode="pygfunction",
             )
         )
     else:

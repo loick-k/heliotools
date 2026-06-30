@@ -8,6 +8,7 @@ import pandas as pd
 from .engine import MonthlyDemand, SimulationConfig
 from .hourly_engine import HourlyWeather, simulate_hourly
 from .postprocess import _hourly_results_to_dataframe, _mean_cop
+from .simulation_cache import SimulationCache
 
 
 def _final_year_screening_metrics(
@@ -108,6 +109,7 @@ def borefield_equivalent_savings(
     full_case_metrics: dict[str, float] | None = None,
     recharge_credit: float = 0.6,
     reduced_borefield_safety_factor: float = 1.10,
+    simulation_cache: SimulationCache | None = None,
 ) -> dict[str, float | bool]:
     """Estimate equivalent borefield length saving with solar recharge.
 
@@ -128,14 +130,26 @@ def borefield_equivalent_savings(
         scaled_btes = replace(config.btes, boreholes=boreholes)
         scaled_config = replace(config, btes=scaled_btes)
         simulations_count += 1
-        df = _hourly_results_to_dataframe(
-            simulate_hourly(
+        results = (
+            simulation_cache.simulate(
+                weather,
+                demands,
+                scaled_config,
+                hourly_demand_override=hourly_demand_override,
+                simulation_years=years,
+                mode="pygfunction",
+            )
+            if simulation_cache is not None
+            else simulate_hourly(
                 weather,
                 demands,
                 scaled_config,
                 hourly_demand_override=hourly_demand_override,
                 simulation_years=years,
             )
+        )
+        df = _hourly_results_to_dataframe(
+            results
         )
         cop = _mean_cop(df)
         bt_pac = float(df["heat_bt_from_pac_kwh"].sum()) / years
