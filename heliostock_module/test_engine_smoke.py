@@ -1803,6 +1803,7 @@ def test_borefield_savings_fast_reuses_full_case_and_limits_simulations(monkeypa
             )
     full_case_df = _hourly_results_to_dataframe(full_results)
     calls = []
+    dataframe_calls = []
 
     def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
         calls.append(int(config.btes.boreholes))
@@ -1824,7 +1825,12 @@ def test_borefield_savings_fast_reuses_full_case_and_limits_simulations(monkeypa
                 )
         return results
 
+    def fake_hourly_results_to_dataframe(results):
+        dataframe_calls.append(len(results))
+        return _hourly_results_to_dataframe(results)
+
     monkeypatch.setattr(borefield_savings_module, "simulate_hourly", fake_simulate_hourly)
+    monkeypatch.setattr(borefield_savings_module, "_hourly_results_to_dataframe", fake_hourly_results_to_dataframe)
     savings = borefield_savings_module.borefield_equivalent_savings(
         weather=weather,
         demands=[MonthlyDemand(month=1, process_ht_kwh=0.0, process_bt_kwh=200.0)],
@@ -1842,6 +1848,7 @@ def test_borefield_savings_fast_reuses_full_case_and_limits_simulations(monkeypa
     assert calls
     assert 10 not in calls
     assert int(savings["savings_simulations_count"]) <= 3
+    assert len(dataframe_calls) <= 1
 
 
 def test_reduced_borefield_has_no_p2_savings_per_meter():

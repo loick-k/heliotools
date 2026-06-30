@@ -7,7 +7,7 @@ from dataclasses import replace
 import pandas as pd
 
 from .engine import MonthlyDemand, SimulationConfig
-from .hourly_engine import HourlyWeather, simulate_hourly
+from .hourly_engine import HourlyResult, HourlyWeather, simulate_hourly
 from .postprocess import _hourly_results_to_dataframe, _mean_cop
 from .simulation_cache import SimulationCache
 
@@ -58,6 +58,104 @@ def _final_year_screening_metrics(
 
 def _mean_metrics(df: pd.DataFrame, years: int) -> tuple[float, float]:
     return _mean_cop(df), float(df["heat_bt_from_pac_kwh"].sum()) / max(1, int(years))
+
+
+def _final_year_screening_metrics_from_results(
+    results: list[HourlyResult] | tuple[HourlyResult, ...],
+    *,
+    t_min_c: float,
+    gmi_t_min_c: float,
+    gmi_t_max_c: float,
+    demand_bt_kwh: float,
+) -> dict[str, float]:
+    if not results:
+        return {
+            "final_year": 1.0,
+            "final_cop": 0.0,
+            "final_bt_pac_kwh": 0.0,
+            "final_bt_coverage": 0.0,
+            "final_t_source_min_c": 0.0,
+            "final_hours_under_tmin": 0.0,
+            "final_hours_under_gmi_tmin": 0.0,
+            "final_hours_over_gmi_tmax": 0.0,
+            "final_source_limited_hours": 0.0,
+            "final_q_extraction_max_w_m": 0.0,
+            "final_q_injection_max_w_m": 0.0,
+            "final_extracted_ground_kwh": 0.0,
+            "final_injected_btes_kwh": 0.0,
+        }
+
+    final_year = max(int(result.simulation_year) for result in results)
+    final_results = [result for result in results if int(result.simulation_year) == final_year]
+    heat_pac_kwh = sum(float(result.heat_bt_from_pac_kwh) for result in final_results)
+    compressor_kwh = sum(float(result.electricity_compressor_kwh) for result in final_results)
+    demand_bt = sum(float(result.demand_bt_kwh) for result in final_results)
+    demand_bt = max(1e-9, demand_bt if final_results else float(demand_bt_kwh))
+    return {
+        "final_year": float(final_year),
+        "final_cop": heat_pac_kwh / compressor_kwh if compressor_kwh > 0.0 else 0.0,
+        "final_bt_pac_kwh": heat_pac_kwh,
+        "final_bt_coverage": heat_pac_kwh / demand_bt,
+        "final_t_source_min_c": min(float(result.t_source_pac_c) for result in final_results),
+        "final_hours_under_tmin": float(
+            sum(1 for result in final_results if float(result.t_source_pac_c) < t_min_c - 1e-6)
+        ),
+        "final_hours_under_gmi_tmin": float(
+            sum(
+                1
+                for result in final_results
+                if float(result.t_fluide_entree_echangeur_geo_c) < gmi_t_min_c - 1e-6
+            )
+        ),
+        "final_hours_over_gmi_tmax": float(
+            sum(1 for result in final_results if float(result.t_fluide_injection_c) > gmi_t_max_c + 1e-6)
+        ),
+        "final_source_limited_hours": float(sum(1 for result in final_results if result.source_temp_limited)),
+        "final_q_extraction_max_w_m": max(float(result.q_extraction_w_m) for result in final_results),
+        "final_q_injection_max_w_m": max(float(result.q_injection_w_m) for result in final_results),
+        "final_extracted_ground_kwh": sum(float(result.btes_extracted_by_pac_kwh) for result in final_results),
+        "final_injected_btes_kwh": sum(float(result.solar_to_btes_kwh) for result in final_results),
+    }
+
+
+def _mean_metrics_from_results(
+    results: list[HourlyResult] | tuple[HourlyResult, ...],
+    years: int,
+) -> tuple[float, float]:
+    total_heat = sum(float(result.heat_bt_from_pac_kwh) for result in results)
+    total_compressor = sum(float(result.electricity_compressor_kwh) for result in results)
+    return (
+        total_heat / total_compressor if total_compressor > 0.0 else 0.0,
+        total_heat / max(1, int(years)),
+    )
+
+
+def _selected_results_to_dataframe(
+    results: list[HourlyResult] | tuple[HourlyResult, ...] | None,
+    *,
+    simulation_cache: SimulationCache | None,
+    years: int,
+    weather_len: int,
+) -> pd.DataFrame:
+    if not results:
+        return pd.DataFrame()
+    started_at = time.perf_counter()
+    df = _hourly_results_to_dataframe(results)
+    elapsed = time.perf_counter() - started_at
+    if simulation_cache is not None:
+        simulation_cache.record_event(
+            "postprocess:dataframe",
+            "Conversion du candidat valide en DataFrame (economie sondes)",
+            {
+                "Mode simulation": "borefield_savings",
+                "Annees simulees": int(years),
+                "Pas meteo": int(weather_len),
+                "Heures simulees": int(len(results)),
+                "Lignes DataFrame": int(len(df)),
+                "Duree dataframe (s)": elapsed,
+            },
+        )
+    return df
 
 
 def _base_return(
@@ -129,7 +227,7 @@ def borefield_equivalent_savings(
     simulations_count = 0
     mode = str(search_mode or "expert").lower()
 
-    def run(scale: float) -> tuple[pd.DataFrame, float, float, int, dict[str, float]]:
+    def run(scale: float) -> tuple[list[HourlyResult], float, float, int, dict[str, float]]:
         nonlocal simulations_count
         boreholes = max(1, int(round(config.btes.boreholes * scale)))
         scaled_btes = replace(config.btes, boreholes=boreholes)
@@ -153,34 +251,16 @@ def borefield_equivalent_savings(
                 simulation_years=years,
             )
         )
-        started_at = time.perf_counter()
-        df = _hourly_results_to_dataframe(results)
-        elapsed = time.perf_counter() - started_at
-        if simulation_cache is not None:
-            simulation_cache.record_event(
-                "postprocess:dataframe",
-                "Conversion resultats horaires en DataFrame (economie sondes)",
-                {
-                    "Mode simulation": "borefield_savings",
-                    "Annees simulees": int(years),
-                    "Pas meteo": int(len(weather)),
-                    "Heures simulees": int(len(results)),
-                    "Lignes DataFrame": int(len(df)),
-                    "Duree dataframe (s)": elapsed,
-                },
-            )
-        del results
-        cop = _mean_cop(df)
-        bt_pac = float(df["heat_bt_from_pac_kwh"].sum()) / years
-        final_metrics = _final_year_screening_metrics(
-            df,
+        cop, bt_pac = _mean_metrics_from_results(results, years)
+        final_metrics = _final_year_screening_metrics_from_results(
+            results,
             t_min_c=config.btes.t_min_c,
             gmi_t_min_c=config.btes.gmi_t_min_c,
             gmi_t_max_c=config.btes.gmi_t_max_c,
             demand_bt_kwh=sum(max(0.0, bt) for _, bt in (hourly_demand_override or {}).values()),
         )
         final_metrics["depth_m"] = float(config.btes.depth_m)
-        return df, cop, bt_pac, boreholes, final_metrics
+        return results, cop, bt_pac, boreholes, final_metrics
 
     if mode in {"none", "off", "disabled", "desactivee", "désactivée"}:
         empty_final = dict(full_case_metrics or {})
@@ -280,21 +360,41 @@ def borefield_equivalent_savings(
         min_inject = q_inject_peak_w / max(1e-9, float(config.btes.max_injection_w_m))
         test_length = max(estimated_length, min_extract, min_inject, base_length_m * max(0.0, float(min_scale)))
         test_length *= max(1.0, float(reduced_borefield_safety_factor))
+        evaluated_by_boreholes: dict[int, tuple[list[HourlyResult] | None, float, float, int, dict[str, float]]] = {}
 
         def run_length(length_m: float):
             boreholes = max(1, min(config.btes.boreholes, int(math.ceil(length_m / max(1e-9, config.btes.depth_m)))))
+            if (
+                boreholes >= int(config.btes.boreholes)
+                and full_case_df is not None
+                and not full_case_df.empty
+            ):
+                return None, full_cop, full_bt, full_boreholes, full_final
+            if boreholes in evaluated_by_boreholes:
+                return evaluated_by_boreholes[boreholes]
             scale = boreholes / max(1, config.btes.boreholes)
-            return run(scale)
+            evaluated_by_boreholes[boreholes] = run(scale)
+            return evaluated_by_boreholes[boreholes]
 
-        df, cop, bt_pac, boreholes, final_metrics = run_length(test_length)
+        results, cop, bt_pac, boreholes, final_metrics = run_length(test_length)
         if final_ok(final_metrics):
-            best_df = df
+            best_results = results
             best_cop, best_bt, best_boreholes, best_final = cop, bt_pac, boreholes, final_metrics
             smaller_length = max(base_length_m * max(0.0, float(min_scale)), boreholes * config.btes.depth_m * 0.90)
-            df2, cop2, bt2, boreholes2, final2 = run_length(smaller_length)
+            results2, cop2, bt2, boreholes2, final2 = run_length(smaller_length)
             if final_ok(final2):
-                best_df = df2
+                best_results = results2
                 best_cop, best_bt, best_boreholes, best_final = cop2, bt2, boreholes2, final2
+            best_df = (
+                full_case_df.copy()
+                if best_results is None and full_case_df is not None
+                else _selected_results_to_dataframe(
+                    best_results,
+                    simulation_cache=simulation_cache,
+                    years=years,
+                    weather_len=len(weather),
+                )
+            )
             return _base_return(
                 found=True,
                 base_length_m=base_length_m,
@@ -308,8 +408,18 @@ def borefield_equivalent_savings(
             )
 
         larger_length = min(base_length_m, max(test_length * 1.20, test_length + config.btes.depth_m))
-        df3, cop3, bt3, boreholes3, final3 = run_length(larger_length)
+        results3, cop3, bt3, boreholes3, final3 = run_length(larger_length)
         if final_ok(final3):
+            df3 = (
+                full_case_df.copy()
+                if results3 is None and full_case_df is not None
+                else _selected_results_to_dataframe(
+                    results3,
+                    simulation_cache=simulation_cache,
+                    years=years,
+                    weather_len=len(weather),
+                )
+            )
             return _base_return(
                 found=True,
                 base_length_m=base_length_m,
@@ -339,15 +449,17 @@ def borefield_equivalent_savings(
     best_bt = full_bt
     best_boreholes = full_boreholes
     best_final = full_final
-    best_df = full_df if "full_df" in locals() and isinstance(full_df, pd.DataFrame) else pd.DataFrame()
+    best_results: list[HourlyResult] | None = None
+    best_uses_full_case_df = "full_df" in locals() and isinstance(full_df, pd.DataFrame)
 
     for _ in range(iterations):
         mid = (low + high) / 2.0
-        df, cop, bt_pac, boreholes, final_metrics = run(mid)
+        results, cop, bt_pac, boreholes, final_metrics = run(mid)
         ok = final_ok(final_metrics)
         if ok:
             best_scale = mid
-            best_df = df
+            best_results = results
+            best_uses_full_case_df = False
             best_cop = cop
             best_bt = bt_pac
             best_boreholes = boreholes
@@ -373,6 +485,16 @@ def borefield_equivalent_savings(
         "savings_simulations_count": simulations_count,
         **{f"equivalent_{key}": value for key, value in best_final.items()},
     }
+    best_df = (
+        full_df.copy()
+        if best_uses_full_case_df and "full_df" in locals() and isinstance(full_df, pd.DataFrame)
+        else _selected_results_to_dataframe(
+            best_results,
+            simulation_cache=simulation_cache,
+            years=years,
+            weather_len=len(weather),
+        )
+    )
     if not best_df.empty:
         result["_equivalent_hourly_df"] = best_df
     return result
