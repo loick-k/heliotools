@@ -69,12 +69,13 @@ def _base_return(
     final_metrics: dict[str, float],
     estimated_length_m: float | None,
     simulations_count: int,
-) -> dict[str, float | bool | str]:
+    hourly_df: pd.DataFrame | None = None,
+) -> dict[str, float | bool | str | pd.DataFrame]:
     equivalent_length = max(0.0, float(boreholes) * float(final_metrics.get("depth_m", 0.0)))
     if equivalent_length <= 0.0:
         equivalent_length = base_length_m if not found else 0.0
     saved_length = max(0.0, base_length_m - equivalent_length) if found else 0.0
-    return {
+    result: dict[str, float | bool | str | pd.DataFrame] = {
         "found": bool(found),
         "scale": equivalent_length / max(1e-9, base_length_m),
         "reference_length_m": base_length_m,
@@ -89,6 +90,9 @@ def _base_return(
         "savings_simulations_count": int(simulations_count),
         **{f"equivalent_{key}": value for key, value in final_metrics.items() if key != "depth_m"},
     }
+    if hourly_df is not None and not hourly_df.empty:
+        result["_equivalent_hourly_df"] = hourly_df
+    return result
 
 
 def borefield_equivalent_savings(
@@ -110,7 +114,7 @@ def borefield_equivalent_savings(
     recharge_credit: float = 0.6,
     reduced_borefield_safety_factor: float = 1.10,
     simulation_cache: SimulationCache | None = None,
-) -> dict[str, float | bool]:
+) -> dict[str, float | bool | str | pd.DataFrame]:
     """Estimate equivalent borefield length saving with solar recharge.
 
     The search varies the actual number of boreholes and reruns the hourly
@@ -267,12 +271,14 @@ def borefield_equivalent_savings(
             scale = boreholes / max(1, config.btes.boreholes)
             return run(scale)
 
-        _, cop, bt_pac, boreholes, final_metrics = run_length(test_length)
+        df, cop, bt_pac, boreholes, final_metrics = run_length(test_length)
         if final_ok(final_metrics):
+            best_df = df
             best_cop, best_bt, best_boreholes, best_final = cop, bt_pac, boreholes, final_metrics
             smaller_length = max(base_length_m * max(0.0, float(min_scale)), boreholes * config.btes.depth_m * 0.90)
-            _, cop2, bt2, boreholes2, final2 = run_length(smaller_length)
+            df2, cop2, bt2, boreholes2, final2 = run_length(smaller_length)
             if final_ok(final2):
+                best_df = df2
                 best_cop, best_bt, best_boreholes, best_final = cop2, bt2, boreholes2, final2
             return _base_return(
                 found=True,
@@ -283,10 +289,11 @@ def borefield_equivalent_savings(
                 final_metrics=best_final,
                 estimated_length_m=estimated_length,
                 simulations_count=simulations_count,
+                hourly_df=best_df,
             )
 
         larger_length = min(base_length_m, max(test_length * 1.20, test_length + config.btes.depth_m))
-        _, cop3, bt3, boreholes3, final3 = run_length(larger_length)
+        df3, cop3, bt3, boreholes3, final3 = run_length(larger_length)
         if final_ok(final3):
             return _base_return(
                 found=True,
@@ -297,6 +304,7 @@ def borefield_equivalent_savings(
                 final_metrics=final3,
                 estimated_length_m=estimated_length,
                 simulations_count=simulations_count,
+                hourly_df=df3,
             )
         return _base_return(
             found=False,
@@ -316,13 +324,15 @@ def borefield_equivalent_savings(
     best_bt = full_bt
     best_boreholes = full_boreholes
     best_final = full_final
+    best_df = full_df if "full_df" in locals() and isinstance(full_df, pd.DataFrame) else pd.DataFrame()
 
     for _ in range(iterations):
         mid = (low + high) / 2.0
-        _, cop, bt_pac, boreholes, final_metrics = run(mid)
+        df, cop, bt_pac, boreholes, final_metrics = run(mid)
         ok = final_ok(final_metrics)
         if ok:
             best_scale = mid
+            best_df = df
             best_cop = cop
             best_bt = bt_pac
             best_boreholes = boreholes
@@ -333,7 +343,7 @@ def borefield_equivalent_savings(
 
     equivalent_length = max(0.0, best_boreholes * config.btes.depth_m)
     saved_length = max(0.0, base_length_m - equivalent_length)
-    return {
+    result: dict[str, float | bool | str | pd.DataFrame] = {
         "found": True,
         "scale": equivalent_length / max(1e-9, base_length_m),
         "reference_length_m": base_length_m,
@@ -348,3 +358,6 @@ def borefield_equivalent_savings(
         "savings_simulations_count": simulations_count,
         **{f"equivalent_{key}": value for key, value in best_final.items()},
     }
+    if not best_df.empty:
+        result["_equivalent_hourly_df"] = best_df
+    return result

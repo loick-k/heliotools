@@ -107,7 +107,7 @@ def run_hourly_calculation(
 
     started_at = time.perf_counter()
     last_at = started_at
-    performance_events: list[dict[str, float | int | str]] = []
+    performance_events: list[dict[str, float | int | str | None]] = []
 
     def mark(tag: str, message: str, progress_value: int | None = None) -> None:
         nonlocal last_at
@@ -116,7 +116,7 @@ def run_hourly_calculation(
             {
                 "Etape": tag,
                 "Message": message,
-                "Progression (%)": progress_value if progress_value is not None else "",
+                "Progression (%)": float(progress_value) if progress_value is not None else None,
                 "Duree depuis etape precedente (s)": now - last_at,
                 "Duree cumulee (s)": now - started_at,
             }
@@ -280,6 +280,17 @@ def run_hourly_calculation(
     )
     mark("end", "Calcul HelioStock termine")
 
+    performance_log_df = pd.DataFrame(performance_events)
+    if not performance_log_df.empty:
+        performance_log_df["Etape"] = performance_log_df["Etape"].astype("string")
+        performance_log_df["Message"] = performance_log_df["Message"].astype("string")
+        performance_log_df["Progression (%)"] = pd.to_numeric(
+            performance_log_df["Progression (%)"],
+            errors="coerce",
+        ).astype("Float64")
+        for column in ["Duree depuis etape precedente (s)", "Duree cumulee (s)"]:
+            performance_log_df[column] = pd.to_numeric(performance_log_df[column], errors="coerce").astype(float)
+
     return HourlyCalculationResult(
         scenario=scenario,
         parametric_pac_df=parametric_pac_df,
@@ -289,5 +300,5 @@ def run_hourly_calculation(
         pac_power_fraction_pct=float(request.pac_power_fraction_pct),
         btes_backend=config.btes.backend,
         warnings=tuple(warnings),
-        performance_log_df=pd.DataFrame(performance_events),
+        performance_log_df=performance_log_df,
     )

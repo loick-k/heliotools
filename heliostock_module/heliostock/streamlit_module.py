@@ -134,7 +134,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                         {
                             "Etape": "render:results",
                             "Message": "Affichage Streamlit des resultats et graphiques",
-                            "Progression (%)": "",
+                            "Progression (%)": None,
                             "Duree depuis etape precedente (s)": render_elapsed,
                             "Duree cumulee (s)": previous_total + render_elapsed,
                         }
@@ -148,6 +148,12 @@ def render_heliostock_hourly() -> pd.DataFrame:
             st.info("Aucun journal de performance disponible.")
         else:
             display_log = performance_log_df.copy()
+            display_log["Etape"] = display_log["Etape"].astype("string")
+            display_log["Message"] = display_log["Message"].astype("string")
+            display_log["Progression (%)"] = pd.to_numeric(
+                display_log["Progression (%)"],
+                errors="coerce",
+            ).astype("Float64")
             for column in ["Duree depuis etape precedente (s)", "Duree cumulee (s)"]:
                 display_log[column] = display_log[column].astype(float).round(2)
             st.dataframe(display_log, width="stretch", hide_index=True)

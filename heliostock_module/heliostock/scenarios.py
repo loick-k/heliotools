@@ -1163,6 +1163,7 @@ def run_hourly_scenario(
         )
     else:
         savings = {"found": False, "saved_length_m": 0.0, "equivalent_length_m": 0.0}
+    reduced_candidate_df = savings.pop("_equivalent_hourly_df", None)
 
     _notify(progress, 85, "Calcul économique solaire thermique...")
     same_metrics = _hourly_metrics(multiyear_df, annualization_years=multiyear_years)
@@ -1198,20 +1199,23 @@ def run_hourly_scenario(
 
     if run_reduced_borefield and bool(savings["found"]):
         _notify(progress, 88, "Simulation multiannuelle avec sondes reduites...")
-        reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
-        reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
-        reduced_config = replace(config, btes=reduced_btes)
-        reduced_hourly_df = _hourly_results_to_dataframe(
-            _simulate_hourly_cached(
-                weather=weather,
-                demands=demands,
-                config=reduced_config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=multiyear_years,
-                simulation_cache=simulation_cache,
-                cache_mode="pygfunction",
+        if isinstance(reduced_candidate_df, pd.DataFrame) and not reduced_candidate_df.empty:
+            reduced_hourly_df = reduced_candidate_df.copy()
+        else:
+            reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
+            reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
+            reduced_config = replace(config, btes=reduced_btes)
+            reduced_hourly_df = _hourly_results_to_dataframe(
+                _simulate_hourly_cached(
+                    weather=weather,
+                    demands=demands,
+                    config=reduced_config,
+                    hourly_demand_override=hourly_demand_override,
+                    simulation_years=multiyear_years,
+                    simulation_cache=simulation_cache,
+                    cache_mode="pygfunction",
+                )
             )
-        )
     else:
         reduced_hourly_df = multiyear_df.copy()
     reduced_metrics = _hourly_metrics(reduced_hourly_df, annualization_years=multiyear_years)
