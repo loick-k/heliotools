@@ -1149,7 +1149,7 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
         run_reduced_borefield=False,
     )
 
-    assert calls == [(500.0, 25), (0.0, 25)]
+    assert sorted(calls) == [(0.0, 25), (500.0, 25)]
     assert set(result.hourly_df["simulation_year"].unique()) == {25}
     assert set(result.no_solar_hourly_df["simulation_year"].unique()) == {25}
 

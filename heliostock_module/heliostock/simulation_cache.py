@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, is_dataclass
+from threading import Lock
 from typing import Any
 
 from .engine import MonthlyDemand, SimulationConfig
@@ -62,6 +63,7 @@ class SimulationCache:
         self._store: dict[tuple[Any, ...], tuple[HourlyResult, ...]] = {}
         self.hits = 0
         self.misses = 0
+        self._lock = Lock()
 
     @property
     def entries(self) -> int:
@@ -85,12 +87,13 @@ class SimulationCache:
             _override_signature(hourly_demand_override),
             _freeze(config),
         )
-        cached = self._store.get(key)
-        if cached is not None:
-            self.hits += 1
-            return list(cached)
+        with self._lock:
+            cached = self._store.get(key)
+            if cached is not None:
+                self.hits += 1
+                return list(cached)
+            self.misses += 1
 
-        self.misses += 1
         results = tuple(
             simulate_hourly(
                 weather,
@@ -100,12 +103,14 @@ class SimulationCache:
                 simulation_years=simulation_years,
             )
         )
-        self._store[key] = results
+        with self._lock:
+            self._store[key] = results
         return list(results)
 
     def summary(self) -> dict[str, int]:
-        return {
-            "hits": int(self.hits),
-            "misses": int(self.misses),
-            "entries": int(self.entries),
-        }
+        with self._lock:
+            return {
+                "hits": int(self.hits),
+                "misses": int(self.misses),
+                "entries": int(self.entries),
+            }

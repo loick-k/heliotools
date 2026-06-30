@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Callable
 
@@ -125,6 +126,28 @@ def _simulate_hourly_cached(
         config,
         hourly_demand_override=hourly_demand_override,
         simulation_years=simulation_years,
+    )
+
+
+def _simulate_hourly_dataframe(
+    *,
+    weather: list[HourlyWeather],
+    demands: list[MonthlyDemand],
+    config: SimulationConfig,
+    hourly_demand_override: dict[int, tuple[float, float]] | None,
+    simulation_years: int,
+    simulation_cache: SimulationCache | None,
+) -> pd.DataFrame:
+    return _hourly_results_to_dataframe(
+        _simulate_hourly_cached(
+            weather=weather,
+            demands=demands,
+            config=config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=simulation_years,
+            simulation_cache=simulation_cache,
+            cache_mode="pygfunction",
+        )
     )
 
 
@@ -971,21 +994,6 @@ def run_hourly_scenario(
         if run_multiyear
         else "Calcul horaire avec solaire (1 an)...",
     )
-    hourly_df = _hourly_results_to_dataframe(
-        _simulate_hourly_cached(
-            weather=weather,
-            demands=demands,
-            config=config,
-            hourly_demand_override=hourly_demand_override,
-            simulation_years=multiyear_years,
-            simulation_cache=simulation_cache,
-            cache_mode="pygfunction",
-        )
-    )
-    multiyear_df = hourly_df
-    if run_multiyear:
-        hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
-
     no_solar_config = replace(config, collector=replace(config.collector, area_m2=0.0))
     if run_geo_only:
         _notify(
@@ -995,21 +1003,45 @@ def run_hourly_scenario(
             if run_multiyear
             else "Calcul horaire sans solaire (1 an)...",
         )
-        no_solar_hourly_df = _hourly_results_to_dataframe(
-            _simulate_hourly_cached(
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            solar_future = executor.submit(
+                _simulate_hourly_dataframe,
+                weather=weather,
+                demands=demands,
+                config=config,
+                hourly_demand_override=hourly_demand_override,
+                simulation_years=multiyear_years,
+                simulation_cache=simulation_cache,
+            )
+            no_solar_future = executor.submit(
+                _simulate_hourly_dataframe,
                 weather=weather,
                 demands=demands,
                 config=no_solar_config,
                 hourly_demand_override=hourly_demand_override,
                 simulation_years=multiyear_years,
                 simulation_cache=simulation_cache,
-                cache_mode="pygfunction",
             )
-        )
+            multiyear_df = solar_future.result()
+            no_solar_hourly_df = no_solar_future.result()
+        hourly_df = multiyear_df
+        if run_multiyear:
+            hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
         no_solar_multiyear_df = no_solar_hourly_df
         if run_multiyear:
             no_solar_hourly_df = no_solar_multiyear_df[no_solar_multiyear_df["simulation_year"] == 1].copy()
     else:
+        hourly_df = _simulate_hourly_dataframe(
+            weather=weather,
+            demands=demands,
+            config=config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=multiyear_years,
+            simulation_cache=simulation_cache,
+        )
+        multiyear_df = hourly_df
+        if run_multiyear:
+            hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
         no_solar_hourly_df = hourly_df.iloc[0:0].copy()
         no_solar_multiyear_df = multiyear_df.iloc[0:0].copy()
 
