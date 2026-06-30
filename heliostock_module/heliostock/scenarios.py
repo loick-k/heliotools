@@ -951,7 +951,24 @@ def run_hourly_scenario(
     displayed_hourly_df["lineaire_sondes_m"] = float(config.btes.boreholes) * float(config.btes.depth_m)
     displayed_hourly_df["tmin_source_operationnelle_c"] = float(config.btes.t_min_c)
     displayed_hourly_df["critere_gmi_active"] = bool(config.btes.gmi_check_enabled)
+
+    no_solar_displayed_hourly_df = no_solar_multiyear_df[
+        no_solar_multiyear_df["simulation_year"] == simulation_year_displayed
+    ].copy()
+    if no_solar_displayed_hourly_df.empty:
+        no_solar_displayed_hourly_df = no_solar_hourly_df.copy()
+    if not no_solar_displayed_hourly_df.empty:
+        no_solar_displayed_hourly_df["simulation_year_displayed"] = simulation_year_displayed
+        no_solar_displayed_hourly_df["simulation_years_total"] = multiyear_years
+        no_solar_displayed_hourly_df["scenario"] = "Geothermie seule"
+        no_solar_displayed_hourly_df["surface_solaire_m2"] = 0.0
+        no_solar_displayed_hourly_df["solaire_actif"] = False
+        no_solar_displayed_hourly_df["puissance_pac_kw"] = float(no_solar_config.heat_pump.max_thermal_power_kw or 0.0)
+        no_solar_displayed_hourly_df["lineaire_sondes_m"] = float(no_solar_config.btes.boreholes) * float(no_solar_config.btes.depth_m)
+        no_solar_displayed_hourly_df["tmin_source_operationnelle_c"] = float(no_solar_config.btes.t_min_c)
+        no_solar_displayed_hourly_df["critere_gmi_active"] = bool(no_solar_config.btes.gmi_check_enabled)
     hourly_df = displayed_hourly_df
+    no_solar_hourly_df = no_solar_displayed_hourly_df
     annual_df = _annual_hourly_summary(hourly_df)
     hourly_by_month_df = _hourly_by_month_summary(hourly_df)
 
@@ -978,11 +995,11 @@ def run_hourly_scenario(
     non_ren_input = total_backup_ht + total_backup_bt + total_system_elec
     global_ren_rate = max(0.0, min(1.0, 1.0 - non_ren_input / max(1e-9, total_ht + total_bt)))
 
-    no_solar_total_pac = float(no_solar_hourly_df["heat_bt_from_pac_kwh"].sum()) if not no_solar_hourly_df.empty else 0.0
+    no_solar_total_pac = float(no_solar_displayed_hourly_df["heat_bt_from_pac_kwh"].sum()) if not no_solar_displayed_hourly_df.empty else 0.0
     no_solar_total_compressor = (
-        float(no_solar_hourly_df["electricity_compressor_kwh"].sum()) if not no_solar_hourly_df.empty else 0.0
+        float(no_solar_displayed_hourly_df["electricity_compressor_kwh"].sum()) if not no_solar_displayed_hourly_df.empty else 0.0
     )
-    no_solar_total_elec = float(no_solar_hourly_df["electricity_pac_total_kwh"].sum()) if not no_solar_hourly_df.empty else 0.0
+    no_solar_total_elec = float(no_solar_displayed_hourly_df["electricity_pac_total_kwh"].sum()) if not no_solar_displayed_hourly_df.empty else 0.0
     no_solar_cop = no_solar_total_pac / no_solar_total_compressor if no_solar_total_compressor > 0 else 0.0
     if run_geo_only and run_reduced_borefield:
         no_solar_economic_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years)

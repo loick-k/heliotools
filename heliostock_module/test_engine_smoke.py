@@ -225,7 +225,7 @@ def test_multiyear_simulation_keeps_btes_thermal_memory_with_saturation():
     df = _hourly_results_to_dataframe(results)
     annual = df.groupby("simulation_year").agg(
         t_wall_min=("T_paroi_forage_C", "min"),
-        pac_heat=("Chaleur_PAC_BT_kWh", "sum"),
+        pac_heat=("heat_bt_from_pac_kwh", "sum"),
         limited_hours=("Limite_temperature_source", "sum"),
     )
 
@@ -829,6 +829,9 @@ def test_run_hourly_scenario_returns_summaries_and_economics():
 
     assert len(result.hourly_df) == 24 * 3
     assert len(result.no_solar_hourly_df) == 24 * 3
+    assert set(result.hourly_df["simulation_year"].unique()) == {20}
+    assert set(result.no_solar_hourly_df["simulation_year"].unique()) == {20}
+    assert int(result.no_solar_hourly_df["simulation_year_displayed"].iloc[0]) == 20
     assert len(result.multiyear_btes_df) == len(result.no_solar_multiyear_btes_df)
     assert not result.no_solar_multiyear_btes_df.empty
     assert not result.annual_df.empty
