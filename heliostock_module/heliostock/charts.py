@@ -9,15 +9,21 @@ def _temperature_chart(results_df: pd.DataFrame):
             "Jour annee",
             "solar_ht_buffer_temp_end_c",
             "collector_temp_ht_c",
-            "T_source_PAC_C",
+            "T_source_PAC_pour_COP_C",
+            "T_source_PAC_fin_heure_C",
             "T_paroi_forage_C",
+            "T_evaporateur_PAC_C",
+            "T_fluide_injection_C",
         ]
     ].rename(
         columns={
             "solar_ht_buffer_temp_end_c": "T ballon solaire (C)",
             "collector_temp_ht_c": "T capteur charge ballon (C)",
-            "T_source_PAC_C": "Température source PAC (C)",
-            "T_paroi_forage_C": "Température paroi forage (C)",
+            "T_source_PAC_pour_COP_C": "Temperature source PAC pour COP (C)",
+            "T_source_PAC_fin_heure_C": "Temperature source PAC fin d'heure (C)",
+            "T_paroi_forage_C": "Temperature paroi forage (C)",
+            "T_evaporateur_PAC_C": "Temperature evaporateur PAC (C)",
+            "T_fluide_injection_C": "Temperature fluide injection (C)",
         }
     )
     temp_long = temp_df.melt(
@@ -25,8 +31,11 @@ def _temperature_chart(results_df: pd.DataFrame):
         value_vars=[
             "T ballon solaire (C)",
             "T capteur charge ballon (C)",
-            "Température source PAC (C)",
-            "Température paroi forage (C)",
+            "Temperature source PAC pour COP (C)",
+            "Temperature source PAC fin d'heure (C)",
+            "Temperature paroi forage (C)",
+            "Temperature evaporateur PAC (C)",
+            "Temperature fluide injection (C)",
         ],
         var_name="Grandeur",
         value_name="Temperature (C)",

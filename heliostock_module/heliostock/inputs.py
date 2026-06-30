@@ -62,13 +62,16 @@ class BtesInputs:
     t_initial_c: float
     t_min_c: float
     t_max_c: float
+    gmi_t_min_c: float = -3.0
+    gmi_t_max_c: float = 40.0
+    gmi_check_enabled: bool = True
     ground_conductivity_w_m_k: float = 2.5
     ground_diffusivity_m2_s: float = 1.0e-6
     borehole_radius_m: float = 0.075
     borehole_buried_depth_m: float = 4.0
     borehole_thermal_resistance_m_k_w: float = 0.10
-    max_extraction_w_m: float = 60.0
-    max_injection_w_m: float = 60.0
+    max_extraction_w_m: float = 40.0
+    max_injection_w_m: float = 40.0
     backend: str = "pygfunction"
 
     def validate(self) -> list[str]:
@@ -80,7 +83,7 @@ class BtesInputs:
         if self.spacing_m <= 0.0:
             warnings.append("L'espacement moyen des sondes doit etre strictement positif.")
         if self.t_max_c <= self.t_min_c:
-            warnings.append("Tmax champ doit etre superieure a Tmin champ.")
+            warnings.append("Tmax injection doit etre superieure a la Tmin source PAC operationnelle.")
         if not self.t_min_c <= self.t_initial_c <= self.t_max_c:
             warnings.append("Tsol initiale devrait etre comprise entre Tmin et Tmax champ.")
         return warnings
@@ -93,6 +96,9 @@ class BtesInputs:
             t_initial_c=self.t_initial_c,
             t_min_c=self.t_min_c,
             t_max_c=self.t_max_c,
+            gmi_t_min_c=self.gmi_t_min_c,
+            gmi_t_max_c=self.gmi_t_max_c,
+            gmi_check_enabled=self.gmi_check_enabled,
             backend=self.backend,
             ground_conductivity_w_m_k=self.ground_conductivity_w_m_k,
             ground_diffusivity_m2_s=self.ground_diffusivity_m2_s,

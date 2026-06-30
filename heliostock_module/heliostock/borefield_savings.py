@@ -9,7 +9,14 @@ from .hourly_engine import HourlyWeather, simulate_hourly
 from .postprocess import _hourly_results_to_dataframe, _mean_cop
 
 
-def _final_year_screening_metrics(df: pd.DataFrame, *, t_min_c: float, demand_bt_kwh: float) -> dict[str, float]:
+def _final_year_screening_metrics(
+    df: pd.DataFrame,
+    *,
+    t_min_c: float,
+    gmi_t_min_c: float,
+    gmi_t_max_c: float,
+    demand_bt_kwh: float,
+) -> dict[str, float]:
     final_year = int(df["simulation_year"].max()) if "simulation_year" in df and not df.empty else 1
     final_df = df[df["simulation_year"] == final_year].copy() if "simulation_year" in df else df
     heat_pac_kwh = float(final_df["heat_bt_from_pac_kwh"].sum())
@@ -22,6 +29,19 @@ def _final_year_screening_metrics(df: pd.DataFrame, *, t_min_c: float, demand_bt
         "final_bt_coverage": heat_pac_kwh / demand_bt,
         "final_t_source_min_c": float(final_df["T_source_PAC_C"].min()) if "T_source_PAC_C" in final_df else 0.0,
         "final_hours_under_tmin": float((final_df["T_source_PAC_C"] < t_min_c - 1e-6).sum()) if "T_source_PAC_C" in final_df else 0.0,
+        "final_hours_under_gmi_tmin": (
+            float((final_df["T_fluide_entree_echangeur_geo_C"] < gmi_t_min_c - 1e-6).sum())
+            if "T_fluide_entree_echangeur_geo_C" in final_df
+            else 0.0
+        ),
+        "final_hours_over_gmi_tmax": (
+            float((final_df["T_fluide_injection_C"] > gmi_t_max_c + 1e-6).sum())
+            if "T_fluide_injection_C" in final_df
+            else 0.0
+        ),
+        "final_source_limited_hours": (
+            float(final_df["Limite_temperature_source"].sum()) if "Limite_temperature_source" in final_df else 0.0
+        ),
         "final_q_extraction_max_w_m": float(final_df["q_extraction_W_m"].max()) if "q_extraction_W_m" in final_df else 0.0,
         "final_q_injection_max_w_m": float(final_df["q_injection_W_m"].max()) if "q_injection_W_m" in final_df else 0.0,
     }
@@ -68,6 +88,8 @@ def borefield_equivalent_savings(
         final_metrics = _final_year_screening_metrics(
             df,
             t_min_c=config.btes.t_min_c,
+            gmi_t_min_c=config.btes.gmi_t_min_c,
+            gmi_t_max_c=config.btes.gmi_t_max_c,
             demand_bt_kwh=sum(max(0.0, bt) for _, bt in (hourly_demand_override or {}).values()),
         )
         return df, cop, bt_pac, boreholes, final_metrics
@@ -78,6 +100,8 @@ def borefield_equivalent_savings(
     reference_final_coverage = full_final["final_bt_coverage"]
     full_final_valid = (
         full_final["final_hours_under_tmin"] <= 1e-9
+        and full_final["final_hours_under_gmi_tmin"] <= 1e-9
+        and full_final["final_hours_over_gmi_tmax"] <= 1e-9
         and full_final["final_t_source_min_c"] >= config.btes.t_min_c - 1e-6
         and full_final["final_q_extraction_max_w_m"] <= config.btes.max_extraction_w_m + 1e-6
         and full_final["final_q_injection_max_w_m"] <= config.btes.max_injection_w_m + 1e-6
@@ -114,6 +138,9 @@ def borefield_equivalent_savings(
             and final_metrics["final_bt_pac_kwh"] + tolerance_bt >= reference_final_bt
             and final_metrics["final_bt_coverage"] + 1e-9 >= reference_final_coverage
             and final_metrics["final_hours_under_tmin"] <= full_final["final_hours_under_tmin"] + 1e-9
+            and final_metrics["final_hours_under_gmi_tmin"] <= 1e-9
+            and final_metrics["final_hours_over_gmi_tmax"] <= 1e-9
+            and final_metrics["final_source_limited_hours"] <= full_final["final_source_limited_hours"] + 1e-9
             and final_metrics["final_t_source_min_c"] >= config.btes.t_min_c - 1e-6
             and final_metrics["final_q_extraction_max_w_m"] <= config.btes.max_extraction_w_m + 1e-6
             and final_metrics["final_q_injection_max_w_m"] <= config.btes.max_injection_w_m + 1e-6

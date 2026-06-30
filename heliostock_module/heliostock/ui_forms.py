@@ -242,6 +242,7 @@ def render_geothermal_form(
             power_ratio_w_per_m=geo_fixed.probe_power_ratio_w_m,
             max_extraction_kwh_per_m_year=geo_fixed.max_extraction_kwh_per_m_year,
             unit_depth_m=probe_unit_depth_m,
+            safety_factor=geo_fixed.safety_factor,
         )
 
         g1, g2, g3, g4 = st.columns(4)
@@ -277,6 +278,20 @@ def render_geothermal_form(
                 "Ces valeurs sont fixees pour reduire les degres de liberte de l'interface. "
                 "Le COP horaire reste calcule dynamiquement avec la temperature du champ."
             )
+        with st.expander("Seuils source PAC et critere GMI", expanded=True):
+            s1, s2, s3 = st.columns(3)
+            t_min_operation_c = s1.number_input(
+                "Tmin source PAC operationnelle (C)",
+                min_value=-10.0,
+                max_value=20.0,
+                value=geo_fixed.t_min_c,
+                step=1.0,
+            )
+            gmi_t_min_c = s2.number_input("Tmin GMI (C)", min_value=-10.0, max_value=10.0, value=geo_fixed.gmi_t_min_c, step=1.0)
+            gmi_t_max_c = s3.number_input("Tmax GMI (C)", min_value=20.0, max_value=60.0, value=geo_fixed.gmi_t_max_c, step=1.0)
+            gmi_check_enabled = st.checkbox("Afficher la conformite GMI", value=geo_fixed.gmi_check_enabled)
+            if t_min_operation_c > gmi_t_min_c:
+                st.warning("La Tmin operationnelle PAC est plus restrictive que le critere GMI bas.")
         with st.expander("Hypothèses avancées P1 électrique", expanded=False):
             st.markdown(
                 f"""
@@ -293,8 +308,11 @@ def render_geothermal_form(
             depth_m=depth_m,
             spacing_m=geo_fixed.spacing_m,
             t_initial_c=geo_fixed.t_initial_c,
-            t_min_c=geo_fixed.t_min_c,
+            t_min_c=t_min_operation_c,
             t_max_c=geo_fixed.t_max_c,
+            gmi_t_min_c=gmi_t_min_c,
+            gmi_t_max_c=gmi_t_max_c,
+            gmi_check_enabled=bool(gmi_check_enabled),
             ground_conductivity_w_m_k=geo_fixed.ground_conductivity_w_m_k,
             ground_diffusivity_m2_s=geo_fixed.ground_diffusivity_m2_s,
             borehole_radius_m=geo_fixed.borehole_radius_m,
@@ -336,7 +354,7 @@ def render_economics_form() -> EconomicsInputs:
         c1, c2 = st.columns(2)
         eta_appoint_eco = c1.number_input("Rendement appoint gaz", min_value=0.01, max_value=1.50, value=0.82, step=0.01)
         reference_energy_inflation_pct = c2.number_input("Inflation gaz reference (%/an)", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
-        st.caption("Duree d'analyse economique forcee a 20 ans. Aucune autre aide publique deja acquise n'est appliquee.")
+        st.caption("Duree d'analyse economique par defaut : 25 ans. Aucune autre aide publique deja acquise n'est appliquee.")
 
         st.markdown("#### P1 - Energies")
         p1a, p1b, p1c = st.columns(3)
@@ -373,11 +391,33 @@ def render_economics_form() -> EconomicsInputs:
 
 def render_calculation_selection_form() -> CalculationSelectionFormResult:
     with st.expander("6) Calculs a lancer", expanded=True):
-        run_multiyear = st.checkbox("Projection 20 ans", value=False)
-        run_geo_only = st.checkbox("Scenario geothermie seule", value=False)
+        run_multiyear = st.checkbox("Projection technique multiannuelle", value=True)
+        technical_simulation_years = st.number_input(
+            "Duree simulation technique champ (ans)",
+            min_value=1,
+            max_value=50,
+            value=25,
+            step=1,
+            disabled=not run_multiyear,
+        )
+        display_year_mode = st.radio(
+            "Annee technique affichee",
+            options=["finale", "annee 1", "personnalisee"],
+            index=0,
+            horizontal=True,
+        )
+        custom_display_year = st.number_input(
+            "Annee personnalisee",
+            min_value=1,
+            max_value=int(technical_simulation_years),
+            value=int(technical_simulation_years),
+            step=1,
+            disabled=display_year_mode != "personnalisee",
+        )
+        run_geo_only = st.checkbox("Scenario geothermie seule", value=True)
         run_reduced_borefield = st.checkbox(
             "Optimisation avec recharge solaire",
-            value=False,
+            value=True,
             disabled=not run_geo_only,
         )
         if not run_geo_only and run_reduced_borefield:
@@ -389,6 +429,9 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
     return CalculationSelectionFormResult(
         selection=CalculationSelection(
             run_multiyear=bool(run_multiyear),
+            technical_simulation_years=int(technical_simulation_years) if run_multiyear else 1,
+            display_year_mode=str(display_year_mode),
+            custom_display_year=int(custom_display_year),
             run_geo_only=bool(run_geo_only),
             run_reduced_borefield=bool(run_reduced_borefield),
         )

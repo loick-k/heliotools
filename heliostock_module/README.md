@@ -22,8 +22,8 @@ python -m streamlit run demo_app.py
 ```
 
 La demo ouvre directement le module de calcul horaire solaire + stockage journalier + BTES + PAC + economie solaire/geothermie/appoint.
-Le résultat principal reste une simulation 8760 h annuelle. Une projection physique multiannuelle répète ensuite la
-même météo et les mêmes besoins sur la durée d'analyse économique, 20 ans par défaut, pour visualiser la dérive
+Le résultat technique principal est lu par défaut sur l'année finale d'une simulation champ de sondes de 25 ans.
+Une projection physique multiannuelle répète la même météo et les mêmes besoins sur cette durée pour visualiser la dérive
 thermique du champ de sondes. Cette projection est menée à la fois pour la géothermie seule et pour la géothermie avec
 recharge solaire, avec le modele champ de sondes pygfunction.
 
@@ -86,7 +86,7 @@ Pour chaque heure EPW, le calcul suit l'ordre suivant :
 8. Couverture du process BT : air exterieur -> 25 C, par PAC geothermique, dans la limite de la puissance PAC retenue.
 9. Calcul du COP PAC a partir de la temperature du champ apres injection solaire.
 10. Appoint BT si le besoin horaire depasse la puissance PAC ou si la temperature source atteint la limite basse.
-11. Extraction de chaleur du champ par la PAC, bornee par `Tmin champ`.
+11. Extraction de chaleur du champ par la PAC, bornee par la Tmin source PAC operationnelle.
 12. Mise a jour de l'historique thermique `pygfunction` par charge lineique nette.
 
 L'analyse economique solaire thermique est calculee apres la simulation horaire, uniquement a partir du prechauffage
@@ -343,7 +343,8 @@ L_sondes = max(P_sous_sol * 1000 / ratio_W_ml, Q_sous_sol * 1000 / ratio_kWh_ml_
 ```
 
 La longueur requise est arrondie aux 10 m superieurs, puis convertie en nombre de sondes avec la profondeur unitaire.
-Les ratios par defaut sont `60 W/ml` et `115 kWh/ml.an`, modifiables dans l'interface.
+Les ratios par defaut sont `40 W/ml` et `60 kWh/ml.an`, avec facteur de securite `1,20`.
+Les plages de lecture recommandees sont environ `35 a 45 W/ml` et `55 a 70 kWh/ml.an`, modifiables dans l'interface.
 
 La chaleur livree par la PAC est separee en deux postes :
 
@@ -480,4 +481,35 @@ ignores par Git via `.gitignore` et doivent rester locaux.
 Le calcul ne se lance qu'apres clic sur le bouton `Lancer le calcul`, avec une barre de progression.
 
 Les valeurs du fichier 8760 h sont utilisees directement, sans recalage par coefficient dans l'interface.
+
+## Ecarts et points communs avec un outil classique de dimensionnement de champ de sondes
+
+Points communs :
+
+- HelioStock simule le champ de sondes sur une trajectoire multiannuelle, 25 ans par defaut.
+- Le backend champ de sondes est exclusivement `pygfunction`.
+- Les charges sont appliquees en W/m sur la longueur totale de sondes.
+- Les resultats techniques principaux sont lus sur l'annee finale par defaut.
+- Les indicateurs surveillent temperatures source, paroi forage, flux lineiques, COP, SPF et couverture PAC.
+
+Specificites HelioStock :
+
+- le besoin est separe entre process HT et BT ;
+- le solaire thermique charge d'abord un ballon HT journalier ;
+- l'injection BTES n'est autorisee qu'apres saturation du ballon solaire ;
+- la recharge solaire est analysee comme un service rendu au systeme geothermique, pas comme une chaleur solaire injectee principale ;
+- l'economie compare reference gaz, geothermie seule, geothermie + solaire meme lineaire et geothermie + solaire avec reduction de sondes.
+
+Seuils et temperatures :
+
+- le critere GMI est affiche avec `Tmin = -3 C` et `Tmax = +40 C` par defaut ;
+- la Tmin source PAC operationnelle reste distincte, `5 C` par defaut, pour garder une marge prudente ;
+- `T_paroi_forage_C`, `T_source_PAC_pour_COP_C`, `T_source_PAC_fin_heure_C`, `T_evaporateur_PAC_C` et `T_fluide_injection_C` ne representent pas la meme grandeur ;
+- le couplage horaire est explicite : la PAC est pilotee avec la temperature disponible pendant l'heure, puis la temperature fin d'heure est obtenue apres application de la charge `pygfunction`.
+
+Limites d'usage :
+
+- le COP est une loi Carnot degradee simplifiee ;
+- la geometrie automatique du champ influence fortement les interactions et reste un predimensionnement ;
+- HelioStock ne remplace pas une etude geothermique detaillee avec TRT, geometrie reelle, hydraulique, pertes reseau et ingenierie dediee.
 

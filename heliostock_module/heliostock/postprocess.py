@@ -30,13 +30,24 @@ def _hourly_results_to_dataframe(results) -> pd.DataFrame:
     df["T_paroi_forage_fin_heure_C"] = df["T_paroi_forage_C"]
     df["T_evaporateur_PAC_C"] = df["t_evaporator_pac_c"]
     df["T_fluide_injection_C"] = df["t_fluide_injection_c"]
+    df["T_fluide_entree_echangeur_geo_C"] = df["t_fluide_entree_echangeur_geo_c"]
     df["q_extraction_W_m"] = df["q_extraction_w_m"]
     df["q_injection_W_m"] = df["q_injection_w_m"]
+    df["q_injection_signee_W_m"] = df["q_injection_signed_w_m"]
     df["q_net_W_m"] = df["q_net_w_m"]
+    df["Limite_temperature_source"] = df["source_temp_limited"]
+    df["BT_non_couvert_limite_source_kWh"] = df["source_temp_unmet_bt_kwh"]
     return df
 
 
-def _multiyear_btes_summary(results_df: pd.DataFrame, *, t_min_c: float) -> pd.DataFrame:
+def _multiyear_btes_summary(
+    results_df: pd.DataFrame,
+    *,
+    t_min_c: float,
+    gmi_t_min_c: float = -3.0,
+    gmi_t_max_c: float = 40.0,
+    gmi_check_enabled: bool = True,
+) -> pd.DataFrame:
     rows = []
     if results_df.empty:
         return pd.DataFrame(rows)
@@ -56,6 +67,8 @@ def _multiyear_btes_summary(results_df: pd.DataFrame, *, t_min_c: float) -> pd.D
                 "T source PAC moyenne (C)": float(group["T_source_PAC_C"].mean()),
                 "T source PAC pour COP min (C)": float(group["T_source_PAC_pour_COP_C"].min()),
                 "T source PAC pour COP moyenne (C)": float(group["T_source_PAC_pour_COP_C"].mean()),
+                "T fluide entree echangeur geo min (C)": float(group["T_fluide_entree_echangeur_geo_C"].min()),
+                "T fluide injection max (C)": float(group["T_fluide_injection_C"].max()),
                 "T paroi forage fin (C)": float(group["T_paroi_forage_C"].iloc[-1]),
                 "T paroi forage min (C)": float(group["T_paroi_forage_C"].min()),
                 "T paroi forage max (C)": float(group["T_paroi_forage_C"].max()),
@@ -71,7 +84,19 @@ def _multiyear_btes_summary(results_df: pd.DataFrame, *, t_min_c: float) -> pd.D
                 "q net moyen (W/m)": float(group["q_net_W_m"].mean()),
                 "COP machine": heat_pac / elec_compressor if elec_compressor > 0 else 0.0,
                 "SPF PAC complet": heat_pac / elec_total if elec_total > 0 else 0.0,
+                "Heures sous Tmin operationnelle": int((group["T_source_PAC_pour_COP_C"] <= t_min_c + 1e-6).sum()),
                 "Heures sous Tmin source": int((group["T_source_PAC_C"] <= t_min_c + 1e-6).sum()),
+                "Heures sous Tmin GMI": int((group["T_fluide_entree_echangeur_geo_C"] < gmi_t_min_c - 1e-6).sum()),
+                "Heures sur Tmax GMI": int((group["T_fluide_injection_C"] > gmi_t_max_c + 1e-6).sum()),
+                "Conformite GMI": bool(
+                    (not gmi_check_enabled)
+                    or (
+                        (group["T_fluide_entree_echangeur_geo_C"] >= gmi_t_min_c - 1e-6).all()
+                        and (group["T_fluide_injection_C"] <= gmi_t_max_c + 1e-6).all()
+                    )
+                ),
+                "Heures limite source": int(group["Limite_temperature_source"].sum()),
+                "BT non couvert limite source (MWh)": float(group["BT_non_couvert_limite_source_kWh"].sum()) / 1000.0,
                 "Heures COP max": int(group["cop_limited_max"].sum()),
             }
         )

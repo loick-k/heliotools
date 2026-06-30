@@ -53,6 +53,9 @@ class BtesConfig:
     t_initial_c: float = 12.0
     t_min_c: float = 5.0
     t_max_c: float = 40.0
+    gmi_t_min_c: float = -3.0
+    gmi_t_max_c: float = 40.0
+    gmi_check_enabled: bool = True
     injection_efficiency: float = 0.90
     backend: str = "pygfunction"
     ground_conductivity_w_m_k: float = 2.5
@@ -60,8 +63,8 @@ class BtesConfig:
     borehole_radius_m: float = 0.075
     borehole_buried_depth_m: float = 4.0
     borehole_thermal_resistance_m_k_w: float = 0.10
-    max_extraction_w_m: float = 60.0
-    max_injection_w_m: float = 60.0
+    max_extraction_w_m: float = 40.0
+    max_injection_w_m: float = 40.0
 
 
 @dataclass(frozen=True)

@@ -21,6 +21,7 @@ from heliostock.economics import (
     solar_recharge_value,
 )
 from heliostock.hourly_engine import HourlyWeather, aggregate_hourly_results_monthly, simulate_hourly
+from heliostock.hourly_engine import HourlyResult
 from heliostock.geothermal_design import predimension_borefield
 from heliostock.inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, ScenarioInputs, SolarInputs
 from heliostock.load_profiles import _hourly_demands_from_process_file
@@ -53,6 +54,61 @@ def _demand_aggregate(month: int, weather: list[HourlyWeather], *, ht_kwh: float
             process_bt_kwh=bt_kwh * len(weather),
         )
     ]
+
+
+def _fake_hourly_result(**overrides) -> HourlyResult:
+    base = dict(
+        simulation_year=1,
+        hour_index=0,
+        month=1,
+        day=1,
+        hour=1,
+        tair_c=8.0,
+        demand_ht_kwh=0.0,
+        demand_bt_kwh=100.0,
+        solar_ht_potential_kwh=0.0,
+        solar_ht_instant_kwh=0.0,
+        solar_ht_from_buffer_kwh=0.0,
+        solar_ht_to_buffer_kwh=0.0,
+        solar_ht_buffer_loss_kwh=0.0,
+        solar_ht_buffer_energy_end_kwh=0.0,
+        solar_ht_buffer_temp_start_c=20.0,
+        solar_ht_buffer_temp_end_c=20.0,
+        collector_temp_ht_c=30.0,
+        collector_temp_storage_c=25.0,
+        solar_ht_direct_kwh=0.0,
+        solar_storage_potential_kwh=0.0,
+        solar_to_btes_kwh=0.0,
+        solar_not_used_kwh=0.0,
+        t_borehole_wall_c=10.0,
+        t_source_pac_c=7.0,
+        t_source_pac_for_cop_c=7.0,
+        t_evaporator_pac_c=4.0,
+        t_fluide_injection_c=12.0,
+        t_fluide_entree_echangeur_geo_c=7.0,
+        q_extraction_w_m=30.0,
+        q_injection_w_m=0.0,
+        q_injection_signed_w_m=0.0,
+        q_net_w_m=30.0,
+        cop_limited_max=False,
+        source_temp_limited=False,
+        source_temp_unmet_bt_kwh=0.0,
+        cop_pac=4.0,
+        heat_bt_from_pac_kwh=100.0,
+        btes_extracted_by_pac_kwh=75.0,
+        electricity_compressor_kwh=25.0,
+        electricity_pac_auxiliaries_kwh=3.75,
+        electricity_standby_kwh=0.05,
+        electricity_pac_total_kwh=28.8,
+        electricity_system_total_kwh=28.8,
+        electricity_pac_kwh=25.0,
+        unmet_ht_kwh=0.0,
+        unmet_bt_kwh=0.0,
+        collector_eff_ht=0.0,
+        collector_eff_storage=0.0,
+    )
+    base.update(overrides)
+    return HourlyResult(**base)
 
 
 def test_hourly_simulation_smoke():
@@ -104,7 +160,7 @@ def test_hourly_simulation_smoke():
     )
 
 
-def test_multiyear_simulation_keeps_btes_thermal_memory():
+def test_multiyear_simulation_keeps_btes_thermal_memory_without_saturation():
     if not pygfunction_available():
         return
     weather = [
@@ -120,14 +176,14 @@ def test_multiyear_simulation_keeps_btes_thermal_memory():
     ]
     config = SimulationConfig(
         collector=CollectorConfig(area_m2=100.0),
-        btes=BtesConfig(boreholes=10, depth_m=100.0, spacing_m=10.0),
-        heat_pump=HeatPumpConfig(air_target_bt_c=25.0, max_thermal_power_kw=80.0),
+        btes=BtesConfig(boreholes=16, depth_m=120.0, spacing_m=10.0, t_min_c=3.0),
+        heat_pump=HeatPumpConfig(air_target_bt_c=25.0, max_thermal_power_kw=45.0),
     )
     results = simulate_hourly(
         weather=weather,
-        demands=[MonthlyDemand(month=1, process_ht_kwh=7_000.0, process_bt_kwh=14_000.0)],
+        demands=[MonthlyDemand(month=1, process_ht_kwh=3_000.0, process_bt_kwh=6_000.0)],
         config=config,
-        hourly_demand_override=_hourly_override(weather, ht_kwh=42.0, bt_kwh=84.0),
+        hourly_demand_override=_hourly_override(weather, ht_kwh=18.0, bt_kwh=36.0),
         simulation_years=3,
     )
     df = _hourly_results_to_dataframe(results)
@@ -136,7 +192,46 @@ def test_multiyear_simulation_keeps_btes_thermal_memory():
     assert len(results) == len(weather) * 3
     assert sorted(df["simulation_year"].unique().tolist()) == [1, 2, 3]
     assert len(summary) == 3
+    assert int(summary["Heures sous Tmin operationnelle"].sum()) == 0
     assert summary["T source PAC fin (C)"].iloc[-1] < summary["T source PAC fin (C)"].iloc[0]
+
+
+def test_multiyear_simulation_keeps_btes_thermal_memory_with_saturation():
+    if not pygfunction_available():
+        return
+    weather = [
+        HourlyWeather(
+            hour_index=hour,
+            month=1,
+            day=hour // 24 + 1,
+            hour=hour % 24 + 1,
+            tair_c=5.0,
+            g_tilt_kwh_m2=0.2 if 10 <= hour % 24 <= 14 else 0.0,
+        )
+        for hour in range(24 * 7)
+    ]
+    config = SimulationConfig(
+        collector=CollectorConfig(area_m2=20.0),
+        btes=BtesConfig(boreholes=8, depth_m=80.0, spacing_m=8.0, t_min_c=5.0),
+        heat_pump=HeatPumpConfig(air_target_bt_c=30.0, max_thermal_power_kw=110.0),
+    )
+    results = simulate_hourly(
+        weather=weather,
+        demands=[MonthlyDemand(month=1, process_ht_kwh=10_000.0, process_bt_kwh=22_000.0)],
+        config=config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=60.0, bt_kwh=130.0),
+        simulation_years=3,
+    )
+    df = _hourly_results_to_dataframe(results)
+    annual = df.groupby("simulation_year").agg(
+        t_wall_min=("T_paroi_forage_C", "min"),
+        pac_heat=("Chaleur_PAC_BT_kWh", "sum"),
+        limited_hours=("Limite_temperature_source", "sum"),
+    )
+
+    assert annual.loc[3, "t_wall_min"] < annual.loc[1, "t_wall_min"]
+    assert annual.loc[3, "pac_heat"] < annual.loc[1, "pac_heat"]
+    assert annual.loc[3, "limited_hours"] > 1
 
 
 def test_pygfunction_backend_is_required_without_alternative_backend():
@@ -560,6 +655,62 @@ def test_solar_recharge_p2_is_counted_globally_as_geothermal_p2():
     assert float(multiyear["p2_annual_eur"]) == 3_000.0
 
 
+def test_postprocess_exports_year_metadata_and_signed_injection():
+    df = _hourly_results_to_dataframe(
+        [
+            _fake_hourly_result(
+                simulation_year=25,
+                q_injection_w_m=12.0,
+                q_injection_signed_w_m=-12.0,
+                q_net_w_m=-12.0,
+                solar_to_btes_kwh=12.0,
+            )
+        ]
+    )
+    df["simulation_year_displayed"] = 25
+    df["simulation_years_total"] = 25
+    df["scenario"] = "Geothermie + solaire meme sondes"
+    df["surface_solaire_m2"] = 500.0
+    df["solaire_actif"] = True
+    df["puissance_pac_kw"] = 100.0
+    df["lineaire_sondes_m"] = 1000.0
+    df["tmin_source_operationnelle_c"] = 5.0
+    df["critere_gmi_active"] = True
+
+    assert float(df["q_injection_W_m"].iloc[0]) == 12.0
+    assert float(df["q_injection_signee_W_m"].iloc[0]) == -12.0
+    assert int(df["simulation_year_displayed"].iloc[0]) == 25
+    assert int(df["simulation_years_total"].iloc[0]) == 25
+    assert bool(df["critere_gmi_active"].iloc[0])
+
+
+def test_gmi_threshold_is_distinct_from_operational_tmin():
+    df = _hourly_results_to_dataframe(
+        [
+            _fake_hourly_result(
+                t_source_pac_c=4.0,
+                t_source_pac_for_cop_c=4.0,
+                t_fluide_entree_echangeur_geo_c=4.0,
+                t_fluide_injection_c=35.0,
+            ),
+            _fake_hourly_result(
+                hour_index=1,
+                t_source_pac_c=-4.0,
+                t_source_pac_for_cop_c=5.0,
+                t_fluide_entree_echangeur_geo_c=-4.0,
+                t_fluide_injection_c=41.0,
+            ),
+        ]
+    )
+    summary = _multiyear_btes_summary(df, t_min_c=5.0, gmi_t_min_c=-3.0, gmi_t_max_c=40.0)
+
+    row = summary.iloc[0]
+    assert int(row["Heures sous Tmin operationnelle"]) == 2
+    assert int(row["Heures sous Tmin GMI"]) == 1
+    assert int(row["Heures sur Tmax GMI"]) == 1
+    assert not bool(row["Conformite GMI"])
+
+
 def test_round_display_df_keeps_one_decimal_for_cop_columns():
     df = pd.DataFrame(
         {
@@ -582,8 +733,10 @@ def test_fixed_ui_assumptions_keep_expected_defaults():
     assert solar.daily_buffer_l_per_m2 == 60.0
     assert geo.spacing_m == 10.0
     assert geo.carnot_efficiency == 0.54
-    assert geo.max_extraction_kwh_per_m_year == 70.0
-    assert economics.analysis_years == 20
+    assert geo.probe_power_ratio_w_m == 40.0
+    assert geo.max_extraction_kwh_per_m_year == 60.0
+    assert geo.safety_factor == 1.20
+    assert economics.analysis_years == 25
     assert economics.ademe_eur_mwh_year == 63.0
 
 
@@ -592,14 +745,15 @@ def test_borefield_predesign_uses_prudent_max_of_power_and_annual_extraction():
         pac_power_kw=100.0,
         cop=5.0,
         heat_pac_mwh_year=500.0,
-        power_ratio_w_per_m=60.0,
-        max_extraction_kwh_per_m_year=70.0,
+        power_ratio_w_per_m=40.0,
+        max_extraction_kwh_per_m_year=60.0,
         unit_depth_m=100.0,
+        safety_factor=1.20,
     )
-    length_power = predesign.ground_power_kw * 1000.0 / 60.0
-    length_energy = predesign.ground_heat_mwh_year * 1000.0 / 70.0
+    length_power = predesign.ground_power_kw * 1000.0 / 40.0 * 1.20
+    length_energy = predesign.ground_heat_mwh_year * 1000.0 / 60.0 * 1.20
 
-    assert predesign.energy_ratio_kwh_per_m_year == 70.0
+    assert predesign.energy_ratio_kwh_per_m_year == 60.0
     assert predesign.required_length_m >= length_power
     assert predesign.required_length_m >= length_energy
 

@@ -70,6 +70,14 @@ def render_hourly_results(
     backup_power_kw = scenario.backup_power_kw
 
     st.subheader("Resultats 8760 h")
+    st.caption(
+        f"Simulation technique champ : {scenario.simulation_years_total} an(s). "
+        f"Annee affichee pour les resultats techniques : {scenario.simulation_year_displayed}. "
+        f"Economie : trajectoire de {scenario.economic_years_used} an(s). "
+        f"Tmin operationnelle PAC : {scenario.config.btes.t_min_c:.1f} C ; "
+        f"critere GMI {'actif' if scenario.gmi_check_enabled else 'inactif'} "
+        f"({scenario.config.btes.gmi_t_min_c:.1f} / {scenario.config.btes.gmi_t_max_c:.1f} C)."
+    )
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
     k2.metric("Prechauffage HT solaire", f"{total_preheat_ht / 1000:.0f} MWh")
@@ -99,6 +107,15 @@ def render_hourly_results(
     p1.metric("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW")
     p2.metric("P PAC retenue", f"{pac_nominal_power_kw:.0f} kW", delta=f"{pac_power_fraction_pct:.0f} % Pmax")
     p3.metric("Pic appoint appele", f"{backup_power_kw:.0f} kW")
+    gmi_hours_low = int((hourly_df["T_fluide_entree_echangeur_geo_C"] < scenario.config.btes.gmi_t_min_c - 1e-6).sum())
+    gmi_hours_high = int((hourly_df["T_fluide_injection_C"] > scenario.config.btes.gmi_t_max_c + 1e-6).sum())
+    source_limit_hours = int(hourly_df["Limite_temperature_source"].sum())
+    source_limit_energy = float(hourly_df["BT_non_couvert_limite_source_kWh"].sum()) / 1000.0
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Heures sous Tmin operationnelle", f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h")
+    d2.metric("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h")
+    d3.metric("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} C")
+    d4.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
 
     _render_pac_electricity_summary(
         total_compressor=total_compressor,

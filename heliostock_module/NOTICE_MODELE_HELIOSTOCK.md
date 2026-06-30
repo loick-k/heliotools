@@ -5,7 +5,7 @@ Cette notice décrit les équations et hypothèses effectivement codées dans la
 Le modèle actif dans l’interface Streamlit est le modèle horaire `simulate_hourly(...)`. L’ancien moteur de résolution mensuelle a été supprimé : les tableaux mensuels affichés sont uniquement des agrégations des résultats horaires.
 
 Le calcul principal reste une année 8760 h. Une projection physique multiannuelle répète ensuite la même année météo et
-les mêmes besoins horaires sur la durée d'analyse économique, 20 ans par défaut. L'état thermique du champ de sondes est
+les mêmes besoins horaires sur 25 ans par défaut. L'état thermique du champ de sondes est
 conservé d'une année à l'autre afin de visualiser la recharge ou l'épuisement progressif du sous-sol. La projection est
 calculée pour la géothermie seule et pour la géothermie avec recharge solaire, avec le modèle champ de sondes
 `pygfunction`.
@@ -782,7 +782,7 @@ Pour chaque heure EPW, le moteur fait exactement :
 13. Calcul du potentiel solaire à température BTES.
 14. Injection dans le BTES.
 15. Calcul du COP PAC avec la température source estimée.
-16. Couverture du besoin BT par PAC, limitée par la puissance PAC, la puissance linéique et `Tmin champ`.
+16. Couverture du besoin BT par PAC, limitée par la puissance PAC, la puissance linéique et la Tmin source PAC operationnelle.
 17. Extraction BTES par la PAC.
 18. Mise à jour `pygfunction` avec `q_net_W_m`.
 19. Stockage de tous les résultats horaires.
@@ -1471,7 +1471,9 @@ nombre de sondes = 100
 profondeur = 100 m
 espacement = 5 m
 Tsol initiale = 12 °C
-Tmin champ = 5 °C
+Tmin source PAC operationnelle = 5 °C
+Tmin GMI = -3 °C
+Tmax GMI = 40 °C
 Tmax champ = 40 °C
 rendement injection = 90 %
 ```
@@ -1507,7 +1509,7 @@ Limites actuelles :
 - résistance thermique sonde/sol simplifiée dans le backend `pygfunction` ;
 - interférences temporelles détaillées entre sondes limitées au backend `pygfunction` ;
 - limites de puissance linéique encore simplifiées par valeurs forfaitaires ;
-- modèle économique limité au solaire thermique, sans CAPEX/OPEX géothermie.
+- modele economique multi-energies simplifie, avec CAPEX/P1/P2/P4 solaire, geothermie PAC et appoint gaz.
 
 ## 26. Points à améliorer en V1+
 
@@ -1520,3 +1522,53 @@ Priorités techniques :
 5. Ajouter une modélisation plus réaliste du ballon : stratification ou au minimum nœuds haut/bas.
 6. Ajouter des profils d’exploitation : horaires ouvrés, week-ends, arrêts, saisonnalité process.
 7. Ajouter la partie économique géothermie : CAPEX champ de sondes, PAC, appoint, OPEX et valorisation de l’économie de sondes.
+
+## 27. Alignement avec un dimensionnement classique de champ de sondes
+
+La version actuelle aligne le controle technique du champ de sondes sur une trajectoire multiannuelle de 25 ans par defaut.
+Les resultats techniques principaux sont lus sur l'annee finale, tandis que l'economie reste calculee sur la trajectoire
+multiannuelle complete.
+
+Le critere GMI est distingue du pilotage PAC :
+
+```text
+Tmin GMI = -3 C
+Tmax GMI = +40 C
+Tmin source PAC operationnelle = 5 C par defaut
+```
+
+La Tmin operationnelle peut donc rester plus prudente que le seuil GMI. Les resultats distinguent les heures sous Tmin
+operationnelle, les heures hors GMI, la temperature source PAC minimale de l'annee finale et la temperature maximale de
+fluide en injection.
+
+Les temperatures exposees ne sont pas interchangeables :
+
+```text
+T_paroi_forage_C
+T_source_PAC_pour_COP_C
+T_source_PAC_fin_heure_C
+T_evaporateur_PAC_C
+T_fluide_injection_C
+T_fluide_entree_echangeur_geo_C
+```
+
+Le couplage horaire reste explicite : le COP est calcule avec la temperature disponible pendant l'heure, puis la charge
+horaire est appliquee dans `pygfunction`. La temperature fin d'heure peut donc etre legerement plus basse que le seuil
+operationnel, ce qui doit etre interprete comme un diagnostic de derive thermique et non comme la temperature qui a servi
+au COP de cette meme heure.
+
+Le predimensionnement prudent utilise maintenant :
+
+```text
+ratio puissance extraction = 40 W/ml
+ratio energie extraction = 60 kWh/ml.an
+facteur securite = 1,20
+```
+
+Les plages de lecture recommandees sont environ 35 a 45 W/ml et 55 a 70 kWh/ml.an. Ces ratios restent des ordres de
+grandeur de predimensionnement ; la geometrie du champ et les interactions temporelles doivent etre consolidees par une
+etude geothermique detaillee.
+
+L'outil conserve ses specificites : process HT/BT, solaire thermique via ballon journalier, injection solaire seulement
+apres saturation du ballon, comparaison gaz / geothermie / geothermie + solaire. Il reste un outil d'opportunite et ne
+remplace pas une etude avec TRT, plan de champ reel, hydraulique et ingenierie dediee.

@@ -17,6 +17,7 @@ class BorefieldPreDesign:
     unit_depth_m: float
     boreholes: int
     effective_length_m: float
+    safety_factor: float
 
 
 def predimension_borefield(
@@ -24,10 +25,11 @@ def predimension_borefield(
     pac_power_kw: float,
     cop: float,
     heat_pac_mwh_year: float,
-    power_ratio_w_per_m: float = 60.0,
-    energy_ratio_kwh_per_m_year: float = 115.0,
+    power_ratio_w_per_m: float = 40.0,
+    energy_ratio_kwh_per_m_year: float = 60.0,
     max_extraction_kwh_per_m_year: float | None = None,
     unit_depth_m: float = 100.0,
+    safety_factor: float = 1.20,
 ) -> BorefieldPreDesign:
     """Pre-size geothermal probes from heat pump power and COP.
 
@@ -51,13 +53,14 @@ def predimension_borefield(
     )
     safe_energy_ratio = max(1e-9, float(extraction_ratio))
     safe_depth = max(1.0, float(unit_depth_m))
+    safe_safety_factor = max(1.0, float(safety_factor))
 
     ground_fraction = max(0.0, (safe_cop - 1.0) / safe_cop)
     ground_power_kw = safe_power * ground_fraction
     ground_heat_mwh = safe_heat * ground_fraction
     length_power_m = ground_power_kw * 1000.0 / safe_power_ratio
     length_energy_m = ground_heat_mwh * 1000.0 / safe_energy_ratio
-    required_length_m = math.ceil(max(length_power_m, length_energy_m) / 10.0) * 10.0
+    required_length_m = math.ceil(max(length_power_m, length_energy_m) * safe_safety_factor / 10.0) * 10.0
     boreholes = max(1, math.ceil(required_length_m / safe_depth))
     effective_length_m = boreholes * safe_depth
 
@@ -73,4 +76,5 @@ def predimension_borefield(
         unit_depth_m=safe_depth,
         boreholes=boreholes,
         effective_length_m=effective_length_m,
+        safety_factor=safe_safety_factor,
     )

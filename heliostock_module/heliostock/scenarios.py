@@ -88,6 +88,10 @@ class ScenarioResult:
     full_borefield_length_m: float
     economic_borefield_length_m: float
     reference_gas_power_kw: float
+    simulation_year_displayed: int
+    simulation_years_total: int
+    economic_years_used: int
+    gmi_check_enabled: bool
 
 
 def _notify(progress: ProgressCallback | None, value: int, text: str) -> None:
@@ -474,10 +478,23 @@ def _hourly_metrics(df: pd.DataFrame, *, annualization_years: int = 1) -> dict[s
         "t_source_pac_mean_c": float(df["T_source_PAC_C"].mean()) if "T_source_PAC_C" in df else 0.0,
         "q_extraction_max_w_m": float(df["q_extraction_W_m"].max()) if "q_extraction_W_m" in df else 0.0,
         "q_injection_max_w_m": float(df["q_injection_W_m"].max()) if "q_injection_W_m" in df else 0.0,
+        "source_limited_hours": float(df["Limite_temperature_source"].sum()) if "Limite_temperature_source" in df else 0.0,
+        "source_limited_unmet_mwh": (
+            float(df["BT_non_couvert_limite_source_kWh"].sum()) / 1000.0
+            if "BT_non_couvert_limite_source_kWh" in df
+            else 0.0
+        ),
     }
 
 
-def _annual_metrics_trajectory(df: pd.DataFrame, *, analysis_years: int) -> pd.DataFrame:
+def _annual_metrics_trajectory(
+    df: pd.DataFrame,
+    *,
+    analysis_years: int,
+    gmi_t_min_c: float = -3.0,
+    gmi_t_max_c: float = 40.0,
+    gmi_check_enabled: bool = True,
+) -> pd.DataFrame:
     """Build one technical/economic row per analysis year.
 
     If the economic horizon is longer than the simulated period, the final
@@ -498,6 +515,7 @@ def _annual_metrics_trajectory(df: pd.DataFrame, *, analysis_years: int) -> pd.D
         backup_bt = float(group["unmet_bt_kwh"].sum())
         elec_total = float(group["electricity_pac_total_kwh"].sum())
         solar_ht = float(group["solar_ht_direct_kwh"].sum())
+        source_limited_hours = int(group["Limite_temperature_source"].sum()) if "Limite_temperature_source" in group else 0
         non_ren = backup_ht + backup_bt + elec_total
         useful = total_ht + total_bt
         rows.append(
@@ -514,7 +532,46 @@ def _annual_metrics_trajectory(df: pd.DataFrame, *, analysis_years: int) -> pd.D
                 "Appoint gaz total (MWh)": (backup_ht + backup_bt) / 1000.0,
                 "Electricite PAC (MWh)": elec_total / 1000.0,
                 "COP moyen": heat_pac / elec_comp if elec_comp > 0.0 else 0.0,
+                "SPF PAC complet": heat_pac / elec_total if elec_total > 0.0 else 0.0,
+                "Couverture PAC BT (%)": heat_pac / max(1e-9, total_bt) * 100.0,
+                "Heures equivalentes PAC BT": heat_pac / max(
+                    1e-9,
+                    float(group["puissance_pac_kw"].max())
+                    if "puissance_pac_kw" in group
+                    else float(group["heat_bt_from_pac_kwh"].max()),
+                ),
                 "T_source_PAC_min (C)": float(group["T_source_PAC_C"].min()) if "T_source_PAC_C" in group else 0.0,
+                "T_source_PAC_pour_COP_min (C)": float(group["T_source_PAC_pour_COP_C"].min()) if "T_source_PAC_pour_COP_C" in group else 0.0,
+                "T_fluide_injection_max (C)": float(group["T_fluide_injection_C"].max()) if "T_fluide_injection_C" in group else 0.0,
+                "Heures sous Tmin GMI": (
+                    int((group["T_fluide_entree_echangeur_geo_C"] < gmi_t_min_c - 1e-6).sum())
+                    if "T_fluide_entree_echangeur_geo_C" in group
+                    else 0
+                ),
+                "Heures sur Tmax GMI": (
+                    int((group["T_fluide_injection_C"] > gmi_t_max_c + 1e-6).sum())
+                    if "T_fluide_injection_C" in group
+                    else 0
+                ),
+                "Conformite GMI": bool(
+                    (not gmi_check_enabled)
+                    or (
+                        (
+                            "T_fluide_entree_echangeur_geo_C" in group
+                            and (group["T_fluide_entree_echangeur_geo_C"] >= gmi_t_min_c - 1e-6).all()
+                        )
+                        and (
+                            "T_fluide_injection_C" in group
+                            and (group["T_fluide_injection_C"] <= gmi_t_max_c + 1e-6).all()
+                        )
+                    )
+                ),
+                "Heures limite source": source_limited_hours,
+                "BT non couvert limite source (MWh)": (
+                    float(group["BT_non_couvert_limite_source_kWh"].sum()) / 1000.0
+                    if "BT_non_couvert_limite_source_kWh" in group
+                    else 0.0
+                ),
                 "T_source_PAC_moy (C)": float(group["T_source_PAC_C"].mean()) if "T_source_PAC_C" in group else 0.0,
                 "q_extraction_W_m_max": float(group["q_extraction_W_m"].max()) if "q_extraction_W_m" in group else 0.0,
                 "q_injection_W_m_max": float(group["q_injection_W_m"].max()) if "q_injection_W_m" in group else 0.0,
@@ -534,10 +591,20 @@ def _reference_gas_trajectory_from(trajectory_df: pd.DataFrame) -> pd.DataFrame:
     reference_df["Appoint gaz total (MWh)"] = reference_df["E utile totale (MWh)"]
     reference_df["Electricite PAC (MWh)"] = 0.0
     reference_df["COP moyen"] = 0.0
+    reference_df["SPF PAC complet"] = 0.0
+    reference_df["Couverture PAC BT (%)"] = 0.0
+    reference_df["Heures equivalentes PAC BT"] = 0.0
     reference_df["T_source_PAC_min (C)"] = 0.0
     reference_df["T_source_PAC_moy (C)"] = 0.0
+    reference_df["T_source_PAC_pour_COP_min (C)"] = 0.0
+    reference_df["T_fluide_injection_max (C)"] = 0.0
     reference_df["q_extraction_W_m_max"] = 0.0
     reference_df["q_injection_W_m_max"] = 0.0
+    reference_df["Heures sous Tmin GMI"] = 0
+    reference_df["Heures sur Tmax GMI"] = 0
+    reference_df["Conformite GMI"] = True
+    reference_df["Heures limite source"] = 0
+    reference_df["BT non couvert limite source (MWh)"] = 0.0
     reference_df["Taux EnR (%)"] = 0.0
     return reference_df
 
@@ -612,6 +679,11 @@ def _multiyear_heat_cost(
         "p1_annual_eur": p1_total_nominal / max(1, len(trajectory_df)),
         "p2_annual_eur": p2_total_nominal / max(1, len(trajectory_df)),
         "p4_annual_eur": p4_total_nominal / max(1, len(trajectory_df)),
+        "p1_cumulative_eur": p1_total_nominal,
+        "p2_cumulative_eur": p2_total_nominal,
+        "p4_cumulative_eur": p4_total_nominal,
+        "backup_gas_cumulative_mwh": float(trajectory_df["Appoint gaz total (MWh)"].sum()),
+        "pac_electricity_cumulative_mwh": float(trajectory_df["Electricite PAC (MWh)"].sum()),
     }
 
 
@@ -780,6 +852,9 @@ def run_hourly_scenario(
     economics: ScenarioEconomicsConfig,
     hourly_demand_override: dict[int, tuple[float, float]] | None = None,
     run_multiyear: bool = True,
+    technical_simulation_years: int | None = None,
+    display_year_mode: str = "finale",
+    custom_display_year: int | None = None,
     run_geo_only: bool = True,
     run_reduced_borefield: bool = True,
     progress: ProgressCallback | None = None,
@@ -809,10 +884,7 @@ def run_hourly_scenario(
         no_solar_hourly_df = hourly_df.iloc[0:0].copy()
 
     _notify(progress, 50, "Agrégation des résultats horaires...")
-    annual_df = _annual_hourly_summary(hourly_df)
-    hourly_by_month_df = _hourly_by_month_summary(hourly_df)
-
-    multiyear_years = max(1, int(economics.analysis_years)) if run_multiyear else 1
+    multiyear_years = max(1, int(technical_simulation_years or economics.analysis_years)) if run_multiyear else 1
     if run_multiyear:
         _notify(progress, 55, f"Projection multiannuelle avec solaire ({multiyear_years} ans)...")
         multiyear_df = _hourly_results_to_dataframe(
@@ -827,7 +899,13 @@ def run_hourly_scenario(
     else:
         _notify(progress, 55, "Projection multiannuelle desactivee : economie basee sur l'annee 1.")
         multiyear_df = hourly_df.copy()
-    multiyear_btes_df = _multiyear_btes_summary(multiyear_df, t_min_c=config.btes.t_min_c)
+    multiyear_btes_df = _multiyear_btes_summary(
+        multiyear_df,
+        t_min_c=config.btes.t_min_c,
+        gmi_t_min_c=config.btes.gmi_t_min_c,
+        gmi_t_max_c=config.btes.gmi_t_max_c,
+        gmi_check_enabled=config.btes.gmi_check_enabled,
+    )
     if run_geo_only:
         if run_multiyear:
             _notify(progress, 62, f"Projection multiannuelle sans solaire ({multiyear_years} ans)...")
@@ -842,10 +920,40 @@ def run_hourly_scenario(
             )
         else:
             no_solar_multiyear_df = no_solar_hourly_df.copy()
-        no_solar_multiyear_btes_df = _multiyear_btes_summary(no_solar_multiyear_df, t_min_c=config.btes.t_min_c)
+        no_solar_multiyear_btes_df = _multiyear_btes_summary(
+            no_solar_multiyear_df,
+            t_min_c=config.btes.t_min_c,
+            gmi_t_min_c=config.btes.gmi_t_min_c,
+            gmi_t_max_c=config.btes.gmi_t_max_c,
+            gmi_check_enabled=config.btes.gmi_check_enabled,
+        )
     else:
         no_solar_multiyear_df = hourly_df.iloc[0:0].copy()
         no_solar_multiyear_btes_df = pd.DataFrame()
+
+    display_mode = str(display_year_mode).lower()
+    if display_mode in {"annee 1", "année 1", "year 1"}:
+        simulation_year_displayed = 1
+    elif display_mode in {"personnalisee", "personnalisée", "custom"}:
+        simulation_year_displayed = max(1, min(multiyear_years, int(custom_display_year or multiyear_years)))
+    else:
+        simulation_year_displayed = multiyear_years
+    displayed_hourly_df = multiyear_df[multiyear_df["simulation_year"] == simulation_year_displayed].copy()
+    if displayed_hourly_df.empty:
+        displayed_hourly_df = hourly_df.copy()
+        simulation_year_displayed = 1
+    displayed_hourly_df["simulation_year_displayed"] = simulation_year_displayed
+    displayed_hourly_df["simulation_years_total"] = multiyear_years
+    displayed_hourly_df["scenario"] = "Geothermie + solaire meme sondes"
+    displayed_hourly_df["surface_solaire_m2"] = float(config.collector.area_m2)
+    displayed_hourly_df["solaire_actif"] = bool(config.collector.area_m2 > 0.0)
+    displayed_hourly_df["puissance_pac_kw"] = float(config.heat_pump.max_thermal_power_kw or 0.0)
+    displayed_hourly_df["lineaire_sondes_m"] = float(config.btes.boreholes) * float(config.btes.depth_m)
+    displayed_hourly_df["tmin_source_operationnelle_c"] = float(config.btes.t_min_c)
+    displayed_hourly_df["critere_gmi_active"] = bool(config.btes.gmi_check_enabled)
+    hourly_df = displayed_hourly_df
+    annual_df = _annual_hourly_summary(hourly_df)
+    hourly_by_month_df = _hourly_by_month_summary(hourly_df)
 
     total_ht = float(hourly_df["demand_ht_kwh"].sum())
     total_bt = float(hourly_df["demand_bt_kwh"].sum())
@@ -1017,13 +1125,31 @@ def run_hourly_scenario(
     elif not bool(savings["found"]):
         recharge_value["status"] = "non determine"
 
-    same_trajectory_df = _annual_metrics_trajectory(multiyear_df, analysis_years=int(economics.analysis_years))
+    same_trajectory_df = _annual_metrics_trajectory(
+        multiyear_df,
+        analysis_years=int(economics.analysis_years),
+        gmi_t_min_c=config.btes.gmi_t_min_c,
+        gmi_t_max_c=config.btes.gmi_t_max_c,
+        gmi_check_enabled=config.btes.gmi_check_enabled,
+    )
     geo_only_trajectory_df = (
-        _annual_metrics_trajectory(no_solar_multiyear_df, analysis_years=int(economics.analysis_years))
+        _annual_metrics_trajectory(
+            no_solar_multiyear_df,
+            analysis_years=int(economics.analysis_years),
+            gmi_t_min_c=config.btes.gmi_t_min_c,
+            gmi_t_max_c=config.btes.gmi_t_max_c,
+            gmi_check_enabled=config.btes.gmi_check_enabled,
+        )
         if run_geo_only
         else pd.DataFrame()
     )
-    reduced_trajectory_df = _annual_metrics_trajectory(reduced_hourly_df, analysis_years=int(economics.analysis_years))
+    reduced_trajectory_df = _annual_metrics_trajectory(
+        reduced_hourly_df,
+        analysis_years=int(economics.analysis_years),
+        gmi_t_min_c=config.btes.gmi_t_min_c,
+        gmi_t_max_c=config.btes.gmi_t_max_c,
+        gmi_check_enabled=config.btes.gmi_check_enabled,
+    )
     reference_trajectory_df = _reference_gas_trajectory_from(same_trajectory_df)
 
     geo_only_capex = _capex_net_total(geo_only_heat_costs, ["Geothermie PAC", "Appoint gaz"]) if geo_only_heat_costs is not None else 0.0
@@ -1129,6 +1255,23 @@ def run_hourly_scenario(
         economic_comparison_df.loc[index, "P1 annuel (EUR/an)"] = costs["p1_annual_eur"]
         economic_comparison_df.loc[index, "P2 annuel (EUR/an)"] = costs["p2_annual_eur"]
         economic_comparison_df.loc[index, "P4 annuel (EUR/an)"] = costs["p4_annual_eur"]
+        economic_comparison_df.loc[index, "P1 cumule (EUR)"] = costs["p1_cumulative_eur"]
+        economic_comparison_df.loc[index, "P2 cumule (EUR)"] = costs["p2_cumulative_eur"]
+        economic_comparison_df.loc[index, "P4 cumule (EUR)"] = costs["p4_cumulative_eur"]
+        economic_comparison_df.loc[index, "Appoint gaz cumule (MWh)"] = costs["backup_gas_cumulative_mwh"]
+        economic_comparison_df.loc[index, "Electricite PAC cumulee (MWh)"] = costs["pac_electricity_cumulative_mwh"]
+        trajectory = economic_trajectory_df[economic_trajectory_df["Scenario"] == scenario_name]
+        if not trajectory.empty:
+            final_row = trajectory.sort_values("Annee").iloc[-1]
+            economic_comparison_df.loc[index, "COP annee finale"] = float(final_row.get("COP moyen", 0.0))
+            economic_comparison_df.loc[index, "Couverture PAC BT annee finale (%)"] = float(final_row.get("Couverture PAC BT (%)", 0.0))
+            economic_comparison_df.loc[index, "Appoint gaz annee finale (MWh)"] = float(final_row.get("Appoint gaz total (MWh)", 0.0))
+            economic_comparison_df.loc[index, "T source min annee finale (C)"] = float(final_row.get("T_source_PAC_min (C)", 0.0))
+            economic_comparison_df.loc[index, "Heures limite source annee finale"] = float(final_row.get("Heures limite source", 0.0))
+            economic_comparison_df.loc[index, "Conformite GMI annee finale"] = bool(final_row.get("Conformite GMI", True))
+            economic_comparison_df.loc[index, "Heures hors GMI annee finale"] = (
+                float(final_row.get("Heures sous Tmin GMI", 0.0)) + float(final_row.get("Heures sur Tmax GMI", 0.0))
+            )
     economic_comparison_df["Méthode coût chaleur"] = "Multiannuel nominal" if run_multiyear else "Annuel nominal"
     economic_comparison_chart_df = economic_comparison_df.melt(
         id_vars=["Scenario"],
@@ -1187,4 +1330,8 @@ def run_hourly_scenario(
         full_borefield_length_m=full_borefield_length_m,
         economic_borefield_length_m=economic_borefield_length_m,
         reference_gas_power_kw=reference_gas_power_kw,
+        simulation_year_displayed=simulation_year_displayed,
+        simulation_years_total=multiyear_years,
+        economic_years_used=int(economics.analysis_years),
+        gmi_check_enabled=bool(config.btes.gmi_check_enabled),
     )

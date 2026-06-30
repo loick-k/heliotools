@@ -56,11 +56,14 @@ class HourlyResult:
     t_source_pac_for_cop_c: float
     t_evaporator_pac_c: float
     t_fluide_injection_c: float
+    t_fluide_entree_echangeur_geo_c: float
     q_extraction_w_m: float
     q_injection_w_m: float
+    q_injection_signed_w_m: float
     q_net_w_m: float
     cop_limited_max: bool
     source_temp_limited: bool
+    source_temp_unmet_bt_kwh: float
     cop_pac: float
     heat_bt_from_pac_kwh: float
     btes_extracted_by_pac_kwh: float
@@ -279,6 +282,10 @@ def simulate_hourly(
         heat_bt_from_pac = max(0.0, pac_power_limit)
         cop = cop_from_source_temperature(source_temp_start, hp)
         source_temp_limited = False
+        max_extract_by_power = max(0.0, btes.max_extraction_w_m) * total_length_m / 1000.0
+        max_extract_by_temp = max_extract_by_power
+        heat_limit_from_ground = pac_power_limit
+        temp_limit_tol = 1e-6
         for _ in range(4):
             if demand_bt <= 0.0 or heat_bt_from_pac <= 0.0 or cop <= 1.0:
                 heat_bt_from_pac = 0.0
@@ -314,6 +321,12 @@ def simulate_hourly(
             source_temp_for_cop = btes_model.source_temperature_for_extraction(q_extraction_w_m)
             new_cop = cop_from_source_temperature(source_temp_for_cop, hp)
             heat_bt_from_pac = next_heat_bt_from_pac
+            if (
+                max_extract_by_temp < max_extract_by_power - temp_limit_tol
+                or heat_limit_from_ground < pac_power_limit - temp_limit_tol
+                or source_temp_for_cop <= btes.t_min_c + 1e-6
+            ):
+                source_temp_limited = True
             if abs(new_cop - cop) < 0.01:
                 cop = new_cop
                 break
@@ -326,6 +339,7 @@ def simulate_hourly(
 
         cop_limited_max = cop >= hp.cop_max - 1e-9
         t_evaporator_pac_c = source_temp_for_cop - hp.evaporator_approach_k
+        source_temp_unmet_bt = max(0.0, pac_power_limit - heat_bt_from_pac) if source_temp_limited else 0.0
 
         # Conservative pre-design allowance for PAC/geothermal pumps and
         # controls. Solar and BTES injection pumps are intentionally excluded.
@@ -335,6 +349,7 @@ def simulate_hourly(
         electricity_system_total = electricity_pac_total
 
         q_net_w_m = q_extraction_w_m - q_injection_w_m
+        q_injection_signed_w_m = -q_injection_w_m
         btes_model.commit_load(
             q_net_w_m=q_net_w_m,
             q_extraction_w_m=q_extraction_w_m,
@@ -372,11 +387,14 @@ def simulate_hourly(
                 t_source_pac_for_cop_c=source_temp_for_cop,
                 t_evaporator_pac_c=t_evaporator_pac_c,
                 t_fluide_injection_c=t_fluide_injection_c,
+                t_fluide_entree_echangeur_geo_c=t_source_pac_end_c,
                 q_extraction_w_m=q_extraction_w_m,
                 q_injection_w_m=q_injection_w_m,
+                q_injection_signed_w_m=q_injection_signed_w_m,
                 q_net_w_m=q_net_w_m,
                 cop_limited_max=cop_limited_max,
                 source_temp_limited=source_temp_limited,
+                source_temp_unmet_bt_kwh=source_temp_unmet_bt,
                 cop_pac=cop,
                 heat_bt_from_pac_kwh=heat_bt_from_pac,
                 btes_extracted_by_pac_kwh=btes_extracted,

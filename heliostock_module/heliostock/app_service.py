@@ -32,9 +32,12 @@ class ParametricRange:
 
 @dataclass(frozen=True)
 class CalculationSelection:
-    run_multiyear: bool = False
-    run_geo_only: bool = False
-    run_reduced_borefield: bool = False
+    run_multiyear: bool = True
+    technical_simulation_years: int = 25
+    display_year_mode: str = "finale"
+    custom_display_year: int = 25
+    run_geo_only: bool = True
+    run_reduced_borefield: bool = True
 
 
 @dataclass(frozen=True)
@@ -159,6 +162,9 @@ def run_hourly_calculation(
         economics=economics,
         hourly_demand_override=request.hourly_demand_override,
         run_multiyear=request.calculation_selection.run_multiyear,
+        technical_simulation_years=request.calculation_selection.technical_simulation_years,
+        display_year_mode=request.calculation_selection.display_year_mode,
+        custom_display_year=request.calculation_selection.custom_display_year,
         run_geo_only=request.calculation_selection.run_geo_only,
         run_reduced_borefield=request.calculation_selection.run_reduced_borefield,
         progress=progress_with_log,
