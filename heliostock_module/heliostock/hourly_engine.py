@@ -53,6 +53,7 @@ class HourlyResult:
     solar_not_used_kwh: float
     t_borehole_wall_c: float
     t_source_pac_c: float
+    t_source_pac_for_cop_c: float
     t_evaporator_pac_c: float
     t_fluide_injection_c: float
     q_extraction_w_m: float
@@ -340,6 +341,7 @@ def simulate_hourly(
             q_injection_w_m=q_injection_w_m,
         )
         final_state = btes_model.state()
+        t_source_pac_end_c = final_state.t_source_pac_c
 
         results.append(
             HourlyResult(
@@ -366,7 +368,8 @@ def simulate_hourly(
                 solar_to_btes_kwh=solar_to_btes,
                 solar_not_used_kwh=solar_not_used,
                 t_borehole_wall_c=final_state.t_borehole_wall_c,
-                t_source_pac_c=source_temp_for_cop,
+                t_source_pac_c=t_source_pac_end_c,
+                t_source_pac_for_cop_c=source_temp_for_cop,
                 t_evaporator_pac_c=t_evaporator_pac_c,
                 t_fluide_injection_c=t_fluide_injection_c,
                 q_extraction_w_m=q_extraction_w_m,
@@ -437,6 +440,7 @@ def aggregate_hourly_results_monthly(results: list[HourlyResult]) -> list[dict[s
                 ),
                 "T source PAC debut (C)": month_results[0].t_source_pac_c,
                 "T source PAC fin (C)": month_results[-1].t_source_pac_c,
+                "T source PAC pour COP min (C)": min(r.t_source_pac_for_cop_c for r in month_results),
                 "T paroi forage fin (C)": month_results[-1].t_borehole_wall_c,
                 "q extraction max (W/m)": max(r.q_extraction_w_m for r in month_results),
                 "q injection max (W/m)": max(r.q_injection_w_m for r in month_results),

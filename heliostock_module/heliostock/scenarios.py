@@ -123,6 +123,18 @@ def solar_surface_parametric_study(
     rows = []
     total_points = max(1, len(surfaces_m2))
     simulation_years = max(1, int(analysis_years))
+    economics_config = ScenarioEconomicsConfig(
+        reference_energy_cost_eur_mwh=reference_energy_cost_eur_mwh,
+        reference_energy_inflation_pct=reference_energy_inflation_pct,
+        eta_appoint_eco=eta_appoint_eco,
+        analysis_years=int(analysis_years),
+        auxiliary_electricity_ratio_pct=auxiliary_electricity_ratio_pct,
+        electricity_cost_eur_mwh=electricity_cost_eur_mwh,
+        maintenance_cost_eur_m2_year=maintenance_cost_eur_m2_year,
+        ademe_eur_mwh_year=ademe_eur_mwh_year,
+        other_public_aid_eur=other_public_aid_eur,
+        backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+    )
 
     for index, surface_m2 in enumerate(surfaces_m2, start=1):
         _notify(
@@ -132,7 +144,7 @@ def solar_surface_parametric_study(
         )
 
         variant_config = replace(config, collector=replace(config.collector, area_m2=float(surface_m2)))
-        variant_df = _hourly_results_to_dataframe(
+        variant_multiyear_df = _hourly_results_to_dataframe(
             simulate_hourly(
                 weather,
                 demands,
@@ -141,7 +153,8 @@ def solar_surface_parametric_study(
                 simulation_years=simulation_years,
             )
         )
-        variant_df = variant_df[variant_df["simulation_year"] == simulation_years].copy()
+        variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
+        economic_metrics_variant = _hourly_metrics(variant_multiyear_df, annualization_years=simulation_years)
 
         total_ht_variant = float(variant_df["demand_ht_kwh"].sum())
         total_bt_variant = float(variant_df["demand_bt_kwh"].sum())
@@ -182,8 +195,8 @@ def solar_surface_parametric_study(
             else full_borefield_length_m
         )
 
-        solar_direct_ht_mwh_variant = total_preheat_ht_variant / 1000.0
-        solar_total_mwh_variant = (total_preheat_ht_variant + total_to_btes_variant) / 1000.0
+        solar_direct_ht_mwh_variant = economic_metrics_variant["solar_ht_mwh"]
+        solar_total_mwh_variant = economic_metrics_variant["solar_ht_mwh"] + economic_metrics_variant["solar_btes_mwh"]
         solar_economics_variant = compute_solar_thermal_economics(
             surface_m2=float(surface_m2),
             annual_solar_valued_mwh=solar_direct_ht_mwh_variant,
@@ -201,13 +214,13 @@ def solar_surface_parametric_study(
         heat_costs_variant = compute_heat_costs(
             solar_economics=solar_economics_variant,
             annual_solar_mwh=solar_direct_ht_mwh_variant,
-            annual_pac_heat_mwh=total_pac_variant / 1000.0,
-            annual_pac_electricity_mwh=total_elec_variant / 1000.0,
+            annual_pac_heat_mwh=economic_metrics_variant["pac_heat_mwh"],
+            annual_pac_electricity_mwh=economic_metrics_variant["pac_electricity_mwh"],
             pac_power_kw=pac_nominal_power_kw,
             borefield_length_m=economic_borefield_length_m_variant,
             full_borefield_length_m=full_borefield_length_m,
-            annual_backup_heat_mwh=(total_backup_ht_variant + total_backup_bt_variant) / 1000.0,
-            backup_power_kw=backup_power_kw_variant,
+            annual_backup_heat_mwh=economic_metrics_variant["backup_total_mwh"],
+            backup_power_kw=economic_metrics_variant["backup_power_kw"],
             reference_heat_mwh=reference_heat_mwh,
             reference_power_kw=reference_gas_power_kw,
             analysis_years=int(analysis_years),
@@ -217,11 +230,18 @@ def solar_surface_parametric_study(
             geothermal_p1_eur_mwh=electricity_cost_eur_mwh,
             backup_p2_eur_kw_year=backup_p2_eur_kw_year,
         )
+        capex_variant = _capex_net_total(heat_costs_variant, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
+        multiyear_cost_variant = _multiyear_heat_cost(
+            trajectory_df=_annual_metrics_trajectory(variant_multiyear_df, analysis_years=simulation_years),
+            heat_costs=heat_costs_variant,
+            economics=economics_config,
+            capex_net_eur=capex_variant,
+        )
 
         rows.append(
             {
                 "Surface solaire (m²)": float(surface_m2),
-                "Coût chaleur Mix ENR (EUR/MWh)": float(heat_costs_variant["combined_heat_cost_eur_mwh"]),
+                "Coût chaleur Mix ENR (EUR/MWh)": float(multiyear_cost_variant["multiyear_heat_cost_eur_mwh"]),
                 "Taux EnR global (%)": global_ren_rate_variant * 100.0,
                 "Couverture solaire HT (%)": annual_ht_solar_coverage_variant * 100.0,
                 "Préchauffage HT solaire (MWh/an)": total_preheat_ht_variant / 1000.0,
@@ -265,6 +285,18 @@ def pac_power_parametric_study(
     rows = []
     total_points = max(1, len(pac_power_fractions_pct))
     simulation_years = max(1, int(analysis_years))
+    economics_config = ScenarioEconomicsConfig(
+        reference_energy_cost_eur_mwh=reference_energy_cost_eur_mwh,
+        reference_energy_inflation_pct=reference_energy_inflation_pct,
+        eta_appoint_eco=eta_appoint_eco,
+        analysis_years=int(analysis_years),
+        auxiliary_electricity_ratio_pct=auxiliary_electricity_ratio_pct,
+        electricity_cost_eur_mwh=electricity_cost_eur_mwh,
+        maintenance_cost_eur_m2_year=maintenance_cost_eur_m2_year,
+        ademe_eur_mwh_year=ademe_eur_mwh_year,
+        other_public_aid_eur=other_public_aid_eur,
+        backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+    )
 
     for index, fraction_pct in enumerate(pac_power_fractions_pct, start=1):
         _notify(
@@ -306,7 +338,7 @@ def pac_power_parametric_study(
             heat_pump=hp_variant,
             btes=btes_variant,
         )
-        variant_df = _hourly_results_to_dataframe(
+        variant_multiyear_df = _hourly_results_to_dataframe(
             simulate_hourly(
                 weather,
                 demands,
@@ -315,7 +347,8 @@ def pac_power_parametric_study(
                 simulation_years=simulation_years,
             )
         )
-        variant_df = variant_df[variant_df["simulation_year"] == simulation_years].copy()
+        variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
+        economic_metrics_variant = _hourly_metrics(variant_multiyear_df, annualization_years=simulation_years)
 
         total_ht_variant = float(variant_df["demand_ht_kwh"].sum())
         total_bt_variant = float(variant_df["demand_bt_kwh"].sum())
@@ -357,13 +390,13 @@ def pac_power_parametric_study(
         heat_costs_variant = compute_heat_costs(
             solar_economics=solar_economics_variant,
             annual_solar_mwh=0.0,
-            annual_pac_heat_mwh=total_pac_variant / 1000.0,
-            annual_pac_electricity_mwh=total_elec_variant / 1000.0,
+            annual_pac_heat_mwh=economic_metrics_variant["pac_heat_mwh"],
+            annual_pac_electricity_mwh=economic_metrics_variant["pac_electricity_mwh"],
             pac_power_kw=pac_kw,
             borefield_length_m=economic_borefield_length_m_variant,
             full_borefield_length_m=base_length_variant,
-            annual_backup_heat_mwh=(total_backup_ht_variant + total_backup_bt_variant) / 1000.0,
-            backup_power_kw=backup_power_kw_variant,
+            annual_backup_heat_mwh=economic_metrics_variant["backup_total_mwh"],
+            backup_power_kw=economic_metrics_variant["backup_power_kw"],
             reference_heat_mwh=reference_heat_mwh,
             reference_power_kw=reference_gas_power_kw,
             analysis_years=int(analysis_years),
@@ -373,12 +406,19 @@ def pac_power_parametric_study(
             geothermal_p1_eur_mwh=electricity_cost_eur_mwh,
             backup_p2_eur_kw_year=backup_p2_eur_kw_year,
         )
+        capex_variant = _capex_net_total(heat_costs_variant, ["Geothermie PAC", "Appoint gaz"])
+        multiyear_cost_variant = _multiyear_heat_cost(
+            trajectory_df=_annual_metrics_trajectory(variant_multiyear_df, analysis_years=simulation_years),
+            heat_costs=heat_costs_variant,
+            economics=economics_config,
+            capex_net_eur=capex_variant,
+        )
 
         rows.append(
             {
                 "P PAC (% Pmax BT)": float(fraction_pct),
                 "P PAC (kW)": pac_kw,
-                "Coût chaleur Mix ENR (EUR/MWh)": float(heat_costs_variant["combined_heat_cost_eur_mwh"]),
+                "Coût chaleur Mix ENR (EUR/MWh)": float(multiyear_cost_variant["multiyear_heat_cost_eur_mwh"]),
                 "Taux EnR global (%)": global_ren_rate_variant * 100.0,
                 "Couverture PAC BT (%)": pac_bt_coverage * 100.0,
                 "Besoin HT gaz (MWh/an)": total_backup_ht_variant / 1000.0,

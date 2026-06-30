@@ -25,6 +25,9 @@ def _hourly_results_to_dataframe(results) -> pd.DataFrame:
     df["Puissance chaleur utile totale (kW)"] = df["solar_ht_direct_kwh"] + df["heat_bt_from_pac_kwh"]
     df["T_paroi_forage_C"] = df["t_borehole_wall_c"]
     df["T_source_PAC_C"] = df["t_source_pac_c"]
+    df["T_source_PAC_pour_COP_C"] = df["t_source_pac_for_cop_c"]
+    df["T_source_PAC_fin_heure_C"] = df["T_source_PAC_C"]
+    df["T_paroi_forage_fin_heure_C"] = df["T_paroi_forage_C"]
     df["T_evaporateur_PAC_C"] = df["t_evaporator_pac_c"]
     df["T_fluide_injection_C"] = df["t_fluide_injection_c"]
     df["q_extraction_W_m"] = df["q_extraction_w_m"]
@@ -51,6 +54,8 @@ def _multiyear_btes_summary(results_df: pd.DataFrame, *, t_min_c: float) -> pd.D
                 "T source PAC min (C)": float(group["T_source_PAC_C"].min()),
                 "T source PAC max (C)": float(group["T_source_PAC_C"].max()),
                 "T source PAC moyenne (C)": float(group["T_source_PAC_C"].mean()),
+                "T source PAC pour COP min (C)": float(group["T_source_PAC_pour_COP_C"].min()),
+                "T source PAC pour COP moyenne (C)": float(group["T_source_PAC_pour_COP_C"].mean()),
                 "T paroi forage fin (C)": float(group["T_paroi_forage_C"].iloc[-1]),
                 "T paroi forage min (C)": float(group["T_paroi_forage_C"].min()),
                 "T paroi forage max (C)": float(group["T_paroi_forage_C"].max()),
@@ -126,6 +131,7 @@ def _hourly_by_month_summary(results_df: pd.DataFrame) -> pd.DataFrame:
                 "T ballon fin (C)": group["solar_ht_buffer_temp_end_c"].iloc[-1],
                 "T source PAC fin (C)": group["T_source_PAC_C"].iloc[-1],
                 "T source PAC min (C)": group["T_source_PAC_C"].min(),
+                "T source PAC pour COP min (C)": group["T_source_PAC_pour_COP_C"].min(),
                 "T paroi forage fin (C)": group["T_paroi_forage_C"].iloc[-1],
                 "T evaporateur PAC min (C)": group["T_evaporateur_PAC_C"].min(),
                 "q extraction max (W/m)": group["q_extraction_W_m"].max(),

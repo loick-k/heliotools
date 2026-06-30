@@ -85,7 +85,8 @@ def test_hourly_simulation_smoke():
     assert len(results) == 24 * 31
     assert len(monthly) == 1
     assert all(result.t_source_pac_c <= config.btes.t_max_c + 1e-9 for result in results)
-    assert all(result.t_source_pac_c >= config.btes.t_min_c - 1e-9 for result in results)
+    assert all(result.t_source_pac_for_cop_c >= config.btes.t_min_c - 1e-9 for result in results)
+    assert all(hasattr(result, "t_source_pac_for_cop_c") for result in results)
     assert all(result.solar_ht_potential_kwh >= 0 for result in results)
     assert sum(result.solar_ht_instant_kwh for result in results) == 0.0
     assert sum(result.solar_ht_direct_kwh for result in results) > 0
