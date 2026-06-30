@@ -27,6 +27,7 @@ from heliostock.load_profiles import _hourly_demands_from_process_file
 from heliostock.postprocess import _hourly_results_to_dataframe, _multiyear_btes_summary
 from heliostock.scenarios import (
     ScenarioEconomicsConfig,
+    _multiyear_heat_cost,
     borefield_equivalent_savings,
     pac_power_parametric_study,
     run_hourly_scenario,
@@ -468,6 +469,95 @@ def test_solar_p2_uses_one_percent_capex_over_total_solar_production():
     assert abs(float(economics["p2_annual_eur"]) - 0.01 * capex) <= 1e-9
     assert abs(float(economics["p2_eur_mwh"]) - (0.01 * capex / total_solar_mwh)) <= 1e-9
     assert abs(float(economics["p1_eur_mwh"]) - 0.03 * 200.0) <= 1e-9
+
+
+def test_solar_recharge_p2_is_counted_globally_as_geothermal_p2():
+    solar_economics = {
+        "p1_eur_mwh": 0.0,
+        "p2_eur_mwh": 10.0,
+        "p4_eur_mwh": 0.0,
+        "p2_annual_eur": 3_000.0,
+        "annual_solar_total_mwh": 300.0,
+        "capex_eur": 0.0,
+        "ademe_aid_eur": 0.0,
+        "aid_total_eur": 0.0,
+        "net_capex_eur": 0.0,
+    }
+    heat_costs = compute_heat_costs(
+        solar_economics=solar_economics,
+        annual_solar_mwh=100.0,
+        annual_pac_heat_mwh=200.0,
+        annual_pac_electricity_mwh=0.0,
+        pac_power_kw=0.0,
+        borefield_length_m=0.0,
+        full_borefield_length_m=0.0,
+        annual_backup_heat_mwh=0.0,
+        backup_power_kw=0.0,
+        reference_heat_mwh=300.0,
+        reference_power_kw=0.0,
+        analysis_years=20,
+        gas_reference_p1_eur_mwh_pci=70.0,
+        gas_reference_efficiency=0.82,
+        gas_reference_inflation_rate=0.0,
+        geothermal_p1_eur_mwh=200.0,
+    )
+    p2_table = heat_costs["p1_p2_p4"]
+    solar_p2 = float(
+        p2_table[(p2_table["Generateur"] == "Solaire thermique") & (p2_table["Poste"] == "P2")][
+            "EUR/MWh"
+        ].iloc[0]
+    )
+    geo_p2 = float(
+        p2_table[(p2_table["Generateur"] == "Geothermie PAC") & (p2_table["Poste"] == "P2")][
+            "EUR/MWh"
+        ].iloc[0]
+    )
+    trajectory = pd.DataFrame(
+        [
+            {
+                "Annee": 1,
+                "Solaire HT (MWh)": 100.0,
+                "Chaleur PAC BT (MWh)": 200.0,
+                "Appoint gaz total (MWh)": 0.0,
+                "Electricite PAC (MWh)": 0.0,
+                "E utile totale (MWh)": 300.0,
+            },
+            {
+                "Annee": 2,
+                "Solaire HT (MWh)": 100.0,
+                "Chaleur PAC BT (MWh)": 200.0,
+                "Appoint gaz total (MWh)": 0.0,
+                "Electricite PAC (MWh)": 0.0,
+                "E utile totale (MWh)": 300.0,
+            },
+        ]
+    )
+    multiyear = _multiyear_heat_cost(
+        trajectory_df=trajectory,
+        heat_costs=heat_costs,
+        economics=ScenarioEconomicsConfig(
+            reference_energy_cost_eur_mwh=70.0,
+            reference_energy_inflation_pct=0.0,
+            eta_appoint_eco=0.82,
+            analysis_years=20,
+            auxiliary_electricity_ratio_pct=0.0,
+            electricity_cost_eur_mwh=200.0,
+            maintenance_cost_eur_m2_year=22.0,
+            ademe_eur_mwh_year=63.0,
+            other_public_aid_eur=0.0,
+            backup_p2_eur_kw_year=10.0,
+        ),
+        capex_net_eur=0.0,
+    )
+
+    assert float(heat_costs["solar_p2_total_annual_eur"]) == 3_000.0
+    assert float(heat_costs["solar_p2_ht_annual_eur"]) == 1_000.0
+    assert float(heat_costs["solar_p2_recharge_annual_eur"]) == 2_000.0
+    assert float(heat_costs["geo_p2_with_recharge_annual_eur"]) == 2_000.0
+    assert solar_p2 == 10.0
+    assert geo_p2 == 10.0
+    assert float(heat_costs["mix_p2_eur_mwh"]) == 10.0
+    assert float(multiyear["p2_annual_eur"]) == 3_000.0
 
 
 def test_round_display_df_keeps_one_decimal_for_cop_columns():

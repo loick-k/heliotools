@@ -318,8 +318,24 @@ def compute_heat_costs(
         * annuity_average_factor(float(gas_reference_inflation_rate), years)
     )
 
+    solar_total_mwh = max(0.0, float(solar_economics.get("annual_solar_total_mwh", solar_mwh)))
+    solar_total_mwh = max(solar_total_mwh, solar_mwh)
+    solar_recharge_mwh = max(0.0, solar_total_mwh - solar_mwh)
+    if solar_total_mwh > 0.0:
+        solar_ht_share = solar_mwh / solar_total_mwh
+        solar_recharge_share = solar_recharge_mwh / solar_total_mwh
+    else:
+        solar_ht_share = 0.0
+        solar_recharge_share = 0.0
+
     solar_p1 = float(solar_economics["p1_eur_mwh"]) if solar_mwh > 0.0 else 0.0
-    solar_p2 = float(solar_economics["p2_eur_mwh"]) if solar_mwh > 0.0 else 0.0
+    solar_p2_total_annual = max(
+        0.0,
+        float(solar_economics.get("p2_annual_eur", solar_total_mwh * float(solar_economics.get("p2_eur_mwh", 0.0)))),
+    )
+    solar_p2_ht_annual = solar_p2_total_annual * solar_ht_share
+    solar_p2_recharge_annual = solar_p2_total_annual * solar_recharge_share
+    solar_p2 = solar_p2_ht_annual / solar_mwh if solar_mwh > 0.0 else 0.0
     solar_p4 = float(solar_economics["p4_eur_mwh"]) if solar_mwh > 0.0 else 0.0
 
     geo_capex = geothermal_pac_capex_eur_kw * pac_kw + geothermal_borefield_capex_eur_m * length_m
@@ -328,7 +344,8 @@ def compute_heat_costs(
     geo_net_capex = max(0.0, geo_capex - geo_ademe_aid)
     geo_p2_unit = geothermal_p2_eur_kw_year(pac_kw)
     geo_p1_annual = pac_electricity_mwh * max(0.0, geothermal_p1_eur_mwh)
-    geo_p2_annual = geo_p2_unit * pac_kw
+    geo_p2_base_annual = geo_p2_unit * pac_kw
+    geo_p2_annual = geo_p2_base_annual + solar_p2_recharge_annual
     geo_p4_annual = geo_net_capex / years
     geo_p1 = geo_p1_annual / pac_heat_mwh if pac_heat_mwh > 0.0 else 0.0
     geo_p2 = geo_p2_annual / pac_heat_mwh if pac_heat_mwh > 0.0 else 0.0
@@ -348,12 +365,12 @@ def compute_heat_costs(
     backup_p2 = backup_p2_annual / backup_heat_mwh if backup_heat_mwh > 0.0 else 0.0
     backup_p4 = backup_p4_annual / backup_heat_mwh if backup_heat_mwh > 0.0 else 0.0
 
-    solar_annual_cost = solar_mwh * (solar_p1 + solar_p2 + solar_p4)
+    solar_annual_cost = solar_mwh * (solar_p1 + solar_p4) + solar_p2_ht_annual
     geo_annual_cost = geo_p1_annual + geo_p2_annual + geo_p4_annual
     backup_annual_cost = backup_p1_annual + backup_p2_annual + backup_p4_annual
     delivered_heat_mwh = max(1e-9, pac_heat_mwh + backup_heat_mwh + solar_mwh)
     mix_p1 = (solar_mwh * solar_p1 + pac_heat_mwh * geo_p1 + backup_heat_mwh * backup_p1) / delivered_heat_mwh
-    mix_p2 = (solar_mwh * solar_p2 + pac_heat_mwh * geo_p2 + backup_heat_mwh * backup_p2) / delivered_heat_mwh
+    mix_p2 = (solar_p2_ht_annual + geo_p2_annual + backup_p2_annual) / delivered_heat_mwh
     mix_p4 = (solar_mwh * solar_p4 + pac_heat_mwh * geo_p4 + backup_heat_mwh * backup_p4) / delivered_heat_mwh
     combined_cost = mix_p1 + mix_p2 + mix_p4
 
@@ -477,6 +494,9 @@ def compute_heat_costs(
             ("Aide ADEME geothermie", geo_ademe_aid, "EUR"),
             ("CAPEX geothermie net", geo_net_capex, "EUR"),
             ("CAPEX appoint", backup_capex, "EUR"),
+            ("P2 solaire total", solar_p2_total_annual, "EUR/an"),
+            ("P2 solaire HT", solar_p2_ht_annual, "EUR/an"),
+            ("P2 solaire recharge compte en geothermie", solar_p2_recharge_annual, "EUR/an"),
             ("P2 appoint gaz", backup_p2_annual, "EUR/an"),
             ("P2 reference gaz", reference_p2_annual, "EUR/an"),
         ],
@@ -500,6 +520,13 @@ def compute_heat_costs(
         "reference_p4_eur_mwh": reference_p4,
         "reference_capex_eur": reference_capex,
         "geo_p2_unit_eur_kw_year": geo_p2_unit,
+        "solar_total_mwh": solar_total_mwh,
+        "solar_recharge_mwh": solar_recharge_mwh,
+        "solar_p2_total_annual_eur": solar_p2_total_annual,
+        "solar_p2_ht_annual_eur": solar_p2_ht_annual,
+        "solar_p2_recharge_annual_eur": solar_p2_recharge_annual,
+        "geo_p2_base_annual_eur": geo_p2_base_annual,
+        "geo_p2_with_recharge_annual_eur": geo_p2_annual,
         "geo_capex_eur": geo_capex,
         "geo_ademe_aid_eur": geo_ademe_aid,
         "geo_net_capex_eur": geo_net_capex,

@@ -562,17 +562,25 @@ def _multiyear_heat_cost(
             delivered_ref = float(trajectory_df["E utile totale (MWh)"].mean())
             p2_annual = float(heat_costs["reference_p2_eur_mwh"]) * delivered_ref
         else:
-            p2_annual = 0.0
-            for generator in ["Solaire thermique", "Geothermie PAC", "Appoint gaz"]:
-                match = p_table[(p_table["Generateur"] == generator) & (p_table["Poste"] == "P2")]
-                if not match.empty:
-                    if generator == "Solaire thermique":
-                        energy = trajectory_df["Solaire HT (MWh)"].mean()
-                    elif generator == "Geothermie PAC":
-                        energy = trajectory_df["Chaleur PAC BT (MWh)"].mean()
-                    else:
-                        energy = trajectory_df["Appoint gaz total (MWh)"].mean()
-                    p2_annual += float(match["EUR/MWh"].iloc[0]) * float(energy)
+            solar_p2_total = float(heat_costs.get("solar_p2_total_annual_eur", 0.0))
+            if solar_p2_total > 0.0:
+                p2_annual = (
+                    solar_p2_total
+                    + float(heat_costs.get("geo_p2_base_annual_eur", 0.0))
+                    + _unit_cost(heat_costs, "Appoint gaz", "P2") * float(trajectory_df["Appoint gaz total (MWh)"].mean())
+                )
+            else:
+                p2_annual = 0.0
+                for generator in ["Solaire thermique", "Geothermie PAC", "Appoint gaz"]:
+                    match = p_table[(p_table["Generateur"] == generator) & (p_table["Poste"] == "P2")]
+                    if not match.empty:
+                        if generator == "Solaire thermique":
+                            energy = trajectory_df["Solaire HT (MWh)"].mean()
+                        elif generator == "Geothermie PAC":
+                            energy = trajectory_df["Chaleur PAC BT (MWh)"].mean()
+                        else:
+                            energy = trajectory_df["Appoint gaz total (MWh)"].mean()
+                        p2_annual += float(match["EUR/MWh"].iloc[0]) * float(energy)
     if isinstance(capex_df, pd.DataFrame) and not capex_df.empty:
         pass
 
@@ -720,8 +728,18 @@ def _comparison_row(
         p1_solar = _unit_cost(heat_costs, "Solaire thermique", "P1") * metrics["solar_ht_mwh"]
         p1_geo = _unit_cost(heat_costs, "Geothermie PAC", "P1") * metrics["pac_heat_mwh"]
         p1_backup = _unit_cost(heat_costs, "Appoint gaz", "P1") * metrics["backup_total_mwh"]
-        p2_solar = _unit_cost(heat_costs, "Solaire thermique", "P2") * metrics["solar_ht_mwh"]
-        p2_geo = _unit_cost(heat_costs, "Geothermie PAC", "P2") * metrics["pac_heat_mwh"]
+        p2_solar = float(
+            heat_costs.get(
+                "solar_p2_ht_annual_eur",
+                _unit_cost(heat_costs, "Solaire thermique", "P2") * metrics["solar_ht_mwh"],
+            )
+        )
+        p2_geo = float(
+            heat_costs.get(
+                "geo_p2_base_annual_eur",
+                _unit_cost(heat_costs, "Geothermie PAC", "P2") * metrics["pac_heat_mwh"],
+            )
+        ) + float(heat_costs.get("solar_p2_recharge_annual_eur", 0.0))
         p2_backup = _unit_cost(heat_costs, "Appoint gaz", "P2") * metrics["backup_total_mwh"]
         p4_solar = _unit_cost(heat_costs, "Solaire thermique", "P4") * metrics["solar_ht_mwh"]
         p4_geo = _unit_cost(heat_costs, "Geothermie PAC", "P4") * metrics["pac_heat_mwh"]
