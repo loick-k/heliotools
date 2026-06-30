@@ -21,7 +21,7 @@ from .postprocess import (
 )
 from .scenarios import ScenarioResult
 from .ui_economics import render_economics_tab
-from .ui_formatting import round_display_df
+from .ui_formatting import display_dataframe, round_display_df
 
 
 def render_hourly_results(
@@ -307,7 +307,7 @@ def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_bt
     st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), width="stretch")
     st.markdown("### Flux mensuels champ de sondes")
     st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), width="stretch")
-    st.dataframe(round_display_df(multiyear_btes_df), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(multiyear_btes_df), width="stretch", hide_index=True)
 
 
 def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
@@ -356,7 +356,7 @@ def _render_monthly_tab(
     no_solar_cop: float,
 ) -> None:
     st.markdown("### Bilan annuel, calcule depuis les 8760 heures")
-    st.dataframe(round_display_df(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
 
     st.markdown("### Taux de couverture solaire mensuel du besoin HT")
     coverage_rate_df = hourly_by_month_df[["Mois", "Taux couverture solaire HT (%)"]].rename(
@@ -423,7 +423,7 @@ def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_i
     g2.metric("Complément BT gaz", f"{best_row['Complément BT gaz (MWh/an)']:.0f} MWh/an")
     st.altair_chart(_parametric_pac_chart(parametric_pac_df), width="stretch", key=f"parametric_pac_chart_{calculation_id}")
     st.dataframe(
-        round_display_df(parametric_pac_df),
+        display_dataframe(parametric_pac_df),
         width="stretch",
         hide_index=True,
         key=f"parametric_pac_table_{calculation_id}",
@@ -458,7 +458,7 @@ def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame, *, calcula
         key=f"parametric_solar_chart_{calculation_id}",
     )
     st.dataframe(
-        round_display_df(parametric_surface_df),
+        display_dataframe(parametric_surface_df),
         width="stretch",
         hide_index=True,
         key=f"parametric_solar_table_{calculation_id}",
@@ -467,19 +467,19 @@ def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame, *, calcula
 
 def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.DataFrame, hourly_df: pd.DataFrame) -> None:
     st.markdown("### Agregation par mois des resultats horaires")
-    st.dataframe(round_display_df(hourly_by_month_df), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(hourly_by_month_df), width="stretch", hide_index=True)
 
     if not hourly_profile_df.empty:
         with st.expander("Profil besoin horaire importe"):
             st.dataframe(
-                round_display_df(hourly_profile_df[["hour_index", "month", "day", "hour", "demand_ht_kwh", "demand_bt_kwh"]]),
+                display_dataframe(hourly_profile_df[["hour_index", "month", "day", "hour", "demand_ht_kwh", "demand_bt_kwh"]]),
                 width="stretch",
                 hide_index=True,
             )
 
     with st.expander("Table horaire brute"):
         st.dataframe(
-            round_display_df(
+            display_dataframe(
                 hourly_df[
                     [
                         "Heure annee",

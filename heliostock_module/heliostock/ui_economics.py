@@ -7,7 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from .charts import _heat_cost_vector_chart
-from .ui_formatting import round_display_df
+from .ui_formatting import display_dataframe, round_display_df
 
 
 def _scenario_comparison_chart(chart_df: pd.DataFrame, *, title: str) -> alt.Chart:
@@ -88,7 +88,7 @@ def render_economics_tab(
         "service rendu au champ de sondes, sans economie P2 proportionnelle aux ml economises. Les couts variables "
         "sont calcules sur une trajectoire physique multiannuelle nominale."
     )
-    st.dataframe(round_display_df(economic_comparison_df), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(economic_comparison_df), width="stretch", hide_index=True)
 
     chart_cols = st.columns(4)
     chart_titles = {
@@ -115,15 +115,15 @@ def render_economics_tab(
         "(economie CAPEX sondes nette annualisee + economie electricite PAC) - cout annuel solaire recharge. "
         "L'economie nette tient compte de la baisse d'aide ADEME quand le CAPEX sondes diminue."
     )
-    st.dataframe(round_display_df(_recharge_value_table(recharge_value)), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(_recharge_value_table(recharge_value)), width="stretch", hide_index=True)
     st.caption("Aucune economie de P2 n'est appliquee au lineaire de sondes economise.")
 
     st.markdown("### Detail economique par generateur")
-    st.dataframe(round_display_df(_generator_economic_table(heat_costs)), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(_generator_economic_table(heat_costs)), width="stretch", hide_index=True)
     st.altair_chart(_heat_cost_vector_chart(heat_costs["cost_bars"]), width="stretch")
 
     st.markdown("### Trajectoire annuelle utilisée pour l'économie")
     st.caption(
         "Si l'horizon économique dépasse les années simulées, la dernière année simulée est répétée comme année stabilisée."
     )
-    st.dataframe(round_display_df(economic_trajectory_df), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(economic_trajectory_df), width="stretch", hide_index=True)

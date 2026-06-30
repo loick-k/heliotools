@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from .app_service import HourlyCalculationRequest, run_hourly_calculation
+from .ui_formatting import display_dataframe
 from .ui_forms import (
     render_demand_form,
     render_calculation_selection_form,
@@ -89,6 +90,11 @@ def render_heliostock_hourly() -> pd.DataFrame:
             )
             st.caption(str(exc))
             return pd.DataFrame()
+        except Exception as exc:
+            progress.empty()
+            st.error("Le calcul a échoué. Le détail technique est affiché ci-dessous pour faciliter le diagnostic.")
+            st.exception(exc)
+            return pd.DataFrame()
         for warning in calculation.warnings:
             st.warning(warning)
         progress.progress(100, text="Calcul terminé.")
@@ -156,7 +162,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
             ).astype("Float64")
             for column in ["Duree depuis etape precedente (s)", "Duree cumulee (s)"]:
                 display_log[column] = display_log[column].astype(float).round(2)
-            st.dataframe(display_log, width="stretch", hide_index=True)
+            st.dataframe(display_dataframe(display_log), width="stretch", hide_index=True)
     return hourly_df
 
 

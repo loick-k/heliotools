@@ -37,7 +37,7 @@ from heliostock.scenarios import (
     run_hourly_scenario,
 )
 from heliostock.simulation_cache import SimulationCache
-from heliostock.ui_formatting import round_display_df
+from heliostock.ui_formatting import display_dataframe, round_display_df
 from heliostock.ui_inputs import (
     DEFAULT_EPW_STATIONS,
     FixedEconomicsAssumptions,
@@ -960,6 +960,24 @@ def test_round_display_df_keeps_one_decimal_for_cop_columns():
 
     assert float(rounded["COP PAC moyen"].iloc[0]) == 5.9
     assert int(rounded["CAPEX net (EUR)"].iloc[0]) == 1235
+
+
+def test_display_dataframe_normalizes_mixed_object_columns():
+    df = pd.DataFrame(
+        {
+            "Progression (%)": [None, 15, 35.0],
+            "Message": ["start", 2, None],
+            "Economie sondes trouvee": [True, False, True],
+            "_private": [object(), object(), object()],
+        }
+    )
+
+    display_df = display_dataframe(df)
+
+    assert "_private" not in display_df
+    assert pd.api.types.is_numeric_dtype(display_df["Progression (%)"])
+    assert pd.api.types.is_string_dtype(display_df["Message"])
+    assert pd.api.types.is_bool_dtype(display_df["Economie sondes trouvee"])
 
 
 def test_fixed_ui_assumptions_keep_expected_defaults():
