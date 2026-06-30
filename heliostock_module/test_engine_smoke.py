@@ -12,7 +12,7 @@ from heliostock.engine import (
     SimulationConfig,
 )
 from heliostock.btes_models import PygfunctionBtesModel, create_btes_model, pygfunction_available
-from heliostock.app_service import HourlyCalculationRequest, ParametricRange, run_hourly_calculation
+from heliostock.app_service import CalculationSelection, HourlyCalculationRequest, ParametricRange, run_hourly_calculation
 from heliostock.economics import (
     compute_heat_costs,
     compute_solar_thermal_economics,
@@ -752,6 +752,7 @@ def test_app_service_runs_calculation_without_streamlit():
         probe_power_ratio_w_m=60.0,
         probe_energy_ratio_kwh_m=70.0,
         probe_unit_depth_m=100.0,
+        calculation_selection=CalculationSelection(),
         pac_parametric=ParametricRange(False, 50.0, 100.0, 10.0),
         solar_parametric=ParametricRange(False, 0.0, 500.0, 100.0),
     )

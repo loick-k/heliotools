@@ -31,6 +31,13 @@ class ParametricRange:
 
 
 @dataclass(frozen=True)
+class CalculationSelection:
+    run_multiyear: bool = False
+    run_geo_only: bool = False
+    run_reduced_borefield: bool = False
+
+
+@dataclass(frozen=True)
 class HourlyCalculationRequest:
     weather: list[HourlyWeather]
     demands: list[MonthlyDemand]
@@ -44,6 +51,7 @@ class HourlyCalculationRequest:
     probe_power_ratio_w_m: float
     probe_energy_ratio_kwh_m: float
     probe_unit_depth_m: float
+    calculation_selection: CalculationSelection
     pac_parametric: ParametricRange
     solar_parametric: ParametricRange
 
@@ -150,6 +158,9 @@ def run_hourly_calculation(
         config=config,
         economics=economics,
         hourly_demand_override=request.hourly_demand_override,
+        run_multiyear=request.calculation_selection.run_multiyear,
+        run_geo_only=request.calculation_selection.run_geo_only,
+        run_reduced_borefield=request.calculation_selection.run_reduced_borefield,
         progress=progress_with_log,
     )
     mark("scenario:end", "Scenario principal termine")

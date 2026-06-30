@@ -80,11 +80,15 @@ def render_hourly_results(
     k5.metric("Productivite solaire valorisee", f"{solar_productivity_valued:.0f} kWh/m2.an")
     k6.metric("Consommation appoint", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh")
     k7.metric("Couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %")
-    k8.metric("COP PAC avec solaire", f"{mean_cop:.1f}", delta=f"{mean_cop - no_solar_cop:+.1f} vs sans solaire")
+    k8.metric(
+        "COP PAC avec solaire",
+        f"{mean_cop:.1f}",
+        delta=f"{mean_cop - no_solar_cop:+.1f} vs sans solaire" if no_solar_cop > 0.0 else None,
+    )
 
     k9, k10, k11, k12 = st.columns(4)
     k9.metric("Taux EnR global", f"{global_ren_rate * 100:.0f} %")
-    k10.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}")
+    k10.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lance")
     k11.metric("Lineaire simule 8760 h", f"{scenario.full_borefield_length_m:.0f} ml")
     if bool(savings["found"]):
         k12.metric("Gain equivalent eco", f"{float(savings['saved_length_m']):.0f} ml")
@@ -111,11 +115,12 @@ def render_hourly_results(
         btes_backend_used=btes_backend_used,
         probe_power_ratio_w_m=probe_power_ratio_w_m,
     )
-    _render_borefield_savings_explanation(
-        scenario=scenario,
-        no_solar_cop=no_solar_cop,
-        no_solar_total_pac=scenario.no_solar_total_pac_kwh,
-    )
+    if no_solar_cop > 0.0:
+        _render_borefield_savings_explanation(
+            scenario=scenario,
+            no_solar_cop=no_solar_cop,
+            no_solar_total_pac=scenario.no_solar_total_pac_kwh,
+        )
 
     tab_temp, tab_multi, tab_mono, tab_monthly, tab_economics, tab_parametric_pac, tab_parametric_solar, tab_detail = st.tabs(
         [
@@ -372,6 +377,9 @@ def _render_monthly_tab(
     st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
 
     st.markdown("### Comparaison horaire sans solaire / avec solaire")
+    if no_solar_cop <= 0.0:
+        st.info("Comparaison sans solaire non lancee.")
+        return
     c1, c2, c3 = st.columns(3)
     c1.metric("Gain BT PAC", f"{(total_pac - no_solar_total_pac) / 1000:.0f} MWh")
     c2.metric("Ecart electricite PAC", f"{(no_solar_total_elec - total_elec) / 1000:.0f} MWh")

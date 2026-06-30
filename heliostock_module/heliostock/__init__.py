@@ -11,7 +11,7 @@ from .hourly_engine import HourlyResult, HourlyWeather, aggregate_hourly_results
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
 from .borefield_savings import borefield_equivalent_savings
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, ScenarioInputs, SolarInputs
-from .app_service import HourlyCalculationRequest, HourlyCalculationResult, ParametricRange, run_hourly_calculation
+from .app_service import CalculationSelection, HourlyCalculationRequest, HourlyCalculationResult, ParametricRange, run_hourly_calculation
 from .scenarios import (
     ScenarioEconomicsConfig,
     ScenarioResult,
@@ -34,6 +34,7 @@ __all__ = [
     "HeatPumpInputs",
     "HourlyCalculationRequest",
     "HourlyCalculationResult",
+    "CalculationSelection",
     "ScenarioEconomicsConfig",
     "ScenarioInputs",
     "ScenarioResult",

@@ -104,6 +104,8 @@ def render_economics_tab(
     st.markdown("### Valeur economique de la recharge solaire")
     if not bool(recharge_value["applicable"]):
         st.info("Recharge solaire non applicable : aucune energie solaire injectee au BTES.")
+    elif str(recharge_value["status"]) == "desactive":
+        st.info("Optimisation par recharge solaire non lancee.")
     elif str(recharge_value["status"]) == "non determine":
         st.warning("Gain de lineaire non determine : le solveur n'a pas trouve de reduction equivalente robuste.")
 

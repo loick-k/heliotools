@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from .app_service import ParametricRange
+from .app_service import CalculationSelection, ParametricRange
 from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
@@ -62,6 +62,11 @@ class GeothermalFormResult:
 class ParametricFormsResult:
     pac: ParametricRange
     solar: ParametricRange
+
+
+@dataclass(frozen=True)
+class CalculationSelectionFormResult:
+    selection: CalculationSelection
 
 
 def render_weather_form() -> WeatherFormResult:
@@ -366,8 +371,32 @@ def render_economics_form() -> EconomicsInputs:
     )
 
 
+def render_calculation_selection_form() -> CalculationSelectionFormResult:
+    with st.expander("6) Calculs a lancer", expanded=True):
+        run_multiyear = st.checkbox("Projection 20 ans", value=False)
+        run_geo_only = st.checkbox("Scenario geothermie seule", value=False)
+        run_reduced_borefield = st.checkbox(
+            "Optimisation avec recharge solaire",
+            value=False,
+            disabled=not run_geo_only,
+        )
+        if not run_geo_only and run_reduced_borefield:
+            run_reduced_borefield = False
+        st.caption(
+            "Le calcul 1 an avec solaire reste le socle. Les autres cases ajoutent des simulations lourdes "
+            "uniquement quand elles sont necessaires."
+        )
+    return CalculationSelectionFormResult(
+        selection=CalculationSelection(
+            run_multiyear=bool(run_multiyear),
+            run_geo_only=bool(run_geo_only),
+            run_reduced_borefield=bool(run_reduced_borefield),
+        )
+    )
+
+
 def render_parametric_forms(area_m2: float) -> ParametricFormsResult:
-    with st.expander("6) Etude parametrique PAC geothermie", expanded=False):
+    with st.expander("7) Etude parametrique PAC geothermie", expanded=False):
         enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False)
         pp1, pp2, pp3 = st.columns(3)
         param_pac_fraction_min_pct = pp1.number_input("P PAC min (% Pmax BT)", min_value=1.0, max_value=150.0, value=50.0, step=5.0)
@@ -380,7 +409,7 @@ def render_parametric_forms(area_m2: float) -> ParametricFormsResult:
             "Limite de sécurité : 25 points."
         )
 
-    with st.expander("7) Etude parametrique surface solaire", expanded=False):
+    with st.expander("8) Etude parametrique surface solaire", expanded=False):
         enable_solar_surface_parametric = st.checkbox("Activer l'étude paramétrique sur la surface solaire", value=False)
         p1, p2, p3 = st.columns(3)
         param_surface_min_m2 = p1.number_input("Surface min étudiée (m²)", min_value=0.0, value=max(0.0, float(area_m2) * 0.5), step=50.0)

@@ -8,6 +8,7 @@ import streamlit as st
 from .app_service import HourlyCalculationRequest, run_hourly_calculation
 from .ui_forms import (
     render_demand_form,
+    render_calculation_selection_form,
     render_economics_form,
     render_geothermal_form,
     render_parametric_forms,
@@ -42,6 +43,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
         hourly_demand_override=demand_form.hourly_demand_override,
     )
     economics_inputs = render_economics_form()
+    calculation_selection_form = render_calculation_selection_form()
     parametric_forms = render_parametric_forms(solar_form.inputs.area_m2)
 
     if not weather_form.hourly_weather:
@@ -69,6 +71,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                     probe_power_ratio_w_m=geothermal_form.probe_power_ratio_w_m,
                     probe_energy_ratio_kwh_m=geothermal_form.probe_energy_ratio_kwh_m,
                     probe_unit_depth_m=geothermal_form.probe_unit_depth_m,
+                    calculation_selection=calculation_selection_form.selection,
                     pac_parametric=parametric_forms.pac,
                     solar_parametric=parametric_forms.solar,
                 ),

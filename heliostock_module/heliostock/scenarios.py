@@ -779,6 +779,9 @@ def run_hourly_scenario(
     config: SimulationConfig,
     economics: ScenarioEconomicsConfig,
     hourly_demand_override: dict[int, tuple[float, float]] | None = None,
+    run_multiyear: bool = True,
+    run_geo_only: bool = True,
+    run_reduced_borefield: bool = True,
     progress: ProgressCallback | None = None,
 ) -> ScenarioResult:
     _notify(progress, 15, "Calcul horaire avec solaire...")
@@ -791,44 +794,58 @@ def run_hourly_scenario(
         )
     )
 
-    _notify(progress, 35, "Calcul horaire sans solaire...")
     no_solar_config = replace(config, collector=replace(config.collector, area_m2=0.0))
-    no_solar_hourly_df = _hourly_results_to_dataframe(
-        simulate_hourly(
-            weather,
-            demands,
-            no_solar_config,
-            hourly_demand_override=hourly_demand_override,
+    if run_geo_only:
+        _notify(progress, 35, "Calcul horaire sans solaire...")
+        no_solar_hourly_df = _hourly_results_to_dataframe(
+            simulate_hourly(
+                weather,
+                demands,
+                no_solar_config,
+                hourly_demand_override=hourly_demand_override,
+            )
         )
-    )
+    else:
+        no_solar_hourly_df = hourly_df.iloc[0:0].copy()
 
     _notify(progress, 50, "Agrégation des résultats horaires...")
     annual_df = _annual_hourly_summary(hourly_df)
     hourly_by_month_df = _hourly_by_month_summary(hourly_df)
 
-    multiyear_years = max(1, int(economics.analysis_years))
-    _notify(progress, 55, f"Projection multiannuelle avec solaire ({multiyear_years} ans)...")
-    multiyear_df = _hourly_results_to_dataframe(
-        simulate_hourly(
-            weather,
-            demands,
-            config,
-            hourly_demand_override=hourly_demand_override,
-            simulation_years=multiyear_years,
+    multiyear_years = max(1, int(economics.analysis_years)) if run_multiyear else 1
+    if run_multiyear:
+        _notify(progress, 55, f"Projection multiannuelle avec solaire ({multiyear_years} ans)...")
+        multiyear_df = _hourly_results_to_dataframe(
+            simulate_hourly(
+                weather,
+                demands,
+                config,
+                hourly_demand_override=hourly_demand_override,
+                simulation_years=multiyear_years,
+            )
         )
-    )
+    else:
+        _notify(progress, 55, "Projection multiannuelle desactivee : economie basee sur l'annee 1.")
+        multiyear_df = hourly_df.copy()
     multiyear_btes_df = _multiyear_btes_summary(multiyear_df, t_min_c=config.btes.t_min_c)
-    _notify(progress, 62, f"Projection multiannuelle sans solaire ({multiyear_years} ans)...")
-    no_solar_multiyear_df = _hourly_results_to_dataframe(
-        simulate_hourly(
-            weather,
-            demands,
-            no_solar_config,
-            hourly_demand_override=hourly_demand_override,
-            simulation_years=multiyear_years,
-        )
-    )
-    no_solar_multiyear_btes_df = _multiyear_btes_summary(no_solar_multiyear_df, t_min_c=config.btes.t_min_c)
+    if run_geo_only:
+        if run_multiyear:
+            _notify(progress, 62, f"Projection multiannuelle sans solaire ({multiyear_years} ans)...")
+            no_solar_multiyear_df = _hourly_results_to_dataframe(
+                simulate_hourly(
+                    weather,
+                    demands,
+                    no_solar_config,
+                    hourly_demand_override=hourly_demand_override,
+                    simulation_years=multiyear_years,
+                )
+            )
+        else:
+            no_solar_multiyear_df = no_solar_hourly_df.copy()
+        no_solar_multiyear_btes_df = _multiyear_btes_summary(no_solar_multiyear_df, t_min_c=config.btes.t_min_c)
+    else:
+        no_solar_multiyear_df = hourly_df.iloc[0:0].copy()
+        no_solar_multiyear_btes_df = pd.DataFrame()
 
     total_ht = float(hourly_df["demand_ht_kwh"].sum())
     total_bt = float(hourly_df["demand_bt_kwh"].sum())
@@ -853,26 +870,34 @@ def run_hourly_scenario(
     non_ren_input = total_backup_ht + total_backup_bt + total_system_elec
     global_ren_rate = max(0.0, min(1.0, 1.0 - non_ren_input / max(1e-9, total_ht + total_bt)))
 
-    no_solar_total_pac = float(no_solar_hourly_df["heat_bt_from_pac_kwh"].sum())
-    no_solar_total_compressor = float(no_solar_hourly_df["electricity_compressor_kwh"].sum())
-    no_solar_total_elec = float(no_solar_hourly_df["electricity_pac_total_kwh"].sum())
+    no_solar_total_pac = float(no_solar_hourly_df["heat_bt_from_pac_kwh"].sum()) if not no_solar_hourly_df.empty else 0.0
+    no_solar_total_compressor = (
+        float(no_solar_hourly_df["electricity_compressor_kwh"].sum()) if not no_solar_hourly_df.empty else 0.0
+    )
+    no_solar_total_elec = float(no_solar_hourly_df["electricity_pac_total_kwh"].sum()) if not no_solar_hourly_df.empty else 0.0
     no_solar_cop = no_solar_total_pac / no_solar_total_compressor if no_solar_total_compressor > 0 else 0.0
-    no_solar_economic_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years)
+    if run_geo_only and run_reduced_borefield:
+        no_solar_economic_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years)
+    else:
+        no_solar_economic_metrics = None
 
     _notify(progress, 70, "Calcul de l'économie équivalente de sondes...")
-    savings = borefield_equivalent_savings(
-        weather=weather,
-        demands=demands,
-        config=config,
-        reference_cop=no_solar_economic_metrics["mean_cop"],
-        reference_bt_pac_kwh=no_solar_economic_metrics["pac_heat_mwh"] * 1000.0,
-        hourly_demand_override=hourly_demand_override,
-        simulation_years=multiyear_years,
-    )
+    if no_solar_economic_metrics is not None:
+        savings = borefield_equivalent_savings(
+            weather=weather,
+            demands=demands,
+            config=config,
+            reference_cop=no_solar_economic_metrics["mean_cop"],
+            reference_bt_pac_kwh=no_solar_economic_metrics["pac_heat_mwh"] * 1000.0,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=multiyear_years,
+        )
+    else:
+        savings = {"found": False, "saved_length_m": 0.0, "equivalent_length_m": 0.0}
 
     _notify(progress, 85, "Calcul économique solaire thermique...")
     same_metrics = _hourly_metrics(multiyear_df, annualization_years=multiyear_years)
-    geo_only_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years)
+    geo_only_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years) if run_geo_only else None
     economic_solar_ht_mwh = same_metrics["solar_ht_mwh"]
     economic_solar_btes_mwh = same_metrics["solar_btes_mwh"]
     economic_solar_total_mwh = economic_solar_ht_mwh + economic_solar_btes_mwh
@@ -902,7 +927,7 @@ def run_hourly_scenario(
     pac_power_kw = float(config.heat_pump.max_thermal_power_kw or 0.0)
     reference_heat_mwh = same_metrics["total_need_mwh"]
 
-    if bool(savings["found"]):
+    if run_reduced_borefield and bool(savings["found"]):
         _notify(progress, 88, "Simulation multiannuelle avec sondes reduites...")
         reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
         reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
@@ -921,16 +946,20 @@ def run_hourly_scenario(
     reduced_metrics = _hourly_metrics(reduced_hourly_df, annualization_years=multiyear_years)
 
     _notify(progress, 90, "Construction des couts par scenario...")
-    geo_only_heat_costs = _scenario_heat_costs(
-        metrics=geo_only_metrics,
-        economics=economics,
-        solar_economics=zero_solar_economics,
-        solar_mwh=0.0,
-        pac_power_kw=pac_power_kw,
-        borefield_length_m=full_borefield_length_m,
-        full_borefield_length_m=full_borefield_length_m,
-        reference_heat_mwh=reference_heat_mwh,
-        reference_power_kw=reference_gas_power_kw,
+    geo_only_heat_costs = (
+        _scenario_heat_costs(
+            metrics=geo_only_metrics,
+            economics=economics,
+            solar_economics=zero_solar_economics,
+            solar_mwh=0.0,
+            pac_power_kw=pac_power_kw,
+            borefield_length_m=full_borefield_length_m,
+            full_borefield_length_m=full_borefield_length_m,
+            reference_heat_mwh=reference_heat_mwh,
+            reference_power_kw=reference_gas_power_kw,
+        )
+        if geo_only_metrics is not None
+        else None
     )
     same_borefield_heat_costs = _scenario_heat_costs(
         metrics=same_metrics,
@@ -972,22 +1001,32 @@ def run_hourly_scenario(
         borefield_unit_cost_eur_m=100.0,
         saved_borefield_net_capex_eur=(
             max(0.0, float(geo_only_heat_costs["geo_net_capex_eur"]) - float(heat_costs["geo_net_capex_eur"]))
-            if bool(savings["found"])
+            if geo_only_heat_costs is not None and bool(savings["found"])
             else 0.0
         ),
-        electricity_savings_mwh=max(0.0, geo_only_metrics["pac_electricity_mwh"] - reduced_metrics["pac_electricity_mwh"]),
+        electricity_savings_mwh=(
+            max(0.0, geo_only_metrics["pac_electricity_mwh"] - reduced_metrics["pac_electricity_mwh"])
+            if geo_only_metrics is not None
+            else 0.0
+        ),
         average_electricity_cost_eur_mwh=average_electricity_cost,
         analysis_years=int(economics.analysis_years),
     )
-    if not bool(savings["found"]):
+    if not run_reduced_borefield:
+        recharge_value["status"] = "desactive"
+    elif not bool(savings["found"]):
         recharge_value["status"] = "non determine"
 
     same_trajectory_df = _annual_metrics_trajectory(multiyear_df, analysis_years=int(economics.analysis_years))
-    geo_only_trajectory_df = _annual_metrics_trajectory(no_solar_multiyear_df, analysis_years=int(economics.analysis_years))
+    geo_only_trajectory_df = (
+        _annual_metrics_trajectory(no_solar_multiyear_df, analysis_years=int(economics.analysis_years))
+        if run_geo_only
+        else pd.DataFrame()
+    )
     reduced_trajectory_df = _annual_metrics_trajectory(reduced_hourly_df, analysis_years=int(economics.analysis_years))
     reference_trajectory_df = _reference_gas_trajectory_from(same_trajectory_df)
 
-    geo_only_capex = _capex_net_total(geo_only_heat_costs, ["Geothermie PAC", "Appoint gaz"])
+    geo_only_capex = _capex_net_total(geo_only_heat_costs, ["Geothermie PAC", "Appoint gaz"]) if geo_only_heat_costs is not None else 0.0
     same_capex = _capex_net_total(same_borefield_heat_costs, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
     reduced_capex = _capex_net_total(heat_costs, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
     reference_capex = float(heat_costs["reference_capex_eur"])
@@ -998,12 +1037,6 @@ def run_hourly_scenario(
             economics=economics,
             capex_net_eur=reference_capex,
             reference=True,
-        ),
-        "Geothermie seule": _multiyear_heat_cost(
-            trajectory_df=geo_only_trajectory_df,
-            heat_costs=geo_only_heat_costs,
-            economics=economics,
-            capex_net_eur=geo_only_capex,
         ),
         "Geothermie + solaire meme sondes": _multiyear_heat_cost(
             trajectory_df=same_trajectory_df,
@@ -1018,30 +1051,52 @@ def run_hourly_scenario(
             capex_net_eur=reduced_capex,
         ),
     }
-    economic_trajectory_df = pd.concat(
-        [
-            reference_trajectory_df.assign(Scenario="Reference 100 % gaz"),
-            geo_only_trajectory_df.assign(Scenario="Geothermie seule"),
-            same_trajectory_df.assign(Scenario="Geothermie + solaire meme sondes"),
-            reduced_trajectory_df.assign(Scenario="Geothermie + solaire sondes reduites"),
-        ],
-        ignore_index=True,
-    )
+    if geo_only_heat_costs is not None:
+        multiyear_costs_by_scenario["Geothermie seule"] = _multiyear_heat_cost(
+            trajectory_df=geo_only_trajectory_df,
+            heat_costs=geo_only_heat_costs,
+            economics=economics,
+            capex_net_eur=geo_only_capex,
+        )
+    if not run_reduced_borefield:
+        multiyear_costs_by_scenario.pop("Geothermie + solaire sondes reduites", None)
+    trajectory_frames = [
+        reference_trajectory_df.assign(Scenario="Reference 100 % gaz"),
+        same_trajectory_df.assign(Scenario="Geothermie + solaire meme sondes"),
+    ]
+    if run_geo_only:
+        trajectory_frames.insert(1, geo_only_trajectory_df.assign(Scenario="Geothermie seule"))
+    if run_reduced_borefield:
+        trajectory_frames.append(reduced_trajectory_df.assign(Scenario="Geothermie + solaire sondes reduites"))
+    economic_trajectory_df = pd.concat(trajectory_frames, ignore_index=True)
 
     _notify(progress, 95, "Construction des tableaux economiques...")
-    economic_comparison_df = pd.DataFrame(
-        [
-            _comparison_row(
-                name="Reference 100 % gaz",
-                heat_costs=heat_costs,
-                metrics=same_metrics,
-                delivered_mwh=reference_heat_mwh,
-                borefield_length_m=0.0,
-                saved_borefield_length_m=0.0,
-                capex_net_eur=reference_capex,
-                reference=True,
-                solar_area_m2=0.0,
-            ),
+    comparison_rows = [
+        _comparison_row(
+            name="Reference 100 % gaz",
+            heat_costs=heat_costs,
+            metrics=same_metrics,
+            delivered_mwh=reference_heat_mwh,
+            borefield_length_m=0.0,
+            saved_borefield_length_m=0.0,
+            capex_net_eur=reference_capex,
+            reference=True,
+            solar_area_m2=0.0,
+        ),
+        _comparison_row(
+            name="Geothermie + solaire meme sondes",
+            heat_costs=same_borefield_heat_costs,
+            metrics=same_metrics,
+            delivered_mwh=reference_heat_mwh,
+            borefield_length_m=full_borefield_length_m,
+            saved_borefield_length_m=0.0,
+            capex_net_eur=same_capex,
+            solar_area_m2=config.collector.area_m2,
+        ),
+    ]
+    if geo_only_heat_costs is not None and geo_only_metrics is not None:
+        comparison_rows.insert(
+            1,
             _comparison_row(
                 name="Geothermie seule",
                 heat_costs=geo_only_heat_costs,
@@ -1052,16 +1107,9 @@ def run_hourly_scenario(
                 capex_net_eur=geo_only_capex,
                 solar_area_m2=0.0,
             ),
-            _comparison_row(
-                name="Geothermie + solaire meme sondes",
-                heat_costs=same_borefield_heat_costs,
-                metrics=same_metrics,
-                delivered_mwh=reference_heat_mwh,
-                borefield_length_m=full_borefield_length_m,
-                saved_borefield_length_m=0.0,
-                capex_net_eur=same_capex,
-                solar_area_m2=config.collector.area_m2,
-            ),
+        )
+    if run_reduced_borefield:
+        comparison_rows.append(
             _comparison_row(
                 name="Geothermie + solaire sondes reduites",
                 heat_costs=heat_costs,
@@ -1071,9 +1119,9 @@ def run_hourly_scenario(
                 saved_borefield_length_m=float(savings["saved_length_m"]) if bool(savings["found"]) else 0.0,
                 capex_net_eur=reduced_capex,
                 solar_area_m2=config.collector.area_m2,
-            ),
-        ]
-    )
+            )
+        )
+    economic_comparison_df = pd.DataFrame(comparison_rows)
     for index, row in economic_comparison_df.iterrows():
         scenario_name = str(row["Scenario"])
         costs = multiyear_costs_by_scenario[scenario_name]
@@ -1081,7 +1129,7 @@ def run_hourly_scenario(
         economic_comparison_df.loc[index, "P1 annuel (EUR/an)"] = costs["p1_annual_eur"]
         economic_comparison_df.loc[index, "P2 annuel (EUR/an)"] = costs["p2_annual_eur"]
         economic_comparison_df.loc[index, "P4 annuel (EUR/an)"] = costs["p4_annual_eur"]
-    economic_comparison_df["Méthode coût chaleur"] = "Multiannuel nominal"
+    economic_comparison_df["Méthode coût chaleur"] = "Multiannuel nominal" if run_multiyear else "Annuel nominal"
     economic_comparison_chart_df = economic_comparison_df.melt(
         id_vars=["Scenario"],
         value_vars=[
