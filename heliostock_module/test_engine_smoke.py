@@ -1234,6 +1234,86 @@ def test_app_service_runs_calculation_without_streamlit():
     assert result.parametric_surface_df.empty
 
 
+def test_quick_preview_forces_one_year_without_heavy_options():
+    weather = [
+        HourlyWeather(
+            hour_index=hour,
+            month=1,
+            day=1,
+            hour=hour + 1,
+            tair_c=8.0,
+            g_tilt_kwh_m2=0.0,
+        )
+        for hour in range(4)
+    ]
+    request = HourlyCalculationRequest(
+        weather=weather,
+        demands=_demand_aggregate(1, weather, ht_kwh=10.0, bt_kwh=20.0),
+        hourly_demand_override=_hourly_override(weather, ht_kwh=10.0, bt_kwh=20.0),
+        solar=SolarInputs(
+            area_m2=100.0,
+            eta0=0.8,
+            a1_w_m2_k=3.5,
+            a2_w_m2_k2=0.015,
+            system_efficiency=0.9,
+            daily_buffer_charge_factor_ht=1.0,
+            daily_buffer_l_per_m2=50.0,
+            daily_buffer_ambient_temp_c=20.0,
+            daily_buffer_max_temp_c=80.0,
+            daily_buffer_loss_pct_per_day=2.0,
+            solar_preheat_target_ht_c=60.0,
+            solar_buffer_hx_approach_k=5.0,
+            solar_buffer_collector_approach_k=10.0,
+        ),
+        btes=BtesInputs(boreholes=8, depth_m=80.0, spacing_m=8.0, t_initial_c=12.0, t_min_c=5.0, t_max_c=40.0),
+        heat_pump=HeatPumpInputs(
+            air_target_bt_c=25.0,
+            condenser_approach_k=2.0,
+            evaporator_approach_k=3.0,
+            carnot_efficiency=0.54,
+            cop_min=2.0,
+            cop_max=8.0,
+            pac_power_fraction_pct=100.0,
+            peak_bt_power_kw=0.0,
+        ),
+        economics=EconomicsInputs(
+            reference_energy_cost_eur_mwh=70.0,
+            reference_energy_inflation_pct=3.0,
+            eta_appoint_eco=0.82,
+            analysis_years=25,
+            auxiliary_electricity_ratio_pct=3.0,
+            electricity_cost_eur_mwh=200.0,
+            maintenance_cost_eur_m2_year=0.0,
+            ademe_eur_mwh_year=0.0,
+            other_public_aid_eur=0.0,
+            backup_p2_eur_kw_year=10.0,
+        ),
+        pac_power_fraction_pct=100.0,
+        use_probe_predesign=False,
+        probe_power_ratio_w_m=40.0,
+        probe_energy_ratio_kwh_m=60.0,
+        probe_unit_depth_m=100.0,
+        calculation_selection=CalculationSelection(
+            quick_preview=True,
+            run_multiyear=True,
+            technical_simulation_years=25,
+            run_reduced_borefield=True,
+            savings_search_mode="expert",
+        ),
+        pac_parametric=ParametricRange(True, 50.0, 100.0, 50.0),
+        solar_parametric=ParametricRange(True, 0.0, 100.0, 100.0),
+    )
+
+    result = run_hourly_calculation(request)
+
+    assert result.scenario.simulation_years_total == 1
+    assert set(result.scenario.hourly_df["simulation_year"].unique()) == {1}
+    assert not result.scenario.savings["found"]
+    assert result.parametric_pac_df.empty
+    assert result.parametric_surface_df.empty
+    assert any("previsualisation rapide" in warning for warning in result.warnings)
+
+
 def test_scenario_p1_uses_total_pac_electricity_and_spf_is_below_machine_cop():
     weather = [
         HourlyWeather(

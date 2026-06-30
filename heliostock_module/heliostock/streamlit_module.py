@@ -44,7 +44,10 @@ def render_heliostock_hourly() -> pd.DataFrame:
     )
     economics_inputs = render_economics_form()
     calculation_selection_form = render_calculation_selection_form()
-    parametric_forms = render_parametric_forms(solar_form.inputs.area_m2)
+    parametric_forms = render_parametric_forms(
+        solar_form.inputs.area_m2,
+        disabled=calculation_selection_form.selection.quick_preview,
+    )
 
     if not weather_form.hourly_weather:
         return pd.DataFrame()

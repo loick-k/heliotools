@@ -391,20 +391,24 @@ def render_economics_form() -> EconomicsInputs:
 
 def render_calculation_selection_form() -> CalculationSelectionFormResult:
     with st.expander("6) Calculs a lancer", expanded=True):
-        run_multiyear = st.checkbox("Projection technique multiannuelle", value=True)
+        quick_preview = st.checkbox("Mode previsualisation rapide", value=False)
+        if quick_preview:
+            st.info("Simulation 1 an uniquement, sans economie de sondes ni etudes parametriques.")
+        run_multiyear = st.checkbox("Projection technique multiannuelle", value=True, disabled=quick_preview)
         technical_simulation_years = st.number_input(
             "Duree simulation technique champ (ans)",
             min_value=1,
             max_value=50,
-            value=25,
+            value=1 if quick_preview else 25,
             step=1,
-            disabled=not run_multiyear,
+            disabled=quick_preview or not run_multiyear,
         )
         display_year_mode = st.radio(
             "Annee technique affichee",
             options=["finale", "annee 1", "personnalisee"],
             index=0,
             horizontal=True,
+            disabled=quick_preview,
         )
         custom_display_year = st.number_input(
             "Annee personnalisee",
@@ -412,14 +416,14 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             max_value=int(technical_simulation_years),
             value=int(technical_simulation_years),
             step=1,
-            disabled=display_year_mode != "personnalisee",
+            disabled=quick_preview or display_year_mode != "personnalisee",
         )
         run_geo_only = st.checkbox("Scenario geothermie seule", value=True)
         savings_method_label = st.selectbox(
             "Méthode économie de sondes",
             options=["désactivée", "rapide prédimensionnement", "experte détaillée"],
             index=1,
-            disabled=not run_geo_only,
+            disabled=quick_preview or not run_geo_only,
         )
         savings_mode_map = {
             "désactivée": "none",
@@ -427,6 +431,12 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             "experte détaillée": "expert",
         }
         savings_search_mode = savings_mode_map[str(savings_method_label)]
+        if quick_preview:
+            run_multiyear = False
+            technical_simulation_years = 1
+            display_year_mode = "finale"
+            custom_display_year = 1
+            savings_search_mode = "none"
         run_reduced_borefield = savings_search_mode != "none" and bool(run_geo_only)
         recharge_credit = st.number_input("Crédit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
         reduced_borefield_safety_factor = st.number_input(
@@ -435,6 +445,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             max_value=2.0,
             value=1.10,
             step=0.05,
+            disabled=quick_preview or savings_search_mode == "none",
         )
         if not run_geo_only and run_reduced_borefield:
             run_reduced_borefield = False
@@ -447,6 +458,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(
+            quick_preview=bool(quick_preview),
             run_multiyear=bool(run_multiyear),
             technical_simulation_years=int(technical_simulation_years) if run_multiyear else 1,
             display_year_mode=str(display_year_mode),
@@ -460,7 +472,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
     )
 
 
-def render_parametric_forms(area_m2: float) -> ParametricFormsResult:
+def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> ParametricFormsResult:
     with st.expander("7) Etude parametrique PAC geothermie", expanded=False):
         enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False)
         pp1, pp2, pp3 = st.columns(3)
@@ -487,13 +499,13 @@ def render_parametric_forms(area_m2: float) -> ParametricFormsResult:
 
     return ParametricFormsResult(
         pac=ParametricRange(
-            enabled=bool(enable_pac_power_parametric),
+            enabled=bool(enable_pac_power_parametric) and not disabled,
             minimum=float(param_pac_fraction_min_pct),
             maximum=float(param_pac_fraction_max_pct),
             step=float(param_pac_fraction_step_pct),
         ),
         solar=ParametricRange(
-            enabled=bool(enable_solar_surface_parametric),
+            enabled=bool(enable_solar_surface_parametric) and not disabled,
             minimum=float(param_surface_min_m2),
             maximum=float(param_surface_max_m2),
             step=float(param_surface_step_m2),
