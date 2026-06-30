@@ -391,10 +391,27 @@ def render_economics_form() -> EconomicsInputs:
 
 def render_calculation_selection_form() -> CalculationSelectionFormResult:
     with st.expander("6) Calculs a lancer", expanded=True):
-        quick_preview = st.checkbox("Mode previsualisation rapide", value=False)
+        profile_label = st.radio(
+            "Profil de calcul",
+            options=["Previsualisation rapide", "Dimensionnement 25 ans", "Calcul final"],
+            index=1,
+            horizontal=True,
+        )
+        profile_map = {
+            "Previsualisation rapide": "previsualisation_rapide",
+            "Dimensionnement 25 ans": "dimensionnement_25_ans",
+            "Calcul final": "calcul_final",
+        }
+        calculation_profile = profile_map[str(profile_label)]
+        quick_preview = calculation_profile == "previsualisation_rapide"
+        final_profile = calculation_profile == "calcul_final"
         if quick_preview:
-            st.info("Simulation 1 an uniquement, sans economie de sondes ni etudes parametriques.")
-        run_multiyear = st.checkbox("Projection technique multiannuelle", value=True, disabled=quick_preview)
+            st.info("Simulation 1 an uniquement, scenario principal, sans economie de sondes ni etudes parametriques.")
+        elif calculation_profile == "dimensionnement_25_ans":
+            st.info("Simulation 25 ans avec comparaison geothermie seule, sans economie de sondes ni etudes parametriques.")
+        else:
+            st.info("Calcul complet 25 ans : economie de sondes et etudes parametriques activables.")
+        run_multiyear = st.checkbox("Projection technique multiannuelle", value=not quick_preview, disabled=quick_preview)
         technical_simulation_years = st.number_input(
             "Duree simulation technique champ (ans)",
             min_value=1,
@@ -418,17 +435,21 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             step=1,
             disabled=quick_preview or display_year_mode != "personnalisee",
         )
-        run_geo_only = st.checkbox("Scenario geothermie seule", value=True)
+        run_geo_only = st.checkbox(
+            "Scenario geothermie seule",
+            value=not quick_preview,
+            disabled=calculation_profile == "dimensionnement_25_ans",
+        )
         savings_method_label = st.selectbox(
-            "Méthode économie de sondes",
-            options=["désactivée", "rapide prédimensionnement", "experte détaillée"],
-            index=1,
-            disabled=quick_preview or not run_geo_only,
+            "Methode economie de sondes",
+            options=["desactivee", "rapide predimensionnement", "experte detaillee"],
+            index=1 if final_profile else 0,
+            disabled=not final_profile or not run_geo_only,
         )
         savings_mode_map = {
-            "désactivée": "none",
-            "rapide prédimensionnement": "fast",
-            "experte détaillée": "expert",
+            "desactivee": "none",
+            "rapide predimensionnement": "fast",
+            "experte detaillee": "expert",
         }
         savings_search_mode = savings_mode_map[str(savings_method_label)]
         if quick_preview:
@@ -436,28 +457,32 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             technical_simulation_years = 1
             display_year_mode = "finale"
             custom_display_year = 1
+            run_geo_only = False
+            savings_search_mode = "none"
+        elif calculation_profile == "dimensionnement_25_ans":
+            run_multiyear = True
+            run_geo_only = True
             savings_search_mode = "none"
         run_reduced_borefield = savings_search_mode != "none" and bool(run_geo_only)
-        recharge_credit = st.number_input("Crédit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
+        recharge_credit = st.number_input("Credit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
         reduced_borefield_safety_factor = st.number_input(
-            "Marge sécurité sondes réduites",
+            "Marge securite sondes reduites",
             min_value=1.0,
             max_value=2.0,
             value=1.10,
             step=0.05,
-            disabled=quick_preview or savings_search_mode == "none",
+            disabled=not final_profile or savings_search_mode == "none",
         )
         if not run_geo_only and run_reduced_borefield:
             run_reduced_borefield = False
             savings_search_mode = "none"
         st.caption(
-            "En projection multiannuelle, l'annee 1 et l'annee finale sont extraites de la meme simulation. "
-            "Le mode rapide estime d'abord le gain de sondes a partir du ratio energie injectee / energie extraite, "
-            "puis verifie avec quelques simulations pygfunction. Il est adapte au predimensionnement. "
-            "Le mode expert est un calcul lourd."
+            "Le profil choisi force les options lourdes : la previsualisation reste legere, "
+            "le dimensionnement 25 ans exclut les optimisations, et le calcul final autorise les etudes avancees."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(
+            calculation_profile=str(calculation_profile),
             quick_preview=bool(quick_preview),
             run_multiyear=bool(run_multiyear),
             technical_simulation_years=int(technical_simulation_years) if run_multiyear else 1,

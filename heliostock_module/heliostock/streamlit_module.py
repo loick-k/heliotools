@@ -47,7 +47,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
     calculation_selection_form = render_calculation_selection_form()
     parametric_forms = render_parametric_forms(
         solar_form.inputs.area_m2,
-        disabled=calculation_selection_form.selection.quick_preview,
+        disabled=calculation_selection_form.selection.calculation_profile != "calcul_final",
     )
 
     if not weather_form.hourly_weather:

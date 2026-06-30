@@ -60,12 +60,19 @@ def _override_signature(
 class SimulationCache:
     """In-memory cache for repeated hourly pygfunction simulations in one run."""
 
-    def __init__(self, event_callback: Callable[[dict[str, Any]], None] | None = None) -> None:
+    def __init__(
+        self,
+        event_callback: Callable[[dict[str, Any]], None] | None = None,
+        *,
+        max_entries: int = 2,
+    ) -> None:
         self._store: dict[tuple[Any, ...], tuple[HourlyResult, ...]] = {}
+        self._order: list[tuple[Any, ...]] = []
         self.hits = 0
         self.misses = 0
         self._lock = Lock()
         self._event_callback = event_callback
+        self._max_entries = max(0, int(max_entries))
 
     @property
     def entries(self) -> int:
@@ -75,6 +82,7 @@ class SimulationCache:
         with self._lock:
             cleared = len(self._store)
             self._store.clear()
+            self._order.clear()
             hits = int(self.hits)
             misses = int(self.misses)
         self.record_event(
@@ -147,9 +155,20 @@ class SimulationCache:
         )
         elapsed = time.perf_counter() - started_at
         with self._lock:
-            self._store[key] = results
+            evicted = 0
+            if self._max_entries > 0:
+                self._store[key] = results
+                if key in self._order:
+                    self._order.remove(key)
+                self._order.append(key)
+                while len(self._order) > self._max_entries:
+                    old_key = self._order.pop(0)
+                    if old_key in self._store:
+                        self._store.pop(old_key, None)
+                        evicted += 1
             hits = int(self.hits)
             misses = int(self.misses)
+            entries = int(len(self._store))
         self.record_event(
             "simulate:pygfunction",
             f"Simulation pygfunction calculee ({mode})",
@@ -158,6 +177,8 @@ class SimulationCache:
                 "Cache": "miss",
                 "Cache hits": hits,
                 "Cache misses": misses,
+                "Entrees cache": entries,
+                "Entrees cache supprimees": int(evicted),
                 "Simulations lancees": 1,
                 "Duree pygfunction (s)": elapsed,
             },
