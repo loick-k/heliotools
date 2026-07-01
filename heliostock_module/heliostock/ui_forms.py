@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -75,34 +73,35 @@ def render_weather_form() -> WeatherFormResult:
         tilt_deg = c1.number_input("Inclinaison capteurs (deg)", min_value=0.0, max_value=90.0, value=35.0, step=1.0)
         azimuth_deg_south = c2.number_input("Azimut vs sud (deg)", min_value=-180.0, max_value=180.0, value=0.0, step=5.0)
         albedo = c3.number_input("Albedo", min_value=0.0, max_value=1.0, value=0.2, step=0.05)
-        station_name = st.selectbox("Station meteo par defaut", options=list(DEFAULT_EPW_STATIONS.keys()), index=0)
-        epw_zip = st.file_uploader("Fichier EPW zip optionnel", type=["zip"])
+        station_name = st.selectbox("Station meteo", options=list(DEFAULT_EPW_STATIONS.keys()), index=0)
+        station = DEFAULT_EPW_STATIONS[station_name]
+        st.caption("La station selectionnee fournit la temperature exterieure et l'irradiation horaire EPW/TMY.")
+        map_col, _ = st.columns([1, 2])
+        with map_col:
+            st.map(
+                pd.DataFrame(
+                    [
+                        {
+                            "lat": station.latitude_deg,
+                            "lon": station.longitude_deg,
+                        }
+                    ]
+                ),
+                latitude="lat",
+                longitude="lon",
+                zoom=7,
+            )
 
-        if epw_zip is not None:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-                tmp.write(epw_zip.getbuffer())
-                tmp_path = Path(tmp.name)
-            try:
-                location, hourly_weather = read_epw_hourly_weather_from_zip(
-                    tmp_path,
-                    tilt_deg=tilt_deg,
-                    azimuth_deg_south=azimuth_deg_south,
-                    albedo=albedo,
-                )
-                st.success(f"EPW charge : {location.city}, {location.country}")
-            finally:
-                tmp_path.unlink(missing_ok=True)
-        elif DEFAULT_EPW_STATIONS[station_name].exists():
-            location, hourly_weather = read_epw_hourly_weather_from_zip(
-                DEFAULT_EPW_STATIONS[station_name],
+        if station.path.exists():
+            _location, hourly_weather = read_epw_hourly_weather_from_zip(
+                station.path,
                 tilt_deg=tilt_deg,
                 azimuth_deg_south=azimuth_deg_south,
                 albedo=albedo,
             )
-            st.info(f"EPW par defaut charge ({station_name}) : {location.city}, {location.country}")
         else:
             hourly_weather = []
-            st.error(f"EPW {station_name} introuvable. Charge un fichier EPW zip.")
+            st.error(f"Fichier meteo introuvable pour la station {station_name}.")
 
     return WeatherFormResult(hourly_weather=hourly_weather)
 

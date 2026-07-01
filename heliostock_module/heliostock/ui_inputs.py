@@ -7,11 +7,58 @@ import pandas as pd
 
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-DEFAULT_NANTES_EPW_ZIP = DATA_DIR / "FRA_PL_Nantes.Atlantique.AP.072220_TMYx.zip"
-DEFAULT_ANGERS_EPW_ZIP = DATA_DIR / "FRA_PL_Angers.Loire.AP.073901_TMYx.zip"
+
+
+@dataclass(frozen=True)
+class WeatherStation:
+    path: Path
+    latitude_deg: float
+    longitude_deg: float
+
+
+def _station(filename: str, latitude_deg: float, longitude_deg: float) -> WeatherStation:
+    return WeatherStation(
+        path=DATA_DIR / filename,
+        latitude_deg=latitude_deg,
+        longitude_deg=longitude_deg,
+    )
+
+
 DEFAULT_EPW_STATIONS = {
-    "Nantes": DEFAULT_NANTES_EPW_ZIP,
-    "Angers": DEFAULT_ANGERS_EPW_ZIP,
+    "Bretagne - Rennes - St Jacques": _station("FRA_BT_Rennes-St.Jacques.AP.071300_TMYx.zip", 48.0689, -1.7339),
+    "Bretagne - Batz Island": _station("FRA_BT_Batz.Island.071160_TMYx.zip", 48.75, -4.017),
+    "Bretagne - Brehat Island": _station("FRA_BT_Brehat.Island.071210_TMYx.zip", 48.85, -3.0),
+    "Bretagne - Brest Bretagne": _station("FRA_BT_Brest.Bretagne.AP.071100_TMYx.zip", 48.45, -4.3833),
+    "Bretagne - Brignogan-Plages": _station("FRA_BT_Brignogan-Plages.071070_TMYx.zip", 48.6644, -4.3266),
+    "Bretagne - Dinard Bretagne": _station("FRA_BT_Dinard-Bretagne.AP.071250_TMYx.zip", 48.5889, -2.0758),
+    "Bretagne - Grouin de Cancale": _station("FRA_BT_Grouin.de.Cancale.071270_TMYx.zip", 48.705, -1.8487),
+    "Bretagne - Ile de Groix": _station("FRA_BT_Ile.de.Groix.072030_TMYx.zip", 47.6522, -3.5022),
+    "Bretagne - Landivisiau": _station("FRA_BT_Landivisiau.AB.071060_TMYx.zip", 48.5256, -4.1472),
+    "Bretagne - Lannion": _station("FRA_BT_Lannion.AP.071180_TMYx.zip", 48.7553, -3.4686),
+    "Bretagne - Lanveoc Poulmic": _station("FRA_BT_Lanveoc-Poulmic.AB.071090_TMYx.zip", 48.2794, -4.4394),
+    "Bretagne - Le Stiff - Ouessant": _station("FRA_BT_Le.Stiff-Ouessant.Island.071000_TMYx.zip", 48.4733, -5.057),
+    "Bretagne - Lorient Bretagne Sud": _station("FRA_BT_Lorient.Bretagne.Sud.AP.072050_TMYx.zip", 47.7628, -3.4356),
+    "Bretagne - Morlaix Ploujean": _station("FRA_BT_Morlaix-Ploujean.AP.071604_TMYx.zip", 48.603, -3.816),
+    "Bretagne - Ploumanach - Perros-Guirec": _station("FRA_BT_Ploumanach-Perros-Guirec.071170_TMYx.zip", 48.8258, -3.4731),
+    "Bretagne - Point de Penmarch": _station("FRA_BT_Point.de.Penmarch.072000_TMYx.2011-2025.zip", 47.8, -4.367),
+    "Bretagne - Pointe de Toulinguet": _station("FRA_BT_Pointe.de.Toulinguet.071040_TMYx.zip", 48.2793, -4.6212),
+    "Bretagne - Pointe du Raz": _station("FRA_BT_Pointe.du.Raz.071030_TMYx.zip", 48.0381, -4.7309),
+    "Bretagne - Pointe du Talut - Belle-Ile": _station("FRA_BT_Pointe.du.Talut-Belle.Island.072070_TMYx.zip", 47.2944, -3.2183),
+    "Bretagne - Pointe St Mathieu": _station("FRA_BT_Pointe.St.Mathieu.071020_TMYx.zip", 48.333, -4.767),
+    "Bretagne - Quiberon Morbihan": _station("FRA_BT_Quiberon-Morbihan.AP.072080_TMYx.zip", 47.4799, -3.0998),
+    "Bretagne - Quimper Cornouaille": _station("FRA_BT_Quimper-Cornouaille.AP.072010_TMYx.zip", 47.9728, -4.1606),
+    "Bretagne - Rostrenen": _station("FRA_BT_Rostrenen.071190_TMYx.zip", 48.233, -3.3),
+    "Bretagne - St Brieuc Armor": _station("FRA_BT_St.Brieuc-Armor.AP.071200_TMYx.zip", 48.5347, -2.8519),
+    "Bretagne - Vannes Sene": _station("FRA_BT_Vannes.Sene.072100_TMYx.zip", 47.6, -2.717),
+    "Pays de la Loire - Beaucouze": _station("FRA_PL_Beaucouze.072300_TMYx.zip", 47.4789, -0.6144),
+    "Pays de la Loire - La Roche sur Yon - Les Ajoncs": _station("FRA_PL_La.Roche.sur.Yon-Les.Ajoncs.AP.073060_TMYx.zip", 46.7056, -1.3817),
+    "Pays de la Loire - Laval Etrammes": _station("FRA_PL_Laval-Etrammes.AP.071340_TMYx.zip", 48.0306, -0.7464),
+    "Pays de la Loire - Le Mans Arnage": _station("FRA_PL_Le.Mans.Arnage.AP.072350_TMYx.zip", 47.9408, 0.1897),
+    "Pays de la Loire - Nantes Atlantique": _station("FRA_PL_Nantes.Atlantique.AP.072220_TMYx.zip", 47.15, -1.6089),
+    "Pays de la Loire - Pointe de Chemoulin": _station("FRA_PL_Pointe.de.Chemoulin.072160_TMYx.zip", 47.2342, -2.2986),
+    "Pays de la Loire - Pointe des Baleines": _station("FRA_PL_Pointe.Des.Baleines.073110_TMYx.zip", 46.2437, -1.5605),
+    "Pays de la Loire - St Nazaire Montoir": _station("FRA_PL_St.Nazaire-Montoir.AP.072170_TMYx.zip", 47.3139, -2.1544),
+    "Pays de la Loire - St Sauveur d'Yeu": _station("FRA_PL_St.Sauveur-d-Yeu.Island.073000_TMYx.zip", 46.6936, -2.3303),
 }
 
 COLLECTOR_LIBRARY = {

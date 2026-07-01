@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
@@ -19,17 +20,28 @@ from .ui_forms import (
 from .ui_results import render_hourly_results
 
 
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
+ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
+
+
 def render_heliostock_hourly() -> pd.DataFrame:
     """Render the hourly-only HelioStock module."""
 
-    st.header("HelioStock horaire")
-    st.caption(
-        "Resolution 8760 h EPW : capteurs -> ballon solaire journalier -> prechauffage HT, "
-        "surplus vers BTES, PAC geothermique pour le process BT."
-    )
-    st.info(
-        "Charge un fichier Excel de besoins horaires 8760 h pour lancer le calcul. "
-        "Aucun profil mensuel de secours n'est utilise."
+    logo_left, logo_right = st.columns([2, 1])
+    if HELIOPILOT_LOGO.exists():
+        logo_left.image(str(HELIOPILOT_LOGO), width=360)
+    else:
+        logo_left.header("HelioStock")
+    if ATLANSUN_LOGO.exists():
+        logo_right.image(str(ATLANSUN_LOGO), width=260)
+
+    st.markdown(
+        "HelioStock est un outil de pre-dimensionnement pour comparer des architectures de chaleur renouvelable "
+        "couplant solaire thermique, stockage geothermique par champ de sondes, PAC et appoint gaz. "
+        "Le calcul exploite une meteo horaire EPW/TMY, un profil de besoins horaires importe par l'utilisateur, "
+        "une simulation 25 ans du champ de sondes avec pygfunction, puis une comparaison technico-economique "
+        "entre reference gaz, geothermie seule et geothermie avec recharge solaire."
     )
 
     weather_form = render_weather_form()
