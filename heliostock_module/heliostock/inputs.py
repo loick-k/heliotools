@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .engine import BtesConfig, CollectorConfig, HeatPumpConfig, SimulationConfig
-from .scenarios import ScenarioEconomicsConfig
+
+if TYPE_CHECKING:
+    from .scenarios import ScenarioEconomicsConfig
 
 
 @dataclass(frozen=True)
@@ -174,6 +177,8 @@ class EconomicsInputs:
         return warnings
 
     def to_scenario_economics_config(self) -> ScenarioEconomicsConfig:
+        from .scenarios import ScenarioEconomicsConfig
+
         return ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=self.reference_energy_cost_eur_mwh,
             reference_energy_inflation_pct=self.reference_energy_inflation_pct,
