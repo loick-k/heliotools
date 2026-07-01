@@ -12,6 +12,7 @@ class SolarInputs:
     eta0: float
     a1_w_m2_k: float
     a2_w_m2_k2: float
+    process_ht_target_c: float
     system_efficiency: float
     daily_buffer_charge_factor_ht: float
     daily_buffer_l_per_m2: float
@@ -211,6 +212,8 @@ class ScenarioInputs:
             collector=self.solar.to_collector_config(),
             btes=self.btes.to_btes_config(),
             heat_pump=self.heat_pump.to_heat_pump_config(),
+            process_ht_target_c=self.solar.process_ht_target_c,
+            process_bt_target_c=self.heat_pump.air_target_bt_c,
         )
 
     def to_economics_config(self) -> ScenarioEconomicsConfig:

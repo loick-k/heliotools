@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from .app_service import CalculationSelection, ParametricRange
 from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
@@ -18,11 +21,15 @@ from .load_profiles import (
 )
 from .ui_inputs import (
     COLLECTOR_LIBRARY,
-    DEFAULT_EPW_STATIONS,
+    DEFAULT_EPW_REGIONS,
     FixedEconomicsAssumptions,
     FixedGeoAssumptions,
     FixedSolarAssumptions,
 )
+
+
+ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+PROCESS_TEMPLATE_XLSX = ASSETS_DIR / "modele_besoins_process_8760h.xlsx"
 
 
 @dataclass(frozen=True)
@@ -35,6 +42,8 @@ class DemandFormResult:
     demands: list[MonthlyDemand]
     hourly_demand_override: dict[int, tuple[float, float]] | None
     hourly_profile_df: pd.DataFrame
+    process_bt_target_c: float = 25.0
+    process_ht_target_c: float = 60.0
     valid: bool = True
 
 
@@ -68,28 +77,52 @@ class CalculationSelectionFormResult:
 
 
 def render_weather_form() -> WeatherFormResult:
-    with st.expander("1) Meteo EPW", expanded=True):
+    with st.expander("1) Météo", expanded=True):
         c1, c2, c3 = st.columns(3)
-        tilt_deg = c1.number_input("Inclinaison capteurs (deg)", min_value=0.0, max_value=90.0, value=35.0, step=1.0)
-        azimuth_deg_south = c2.number_input("Azimut vs sud (deg)", min_value=-180.0, max_value=180.0, value=0.0, step=5.0)
-        albedo = c3.number_input("Albedo", min_value=0.0, max_value=1.0, value=0.2, step=0.05)
-        station_name = st.selectbox("Station meteo", options=list(DEFAULT_EPW_STATIONS.keys()), index=0)
-        station = DEFAULT_EPW_STATIONS[station_name]
-        st.caption("La station selectionnee fournit la temperature exterieure et l'irradiation horaire EPW/TMY.")
-        map_col, _ = st.columns([1, 2])
+        tilt_deg = c1.number_input("Inclinaison capteurs (°)", min_value=0.0, max_value=90.0, value=35.0, step=1.0)
+        azimuth_deg_south = c2.number_input("Azimut vs sud (°)", min_value=-180.0, max_value=180.0, value=0.0, step=5.0)
+        albedo = c3.number_input(
+            "Albédo du sol",
+            min_value=0.0,
+            max_value=1.0,
+            value=0.2,
+            step=0.05,
+            help=(
+                "Part du rayonnement solaire réfléchie par le sol vers les capteurs. "
+                "0,20 correspond à un sol courant ; une surface claire ou enneigée peut être plus élevée."
+            ),
+        )
+        st.caption(
+            "Albédo : part du rayonnement solaire réfléchie par le sol vers les capteurs. "
+            "La valeur courante de 0,20 convient à un environnement standard."
+        )
+        station_col, map_col = st.columns(2)
+        region_names = list(DEFAULT_EPW_REGIONS.keys())
+        with station_col:
+            region_name = st.selectbox("Région météo", options=region_names, index=0)
+            stations_by_label = DEFAULT_EPW_REGIONS[region_name]
+            station_label = st.selectbox("Station météo", options=list(stations_by_label.keys()), index=0)
+            station = stations_by_label[station_label]
+            st.caption("La station sélectionnée fournit la température extérieure et l'irradiation horaire EPW/TMY.")
         with map_col:
-            st.map(
-                pd.DataFrame(
-                    [
-                        {
-                            "lat": station.latitude_deg,
-                            "lon": station.longitude_deg,
-                        }
-                    ]
-                ),
-                latitude="lat",
-                longitude="lon",
-                zoom=7,
+            lat = float(station.latitude_deg)
+            lon = float(station.longitude_deg)
+            delta = 0.45
+            station_title = html.escape(f"{region_name} - {station_label}", quote=True)
+            components.html(
+                f"""
+                <div style="width:100%; aspect-ratio:1 / 1; overflow:hidden; border-radius:8px; border:1px solid #d7dce2;">
+                  <iframe
+                    title="Station météo {station_title}"
+                    width="100%"
+                    height="100%"
+                    style="border:0;"
+                    loading="lazy"
+                    src="https://www.openstreetmap.org/export/embed.html?bbox={lon - delta}%2C{lat - delta}%2C{lon + delta}%2C{lat + delta}&layer=mapnik&marker={lat}%2C{lon}">
+                  </iframe>
+                </div>
+                """,
+                height=360,
             )
 
         if station.path.exists():
@@ -101,25 +134,57 @@ def render_weather_form() -> WeatherFormResult:
             )
         else:
             hourly_weather = []
-            st.error(f"Fichier meteo introuvable pour la station {station_name}.")
+            st.error(f"Fichier météo introuvable pour la station {region_name} - {station_label}.")
 
     return WeatherFormResult(hourly_weather=hourly_weather)
 
 
 def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
     with st.expander("2) Besoins process", expanded=True):
-        demand_file = st.file_uploader("Fichier besoin process Excel 8760 h", type=["xlsx", "xls"])
         st.caption(
-            "Import obligatoire : 8760 lignes horaires avec `P/E besoin HT` pour le besoin 60 C "
-            "et `P/E besoin BT` pour le besoin 25 C. "
-            "Le fichier reste local : aucun profil industriel n'est embarque dans le depot public."
+            "Importe un fichier Excel au pas de temps horaire pour charger le profil de besoin du site. "
+            "Le fichier doit contenir 8760 lignes, soit une année complète, avec une colonne pour le besoin haute "
+            "température et une colonne pour le besoin basse température. Le fichier reste local : aucun profil "
+            "industriel n'est embarqué dans le dépôt public."
         )
+        if PROCESS_TEMPLATE_XLSX.exists():
+            st.download_button(
+                "Télécharger un modèle Excel vierge",
+                data=PROCESS_TEMPLATE_XLSX.read_bytes(),
+                file_name="modele_besoins_process_8760h.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+        temp_bt_col, temp_ht_col = st.columns(2)
+        process_bt_target_c = temp_bt_col.number_input(
+            "Température process basse température (°C)",
+            min_value=0.0,
+            max_value=120.0,
+            value=25.0,
+            step=1.0,
+            help="Exemple : chauffage ou process basse température.",
+        )
+        process_ht_target_c = temp_ht_col.number_input(
+            "Température process haute température (°C)",
+            min_value=0.0,
+            max_value=120.0,
+            value=60.0,
+            step=1.0,
+            help="Exemple : ECS ou process haute température.",
+        )
+        demand_file = st.file_uploader("Fichier Excel de besoins horaires", type=["xlsx", "xls"])
         hourly_demand_override = None
         hourly_profile_df = pd.DataFrame()
 
         if demand_file is None:
             st.warning("Charge un fichier Excel horaire 8760 h pour activer le calcul.")
-            return DemandFormResult([], None, pd.DataFrame(), valid=False)
+            return DemandFormResult(
+                [],
+                None,
+                pd.DataFrame(),
+                process_bt_target_c=float(process_bt_target_c),
+                process_ht_target_c=float(process_ht_target_c),
+                valid=False,
+            )
 
         try:
             hourly_demand_override, demands, hourly_profile_df, demand_info = _hourly_demands_from_process_file(
@@ -133,21 +198,31 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
                 f"BT {demand_info['bt_kwh'] / 1000:.0f} MWh/an."
             )
             st.caption(
-                "Mapping applique : besoin HT -> process 60 C ; besoin BT -> process 25 C. "
-                "Les valeurs horaires recalees sont utilisees directement."
+                f"Mapping appliqué : besoin HT -> process {process_ht_target_c:.0f} °C ; "
+                f"besoin BT -> process {process_bt_target_c:.0f} °C. "
+                "Les valeurs horaires recalées sont utilisées directement."
             )
         except Exception as exc:
             st.error(f"Lecture du fichier besoin impossible : {exc}")
-            return DemandFormResult([], None, pd.DataFrame(), valid=False)
+            return DemandFormResult(
+                [],
+                None,
+                pd.DataFrame(),
+                process_bt_target_c=float(process_bt_target_c),
+                process_ht_target_c=float(process_ht_target_c),
+                valid=False,
+            )
 
     return DemandFormResult(
         demands=demands,
         hourly_demand_override=hourly_demand_override,
         hourly_profile_df=hourly_profile_df,
+        process_bt_target_c=float(process_bt_target_c),
+        process_ht_target_c=float(process_ht_target_c),
     )
 
 
-def render_solar_form() -> SolarFormResult:
+def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
     with st.expander("3) Champ solaire et ballon journalier", expanded=True):
         collector_name = st.selectbox("Bibliotheque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0)
         collector_ref = COLLECTOR_LIBRARY[collector_name]
@@ -165,7 +240,13 @@ def render_solar_form() -> SolarFormResult:
         c9, c10, c11 = st.columns(3)
         daily_buffer_ambient_temp_c = c9.number_input("Ambiance ballon (C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0)
         daily_buffer_max_temp_c = c10.number_input("Tmax ballon / bascule BTES (C)", min_value=30.0, max_value=120.0, value=80.0, step=1.0)
-        solar_preheat_target_ht_c = c11.number_input("Cible max prechauffage HT solaire (C)", min_value=0.0, max_value=80.0, value=60.0, step=1.0)
+        solar_preheat_target_ht_c = c11.number_input(
+            "Cible max préchauffage HT solaire (°C)",
+            min_value=0.0,
+            max_value=120.0,
+            value=float(process_ht_target_c),
+            step=1.0,
+        )
 
         with st.expander("Hypotheses solaires fixees", expanded=False):
             st.dataframe(solar_fixed.to_table(), width="stretch", hide_index=True)
@@ -180,6 +261,7 @@ def render_solar_form() -> SolarFormResult:
             eta0=eta0,
             a1_w_m2_k=a1,
             a2_w_m2_k2=a2,
+            process_ht_target_c=float(process_ht_target_c),
             system_efficiency=solar_fixed.system_efficiency,
             daily_buffer_charge_factor_ht=solar_fixed.daily_buffer_charge_factor_ht,
             daily_buffer_l_per_m2=solar_fixed.daily_buffer_l_per_m2,
@@ -198,6 +280,7 @@ def render_geothermal_form(
     hourly_weather: list[HourlyWeather],
     demands: list[MonthlyDemand],
     hourly_demand_override: dict[int, tuple[float, float]] | None,
+    process_bt_target_c: float,
 ) -> GeothermalFormResult:
     pre_peak_bt_power_kw = _peak_bt_power_kw(hourly_weather, demands, hourly_demand_override)
     with st.expander("4) Geothermie PAC et champ de sondes", expanded=True):
@@ -206,7 +289,7 @@ def render_geothermal_form(
             "mais le nombre effectivement simule reste modifiable ci-dessous."
         )
         use_probe_predesign = True
-        geo_fixed = FixedGeoAssumptions()
+        geo_fixed = FixedGeoAssumptions(air_target_bt_c=float(process_bt_target_c))
 
         d1, d2 = st.columns(2)
         pac_power_fraction_pct = d1.number_input("P PAC (% Pmax BT)", min_value=1.0, max_value=150.0, value=100.0, step=5.0)
@@ -219,7 +302,7 @@ def render_geothermal_form(
 
         pre_pac_nominal_power_kw = pre_peak_bt_power_kw * max(0.0, pac_power_fraction_pct) / 100.0
         pre_hp_for_design = HeatPumpConfig(
-            air_target_bt_c=geo_fixed.air_target_bt_c,
+            air_target_bt_c=float(process_bt_target_c),
             condenser_approach_k=geo_fixed.condenser_approach_k,
             evaporator_approach_k=geo_fixed.evaporator_approach_k,
             carnot_efficiency=geo_fixed.carnot_efficiency,
@@ -322,7 +405,7 @@ def render_geothermal_form(
             backend=btes_backend,
         ),
         heat_pump=HeatPumpInputs(
-            air_target_bt_c=geo_fixed.air_target_bt_c,
+            air_target_bt_c=float(process_bt_target_c),
             condenser_approach_k=geo_fixed.condenser_approach_k,
             evaporator_approach_k=geo_fixed.evaporator_approach_k,
             carnot_efficiency=geo_fixed.carnot_efficiency,

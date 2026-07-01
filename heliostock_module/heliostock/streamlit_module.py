@@ -37,11 +37,10 @@ def render_heliostock_hourly() -> pd.DataFrame:
         logo_right.image(str(ATLANSUN_LOGO), width=260)
 
     st.markdown(
-        "HelioStock est un outil de pre-dimensionnement pour comparer des architectures de chaleur renouvelable "
-        "couplant solaire thermique, stockage geothermique par champ de sondes, PAC et appoint gaz. "
-        "Le calcul exploite une meteo horaire EPW/TMY, un profil de besoins horaires importe par l'utilisateur, "
-        "une simulation 25 ans du champ de sondes avec pygfunction, puis une comparaison technico-economique "
-        "entre reference gaz, geothermie seule et geothermie avec recharge solaire."
+        "HelioStock est un outil de pré-dimensionnement pour comparer des scénarios de chaleur renouvelable "
+        "couplant solaire thermique, géothermie et stockage intersaisonnier par champ de sondes. "
+        "Le calcul exploite un profil de besoins au pas de temps horaire, réalise une simulation 25 ans du champ "
+        "de sondes avec pygfunction, puis propose une comparaison technico-économique des différents scénarios."
     )
 
     weather_form = render_weather_form()
@@ -49,11 +48,12 @@ def render_heliostock_hourly() -> pd.DataFrame:
     if not demand_form.valid:
         return pd.DataFrame()
 
-    solar_form = render_solar_form()
+    solar_form = render_solar_form(process_ht_target_c=demand_form.process_ht_target_c)
     geothermal_form = render_geothermal_form(
         hourly_weather=weather_form.hourly_weather,
         demands=demand_form.demands,
         hourly_demand_override=demand_form.hourly_demand_override,
+        process_bt_target_c=demand_form.process_bt_target_c,
     )
     economics_inputs = render_economics_form()
     calculation_selection_form = render_calculation_selection_form()
