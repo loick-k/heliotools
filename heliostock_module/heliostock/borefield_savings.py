@@ -365,11 +365,7 @@ def borefield_equivalent_savings(
 
         def run_length(length_m: float):
             boreholes = max(1, min(config.btes.boreholes, int(math.ceil(length_m / max(1e-9, config.btes.depth_m)))))
-            if (
-                boreholes >= int(config.btes.boreholes)
-                and full_case_df is not None
-                and not full_case_df.empty
-            ):
+            if boreholes >= int(config.btes.boreholes) and full_case_metrics is not None:
                 return None, full_cop, full_bt, full_boreholes, full_final
             if boreholes in evaluated_by_boreholes:
                 return evaluated_by_boreholes[boreholes]

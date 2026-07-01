@@ -436,7 +436,7 @@ def render_economics_form() -> EconomicsInputs:
         c1, c2 = st.columns(2)
         eta_appoint_eco = c1.number_input("Rendement appoint gaz", min_value=0.01, max_value=1.50, value=0.82, step=0.01)
         reference_energy_inflation_pct = c2.number_input("Inflation gaz reference (%/an)", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
-        st.caption("Duree d'analyse economique par defaut : 25 ans. Aucune autre aide publique deja acquise n'est appliquee.")
+        st.caption("Duree d'analyse economique par defaut : 20 ans. Aucune autre aide publique deja acquise n'est appliquee.")
 
         st.markdown("#### P1 - Energies")
         p1a, p1b, p1c = st.columns(3)
@@ -477,16 +477,16 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             "Profil de calcul",
             options=[
                 "Previsualisation rapide - 1 an, scenario principal uniquement",
-                "Dimensionnement technique - 25 ans, sans parametriques",
-                "Calcul final complet - 25 ans, economie sondes et parametriques",
+                "Dimensionnement technique - 20 ans, sans parametriques",
+                "Calcul final complet - 20 ans, economie sondes et parametriques",
             ],
             index=1,
             horizontal=True,
         )
         profile_map = {
             "Previsualisation rapide - 1 an, scenario principal uniquement": "previsualisation_rapide",
-            "Dimensionnement technique - 25 ans, sans parametriques": "dimensionnement_25_ans",
-            "Calcul final complet - 25 ans, economie sondes et parametriques": "calcul_final",
+            "Dimensionnement technique - 20 ans, sans parametriques": "dimensionnement_25_ans",
+            "Calcul final complet - 20 ans, economie sondes et parametriques": "calcul_final",
         }
         calculation_profile = profile_map[str(profile_label)]
         quick_preview = calculation_profile == "previsualisation_rapide"
@@ -498,12 +498,12 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             )
         elif calculation_profile == "dimensionnement_25_ans":
             st.info(
-                "Profil dimensionnement : simulation technique 25 ans avec comparaison geothermie seule. "
+                "Profil dimensionnement : simulation technique 20 ans avec comparaison geothermie seule. "
                 "Les etudes parametriques et l'economie de sondes restent desactivees."
             )
         else:
             st.info(
-                "Profil final complet : simulation 25 ans avec options avancees. "
+                "Profil final complet : simulation 20 ans avec options avancees. "
                 "Les etudes parametriques PAC/solaire et l'economie de sondes sont disponibles ci-dessous."
             )
         run_multiyear = st.checkbox("Projection technique multiannuelle", value=not quick_preview, disabled=quick_preview)
@@ -511,7 +511,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             "Duree simulation technique champ (ans)",
             min_value=1,
             max_value=50,
-            value=1 if quick_preview else 25,
+            value=1 if quick_preview else 20,
             step=1,
             disabled=quick_preview or not run_multiyear,
         )
@@ -573,7 +573,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             savings_search_mode = "none"
         st.caption(
             "Important : les etudes parametriques ne sont affichees et lancees que dans le profil "
-            "`Calcul final complet - 25 ans, economie sondes et parametriques`."
+            "`Calcul final complet - 20 ans, economie sondes et parametriques`."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(

@@ -176,7 +176,7 @@ class FixedGeoAssumptions:
 
 @dataclass(frozen=True)
 class FixedEconomicsAssumptions:
-    analysis_years: int = 25
+    analysis_years: int = 20
     other_public_aid_eur: float = 0.0
     ademe_eur_mwh_year: float = 63.0
 

@@ -37,9 +37,9 @@ class CalculationSelection:
     calculation_profile: str = "dimensionnement_25_ans"
     quick_preview: bool = False
     run_multiyear: bool = True
-    technical_simulation_years: int = 25
+    technical_simulation_years: int = 20
     display_year_mode: str = "finale"
-    custom_display_year: int = 25
+    custom_display_year: int = 20
     run_geo_only: bool = True
     run_reduced_borefield: bool = False
     savings_search_mode: str = "fast"
@@ -195,13 +195,13 @@ def run_hourly_calculation(
     savings_search_mode = "none" if quick_preview else request.calculation_selection.savings_search_mode
     if profile == "dimensionnement_25_ans":
         run_multiyear = True
-        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
+        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 20)
         run_geo_only = True
         run_reduced_borefield = False
         savings_search_mode = "none"
     elif profile == "calcul_final":
         run_multiyear = True
-        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
+        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 20)
     if quick_preview:
         warnings.append(
             "Mode previsualisation rapide actif : simulation 1 an, economie de sondes et etudes parametriques desactivees."
