@@ -396,7 +396,6 @@ def _parametric_surface_chart(parametric_df: pd.DataFrame):
         for column in [
             "Coût chaleur Mix ENR (EUR/MWh)",
             "Coût chaleur même linéaire (EUR/MWh)",
-            "Coût chaleur avec économie sondes (EUR/MWh)",
             "Taux EnR global (%)",
             "Couverture solaire HT (%)",
             "Simulations economie sondes",

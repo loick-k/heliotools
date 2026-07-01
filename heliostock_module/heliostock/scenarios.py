@@ -761,27 +761,27 @@ def pac_power_parametric_study(
             heat_pump=hp_variant,
             btes=btes_variant,
         )
-        variant_multiyear_df = _simulate_hourly_dataframe(
+        variant_results = _simulate_hourly_cached(
             weather=weather,
             demands=demands,
             config=variant_config,
             hourly_demand_override=hourly_demand_override,
             simulation_years=simulation_years,
             simulation_cache=simulation_cache,
+            cache_mode="pygfunction",
         )
-        variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
-        economic_metrics_variant = _hourly_metrics(variant_multiyear_df, annualization_years=simulation_years)
+        economic_metrics_variant = _hourly_metrics_from_results(variant_results, annualization_years=simulation_years)
 
-        total_ht_variant = float(variant_df["demand_ht_kwh"].sum())
-        total_bt_variant = float(variant_df["demand_bt_kwh"].sum())
-        total_backup_ht_variant = float(variant_df["unmet_ht_kwh"].sum())
-        total_backup_bt_variant = float(variant_df["unmet_bt_kwh"].sum())
-        total_pac_variant = float(variant_df["heat_bt_from_pac_kwh"].sum())
-        total_compressor_variant = float(variant_df["electricity_compressor_kwh"].sum())
-        total_elec_variant = float(variant_df["electricity_pac_total_kwh"].sum())
-        backup_power_kw_variant = float(
-            (variant_df["unmet_ht_kwh"].clip(lower=0.0) + variant_df["unmet_bt_kwh"].clip(lower=0.0)).max()
-        )
+        final_year = max((int(result.simulation_year) for result in variant_results), default=1)
+        final_results = [result for result in variant_results if int(result.simulation_year) == final_year]
+
+        total_ht_variant = _sum_attr(final_results, "demand_ht_kwh")
+        total_bt_variant = _sum_attr(final_results, "demand_bt_kwh")
+        total_backup_ht_variant = _sum_attr(final_results, "unmet_ht_kwh")
+        total_backup_bt_variant = _sum_attr(final_results, "unmet_bt_kwh")
+        total_pac_variant = _sum_attr(final_results, "heat_bt_from_pac_kwh")
+        total_compressor_variant = _sum_attr(final_results, "electricity_compressor_kwh")
+        total_elec_variant = _sum_attr(final_results, "electricity_pac_total_kwh")
         global_ren_rate_variant = max(
             0.0,
             min(
@@ -830,7 +830,14 @@ def pac_power_parametric_study(
         )
         capex_variant = _capex_net_total(heat_costs_variant, ["Geothermie PAC", "Appoint gaz"])
         multiyear_cost_variant = _multiyear_heat_cost(
-            trajectory_df=_annual_metrics_trajectory(variant_multiyear_df, analysis_years=simulation_years),
+            trajectory_df=_annual_metrics_trajectory_from_results(
+                variant_results,
+                analysis_years=simulation_years,
+                gmi_t_min_c=variant_config.btes.gmi_t_min_c,
+                gmi_t_max_c=variant_config.btes.gmi_t_max_c,
+                gmi_check_enabled=variant_config.btes.gmi_check_enabled,
+                pac_power_kw=pac_kw,
+            ),
             heat_costs=heat_costs_variant,
             economics=economics_config,
             capex_net_eur=capex_variant,
@@ -855,7 +862,7 @@ def pac_power_parametric_study(
             simulation_cache.clear_entries(
                 reason=f"Nettoyage memoire apres point PAC {index}/{total_points}"
             )
-        del variant_multiyear_df, variant_df
+        del variant_results, final_results
         gc.collect()
 
     return pd.DataFrame(rows)
@@ -1515,11 +1522,10 @@ def run_hourly_scenario(
             search_mode=savings_search_mode if run_reduced_borefield else "none",
             full_case_metrics=full_case_metrics,
             simulation_cache=simulation_cache,
+            include_hourly_df=False,
         )
     else:
         savings = {"found": False, "saved_length_m": 0.0, "equivalent_length_m": 0.0}
-    reduced_candidate_df = savings.pop("_equivalent_hourly_df", None)
-
     _notify(progress, 85, "Calcul économique solaire thermique...")
     economic_solar_ht_mwh = same_metrics["solar_ht_mwh"]
     economic_solar_btes_mwh = same_metrics["solar_btes_mwh"]
@@ -1552,23 +1558,21 @@ def run_hourly_scenario(
 
     if run_reduced_borefield and bool(savings["found"]):
         _notify(progress, 88, "Simulation multiannuelle avec sondes reduites...")
-        if isinstance(reduced_candidate_df, pd.DataFrame) and not reduced_candidate_df.empty:
-            reduced_hourly_df = reduced_candidate_df.copy()
-        else:
-            reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
-            reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
-            reduced_config = replace(config, btes=reduced_btes)
-            reduced_hourly_df = _simulate_hourly_dataframe(
-                weather=weather,
-                demands=demands,
-                config=reduced_config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=multiyear_years,
-                simulation_cache=simulation_cache,
-            )
-        reduced_metrics = _hourly_metrics(reduced_hourly_df, annualization_years=multiyear_years)
+        reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
+        reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
+        reduced_config = replace(config, btes=reduced_btes)
+        reduced_results = _simulate_hourly_cached(
+            weather=weather,
+            demands=demands,
+            config=reduced_config,
+            hourly_demand_override=hourly_demand_override,
+            simulation_years=multiyear_years,
+            simulation_cache=simulation_cache,
+            cache_mode="pygfunction",
+        )
+        reduced_metrics = _hourly_metrics_from_results(reduced_results, annualization_years=multiyear_years)
     else:
-        reduced_hourly_df = pd.DataFrame()
+        reduced_results = []
         reduced_metrics = same_metrics
 
     _notify(progress, 90, "Construction des couts par scenario...")
@@ -1664,14 +1668,15 @@ def run_hourly_scenario(
         else pd.DataFrame()
     )
     reduced_trajectory_df = (
-        _annual_metrics_trajectory(
-            reduced_hourly_df,
+        _annual_metrics_trajectory_from_results(
+            reduced_results,
             analysis_years=int(economics.analysis_years),
             gmi_t_min_c=config.btes.gmi_t_min_c,
             gmi_t_max_c=config.btes.gmi_t_max_c,
             gmi_check_enabled=config.btes.gmi_check_enabled,
+            pac_power_kw=float(config.heat_pump.max_thermal_power_kw or 0.0),
         )
-        if run_reduced_borefield and bool(savings["found"]) and not reduced_hourly_df.empty
+        if run_reduced_borefield and bool(savings["found"]) and reduced_results
         else same_trajectory_df.copy()
     )
     reference_trajectory_df = _reference_gas_trajectory_from(same_trajectory_df)

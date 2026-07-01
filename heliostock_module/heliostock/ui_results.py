@@ -436,15 +436,11 @@ def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame, *, calcula
         st.info("Active l'étude paramétrique dans l'expander `9) Etude parametrique surface solaire`, puis relance le calcul.")
         return
 
-    best_cost_column = (
-        "Coût chaleur avec économie sondes (EUR/MWh)"
-        if "Coût chaleur avec économie sondes (EUR/MWh)" in parametric_surface_df
-        else "Coût chaleur Mix ENR (EUR/MWh)"
-    )
+    best_cost_column = "Coût chaleur Mix ENR (EUR/MWh)"
     best_row = parametric_surface_df.sort_values(best_cost_column, ascending=True).iloc[0]
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Meilleure surface coût", f"{best_row['Surface solaire (m²)']:.0f} m²")
-    c2.metric("Coût avec économie sondes min", f"{best_row[best_cost_column]:.0f} EUR/MWh")
+    c2.metric("Coût Mix EnR min", f"{best_row[best_cost_column]:.0f} EUR/MWh")
     c3.metric("Taux EnR global", f"{best_row['Taux EnR global (%)']:.0f} %")
     c4.metric("Couverture solaire HT", f"{best_row['Couverture solaire HT (%)']:.0f} %")
     if "Simulations economie sondes" in parametric_surface_df:
