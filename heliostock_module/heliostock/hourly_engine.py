@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import calendar
 from dataclasses import dataclass
+from typing import Callable
 
 from .btes_models import create_btes_model
 from .engine import (
@@ -171,6 +172,8 @@ def simulate_hourly(
     config: SimulationConfig,
     hourly_demand_override: dict[int, tuple[float, float]] | None = None,
     simulation_years: int = 1,
+    result_sink: Callable[[HourlyResult], None] | None = None,
+    store_results: bool = True,
 ) -> list[HourlyResult]:
     """Run simplified hourly solar + BTES + heat pump dispatch."""
 
@@ -358,58 +361,60 @@ def simulate_hourly(
         final_state = btes_model.state()
         t_source_pac_end_c = final_state.t_source_pac_c
 
-        results.append(
-            HourlyResult(
-                simulation_year=year_index,
-                hour_index=absolute_hour_index,
-                month=w.month,
-                day=w.day,
-                hour=w.hour,
-                tair_c=w.tair_c,
-                demand_ht_kwh=demand_ht,
-                demand_bt_kwh=demand_bt,
-                solar_ht_potential_kwh=solar_ht_potential,
-                solar_ht_instant_kwh=solar_ht_instant,
-                solar_ht_from_buffer_kwh=solar_ht_from_buffer,
-                solar_ht_to_buffer_kwh=solar_ht_to_buffer,
-                solar_ht_buffer_loss_kwh=buffer_loss,
-                solar_ht_buffer_energy_end_kwh=buffer_energy,
-                solar_ht_buffer_temp_start_c=buffer_temp_start,
-                solar_ht_buffer_temp_end_c=_daily_buffer_temperature_c(buffer_energy, collector),
-                collector_temp_ht_c=collector_temp_ht,
-                collector_temp_storage_c=t_storage_collector,
-                solar_ht_direct_kwh=solar_ht_direct,
-                solar_storage_potential_kwh=solar_storage_potential,
-                solar_to_btes_kwh=solar_to_btes,
-                solar_not_used_kwh=solar_not_used,
-                t_borehole_wall_c=final_state.t_borehole_wall_c,
-                t_source_pac_c=t_source_pac_end_c,
-                t_source_pac_for_cop_c=source_temp_for_cop,
-                t_evaporator_pac_c=t_evaporator_pac_c,
-                t_fluide_injection_c=t_fluide_injection_c,
-                t_fluide_entree_echangeur_geo_c=t_source_pac_end_c,
-                q_extraction_w_m=q_extraction_w_m,
-                q_injection_w_m=q_injection_w_m,
-                q_injection_signed_w_m=q_injection_signed_w_m,
-                q_net_w_m=q_net_w_m,
-                cop_limited_max=cop_limited_max,
-                source_temp_limited=source_temp_limited,
-                source_temp_unmet_bt_kwh=source_temp_unmet_bt,
-                cop_pac=cop,
-                heat_bt_from_pac_kwh=heat_bt_from_pac,
-                btes_extracted_by_pac_kwh=btes_extracted,
-                electricity_compressor_kwh=electricity_compressor,
-                electricity_pac_auxiliaries_kwh=electricity_pac_auxiliaries,
-                electricity_standby_kwh=electricity_standby,
-                electricity_pac_total_kwh=electricity_pac_total,
-                electricity_system_total_kwh=electricity_system_total,
-                electricity_pac_kwh=electricity_compressor,
-                unmet_ht_kwh=max(0.0, demand_ht - solar_ht_direct),
-                unmet_bt_kwh=max(0.0, demand_bt - heat_bt_from_pac),
-                collector_eff_ht=eta_ht,
-                collector_eff_storage=eta_storage,
-            )
+        result = HourlyResult(
+            simulation_year=year_index,
+            hour_index=absolute_hour_index,
+            month=w.month,
+            day=w.day,
+            hour=w.hour,
+            tair_c=w.tair_c,
+            demand_ht_kwh=demand_ht,
+            demand_bt_kwh=demand_bt,
+            solar_ht_potential_kwh=solar_ht_potential,
+            solar_ht_instant_kwh=solar_ht_instant,
+            solar_ht_from_buffer_kwh=solar_ht_from_buffer,
+            solar_ht_to_buffer_kwh=solar_ht_to_buffer,
+            solar_ht_buffer_loss_kwh=buffer_loss,
+            solar_ht_buffer_energy_end_kwh=buffer_energy,
+            solar_ht_buffer_temp_start_c=buffer_temp_start,
+            solar_ht_buffer_temp_end_c=_daily_buffer_temperature_c(buffer_energy, collector),
+            collector_temp_ht_c=collector_temp_ht,
+            collector_temp_storage_c=t_storage_collector,
+            solar_ht_direct_kwh=solar_ht_direct,
+            solar_storage_potential_kwh=solar_storage_potential,
+            solar_to_btes_kwh=solar_to_btes,
+            solar_not_used_kwh=solar_not_used,
+            t_borehole_wall_c=final_state.t_borehole_wall_c,
+            t_source_pac_c=t_source_pac_end_c,
+            t_source_pac_for_cop_c=source_temp_for_cop,
+            t_evaporator_pac_c=t_evaporator_pac_c,
+            t_fluide_injection_c=t_fluide_injection_c,
+            t_fluide_entree_echangeur_geo_c=t_source_pac_end_c,
+            q_extraction_w_m=q_extraction_w_m,
+            q_injection_w_m=q_injection_w_m,
+            q_injection_signed_w_m=q_injection_signed_w_m,
+            q_net_w_m=q_net_w_m,
+            cop_limited_max=cop_limited_max,
+            source_temp_limited=source_temp_limited,
+            source_temp_unmet_bt_kwh=source_temp_unmet_bt,
+            cop_pac=cop,
+            heat_bt_from_pac_kwh=heat_bt_from_pac,
+            btes_extracted_by_pac_kwh=btes_extracted,
+            electricity_compressor_kwh=electricity_compressor,
+            electricity_pac_auxiliaries_kwh=electricity_pac_auxiliaries,
+            electricity_standby_kwh=electricity_standby,
+            electricity_pac_total_kwh=electricity_pac_total,
+            electricity_system_total_kwh=electricity_system_total,
+            electricity_pac_kwh=electricity_compressor,
+            unmet_ht_kwh=max(0.0, demand_ht - solar_ht_direct),
+            unmet_bt_kwh=max(0.0, demand_bt - heat_bt_from_pac),
+            collector_eff_ht=eta_ht,
+            collector_eff_storage=eta_storage,
         )
+        if result_sink is not None:
+            result_sink(result)
+        if store_results:
+            results.append(result)
 
     return results
 
