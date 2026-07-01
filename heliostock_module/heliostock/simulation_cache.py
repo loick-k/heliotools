@@ -195,6 +195,26 @@ class SimulationCache:
                 }
             )
 
+    def record_reuse(self, tag: str, message: str, metrics: dict[str, Any] | None = None) -> None:
+        with self._lock:
+            self.hits += 1
+            hits = int(self.hits)
+            misses = int(self.misses)
+            entries = int(self.entries)
+        self.record_event(
+            tag,
+            message,
+            {
+                "Cache": "reuse",
+                "Cache hits": hits,
+                "Cache misses": misses,
+                "Entrees cache": entries,
+                "Simulations lancees": 0,
+                "Duree pygfunction (s)": 0.0,
+                **(metrics or {}),
+            },
+        )
+
     def summary(self) -> dict[str, int]:
         with self._lock:
             return {

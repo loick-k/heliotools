@@ -45,15 +45,20 @@ def render_heliostock_hourly() -> pd.DataFrame:
     )
     economics_inputs = render_economics_form()
     calculation_selection_form = render_calculation_selection_form()
-    parametric_forms = render_parametric_forms(
-        solar_form.inputs.area_m2,
-        disabled=calculation_selection_form.selection.calculation_profile != "calcul_final",
-    )
+    final_calculation_profile = calculation_selection_form.selection.calculation_profile == "calcul_final"
+    if final_calculation_profile:
+        parametric_forms = render_parametric_forms(solar_form.inputs.area_m2)
+    else:
+        st.info(
+            "Les etudes parametriques PAC et solaire sont masquees pour ce profil. "
+            "Selectionne `Calcul final complet - 25 ans, economie sondes et parametriques` pour les afficher et les lancer."
+        )
+        parametric_forms = render_parametric_forms(solar_form.inputs.area_m2, disabled=True)
 
     if not weather_form.hourly_weather:
         return pd.DataFrame()
 
-    run_clicked = st.button("Lancer le calcul", type="primary", width="stretch")
+    run_clicked = st.button("Lancer le profil de calcul selectionne", type="primary", width="stretch")
     if not run_clicked and "heliostock_last_result" not in st.session_state:
         st.info("Paramètres prêts. Clique sur **Lancer le calcul** pour exécuter la simulation horaire.")
         return pd.DataFrame()

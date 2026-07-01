@@ -1113,6 +1113,7 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
     ]
     calls = []
     progress_messages = []
+    dataframe_lengths = []
 
     def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
         calls.append((float(config.collector.area_m2), int(simulation_years)))
@@ -1140,7 +1141,12 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
                 )
         return results
 
+    def counted_hourly_results_to_dataframe(results):
+        dataframe_lengths.append(len(results))
+        return _hourly_results_to_dataframe(results)
+
     monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
+    monkeypatch.setattr(scenarios_module, "_hourly_results_to_dataframe", counted_hourly_results_to_dataframe)
     result = scenarios_module.run_hourly_scenario(
         weather=weather,
         demands=_demand_aggregate(1, weather, ht_kwh=10.0, bt_kwh=20.0),
@@ -1175,6 +1181,7 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
     assert "Nettoyage memoire" in progress_messages
     assert set(result.hourly_df["simulation_year"].unique()) == {25}
     assert set(result.no_solar_hourly_df["simulation_year"].unique()) == {25}
+    assert dataframe_lengths == [len(weather), len(weather)]
 
 
 def test_run_hourly_scenario_reuses_reduced_borefield_dataframe(monkeypatch):
@@ -1614,6 +1621,189 @@ def test_pac_power_parametric_study_runs_without_streamlit():
     assert "Couverture PAC BT (%)" in df.columns
     assert "Coût chaleur géothermie + appoint gaz (EUR/MWh)" in df.columns
     assert not any("Mix ENR" in column for column in df.columns)
+
+
+def test_solar_parametric_study_uses_direct_summaries_without_full_dataframe(monkeypatch):
+    weather = [
+        HourlyWeather(hour_index=hour, month=1, day=1, hour=hour + 1, tair_c=8.0, g_tilt_kwh_m2=0.4)
+        for hour in range(2)
+    ]
+    config = SimulationConfig(
+        collector=CollectorConfig(area_m2=500.0),
+        btes=BtesConfig(boreholes=20, depth_m=100.0, spacing_m=5.0),
+        heat_pump=HeatPumpConfig(max_thermal_power_kw=80.0),
+    )
+    dataframe_calls = []
+
+    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+        results = []
+        for year in range(1, int(simulation_years) + 1):
+            for item in weather:
+                results.append(
+                    _fake_hourly_result(
+                        simulation_year=year,
+                        hour_index=item.hour_index,
+                        month=item.month,
+                        day=item.day,
+                        hour=item.hour,
+                        tair_c=item.tair_c,
+                        demand_ht_kwh=10.0,
+                        demand_bt_kwh=20.0,
+                        solar_ht_direct_kwh=float(config.collector.area_m2) / 100.0,
+                        solar_ht_from_buffer_kwh=float(config.collector.area_m2) / 100.0,
+                        solar_to_btes_kwh=float(config.collector.area_m2) / 200.0,
+                        heat_bt_from_pac_kwh=20.0,
+                        btes_extracted_by_pac_kwh=15.0,
+                        electricity_compressor_kwh=5.0,
+                        electricity_pac_total_kwh=6.0,
+                        electricity_system_total_kwh=6.0,
+                        q_extraction_w_m=20.0,
+                        q_injection_w_m=5.0,
+                    )
+                )
+        return results
+
+    def counted_hourly_results_to_dataframe(results):
+        dataframe_calls.append(len(results))
+        return _hourly_results_to_dataframe(results)
+
+    monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
+    monkeypatch.setattr(scenarios_module, "_hourly_results_to_dataframe", counted_hourly_results_to_dataframe)
+    df = scenarios_module.solar_surface_parametric_study(
+        surfaces_m2=[250.0, 500.0],
+        weather=weather,
+        demands=_demand_aggregate(1, weather, ht_kwh=10.0, bt_kwh=20.0),
+        config=config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=10.0, bt_kwh=20.0),
+        no_solar_cop=4.0,
+        no_solar_total_pac_kwh=40.0,
+        no_solar_bt_coverage=1.0,
+        no_solar_source_limited_hours=0.0,
+        pac_nominal_power_kw=80.0,
+        full_borefield_length_m=2_000.0,
+        reference_gas_power_kw=30.0,
+        reference_heat_mwh=0.06,
+        analysis_years=2,
+        reference_energy_cost_eur_mwh=70.0,
+        reference_energy_inflation_pct=3.0,
+        eta_appoint_eco=0.82,
+        backup_p2_eur_kw_year=10.0,
+        auxiliary_electricity_ratio_pct=3.0,
+        electricity_cost_eur_mwh=200.0,
+        maintenance_cost_eur_m2_year=22.0,
+        ademe_eur_mwh_year=63.0,
+        other_public_aid_eur=0.0,
+        savings_search_mode="none",
+    )
+
+    assert len(df) == 2
+    assert dataframe_calls == []
+    assert "CoÃ»t chaleur mÃªme linÃ©aire (EUR/MWh)" in df.columns
+
+
+def test_solar_parametric_reuses_matching_main_scenario(monkeypatch):
+    weather = [
+        HourlyWeather(hour_index=hour, month=1, day=1, hour=hour + 1, tair_c=8.0, g_tilt_kwh_m2=0.4)
+        for hour in range(2)
+    ]
+    config = SimulationConfig(
+        collector=CollectorConfig(area_m2=500.0),
+        btes=BtesConfig(boreholes=20, depth_m=100.0, spacing_m=5.0),
+        heat_pump=HeatPumpConfig(max_thermal_power_kw=80.0),
+    )
+    calls = []
+
+    def make_results(surface_m2: float, simulation_years: int):
+        rows = []
+        for year in range(1, int(simulation_years) + 1):
+            for item in weather:
+                rows.append(
+                    _fake_hourly_result(
+                        simulation_year=year,
+                        hour_index=item.hour_index,
+                        month=item.month,
+                        day=item.day,
+                        hour=item.hour,
+                        tair_c=item.tair_c,
+                        demand_ht_kwh=10.0,
+                        demand_bt_kwh=20.0,
+                        solar_ht_direct_kwh=float(surface_m2) / 100.0,
+                        solar_ht_from_buffer_kwh=float(surface_m2) / 100.0,
+                        solar_to_btes_kwh=float(surface_m2) / 200.0,
+                        heat_bt_from_pac_kwh=20.0,
+                        btes_extracted_by_pac_kwh=15.0,
+                        electricity_compressor_kwh=5.0,
+                        electricity_pac_total_kwh=6.0,
+                        electricity_system_total_kwh=6.0,
+                        q_extraction_w_m=20.0,
+                        q_injection_w_m=5.0,
+                    )
+                )
+        return rows
+
+    reference_results = make_results(500.0, 2)
+    reference_metrics = scenarios_module._hourly_metrics_from_results(reference_results, annualization_years=2)
+    reference_full = scenarios_module._final_year_screening_metrics_from_results(
+        reference_results,
+        t_min_c=config.btes.t_min_c,
+        gmi_t_min_c=config.btes.gmi_t_min_c,
+        gmi_t_max_c=config.btes.gmi_t_max_c,
+        demand_bt_kwh=40.0,
+    )
+    reference_full["mean_cop"] = reference_metrics["mean_cop"]
+    reference_full["mean_bt_pac_kwh"] = reference_metrics["pac_heat_mwh"] * 1000.0
+    reference_trajectory = scenarios_module._annual_metrics_trajectory_from_results(
+        reference_results,
+        analysis_years=2,
+        gmi_t_min_c=config.btes.gmi_t_min_c,
+        gmi_t_max_c=config.btes.gmi_t_max_c,
+        gmi_check_enabled=config.btes.gmi_check_enabled,
+        pac_power_kw=80.0,
+    )
+
+    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+        calls.append(float(config.collector.area_m2))
+        return make_results(float(config.collector.area_m2), int(simulation_years))
+
+    monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
+    df = scenarios_module.solar_surface_parametric_study(
+        surfaces_m2=[250.0, 500.0],
+        weather=weather,
+        demands=_demand_aggregate(1, weather, ht_kwh=10.0, bt_kwh=20.0),
+        config=config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=10.0, bt_kwh=20.0),
+        no_solar_cop=4.0,
+        no_solar_total_pac_kwh=40.0,
+        no_solar_bt_coverage=1.0,
+        no_solar_source_limited_hours=0.0,
+        pac_nominal_power_kw=80.0,
+        full_borefield_length_m=2_000.0,
+        reference_gas_power_kw=30.0,
+        reference_heat_mwh=0.06,
+        analysis_years=2,
+        reference_energy_cost_eur_mwh=70.0,
+        reference_energy_inflation_pct=3.0,
+        eta_appoint_eco=0.82,
+        backup_p2_eur_kw_year=10.0,
+        auxiliary_electricity_ratio_pct=3.0,
+        electricity_cost_eur_mwh=200.0,
+        maintenance_cost_eur_m2_year=22.0,
+        ademe_eur_mwh_year=63.0,
+        other_public_aid_eur=0.0,
+        savings_search_mode="none",
+        full_case_reference={
+            "surface_m2": 500.0,
+            "boreholes": 20,
+            "depth_m": 100.0,
+            "simulation_years": 2,
+            "metrics": reference_metrics,
+            "full_case_metrics": reference_full,
+            "trajectory_df": reference_trajectory,
+        },
+    )
+
+    assert calls == [250.0]
+    assert df["Scenario principal reutilise"].tolist() == [False, True]
 
 
 def test_scenario_inputs_build_configs():

@@ -14,10 +14,14 @@ from .economics import (
     solar_energy_allocation,
     solar_recharge_value,
 )
-from .borefield_savings import _final_year_screening_metrics, borefield_equivalent_savings
+from .borefield_savings import (
+    _final_year_screening_metrics,
+    _final_year_screening_metrics_from_results,
+    borefield_equivalent_savings,
+)
 from .engine import MonthlyDemand, SimulationConfig, cop_from_source_temperature
 from .geothermal_design import predimension_borefield
-from .hourly_engine import HourlyWeather, simulate_hourly
+from .hourly_engine import HourlyResult, HourlyWeather, simulate_hourly
 from .load_profiles import _estimate_capped_bt_heat_mwh
 from .postprocess import (
     _annual_hourly_summary,
@@ -61,6 +65,7 @@ class ScenarioResult:
     economic_comparison_df: pd.DataFrame
     economic_comparison_chart_df: pd.DataFrame
     economic_trajectory_df: pd.DataFrame
+    solar_parametric_reference: dict[str, object]
     recharge_value: dict[str, float | bool | str]
     solar_allocation: dict[str, float]
     total_ht_kwh: float
@@ -169,6 +174,243 @@ def _simulate_hourly_dataframe(
     return df
 
 
+def _results_year_to_dataframe(
+    results: list[HourlyResult],
+    *,
+    year: int,
+    simulation_years: int,
+    weather_len: int,
+    simulation_cache: SimulationCache | None,
+    label: str,
+) -> pd.DataFrame:
+    selected = [result for result in results if int(result.simulation_year) == int(year)]
+    if not selected and results:
+        selected = [result for result in results if int(result.simulation_year) == 1]
+    started_at = time.perf_counter()
+    df = _hourly_results_to_dataframe(selected)
+    elapsed = time.perf_counter() - started_at
+    if simulation_cache is not None:
+        simulation_cache.record_event(
+            "postprocess:dataframe",
+            f"Conversion annee affichee en DataFrame ({label})",
+            {
+                "Mode simulation": "pygfunction",
+                "Annees simulees": int(simulation_years),
+                "Pas meteo": int(weather_len),
+                "Heures simulees": int(len(selected)),
+                "Lignes DataFrame": int(len(df)),
+                "Duree dataframe (s)": elapsed,
+            },
+        )
+    return df
+
+
+def _results_by_year(results: list[HourlyResult]) -> dict[int, list[HourlyResult]]:
+    grouped: dict[int, list[HourlyResult]] = {}
+    for result in results:
+        grouped.setdefault(int(result.simulation_year), []).append(result)
+    return grouped
+
+
+def _sum_attr(rows: list[HourlyResult], name: str) -> float:
+    return sum(float(getattr(row, name)) for row in rows)
+
+
+def _max_attr(rows: list[HourlyResult], name: str) -> float:
+    return max((float(getattr(row, name)) for row in rows), default=0.0)
+
+
+def _min_attr(rows: list[HourlyResult], name: str) -> float:
+    return min((float(getattr(row, name)) for row in rows), default=0.0)
+
+
+def _mean_attr(rows: list[HourlyResult], name: str) -> float:
+    return _sum_attr(rows, name) / max(1, len(rows))
+
+
+def _hourly_metrics_from_results(
+    results: list[HourlyResult],
+    *,
+    annualization_years: int = 1,
+) -> dict[str, float]:
+    years = max(1, int(annualization_years))
+    total_ht = _sum_attr(results, "demand_ht_kwh")
+    total_bt = _sum_attr(results, "demand_bt_kwh")
+    total_backup_ht = _sum_attr(results, "unmet_ht_kwh")
+    total_backup_bt = _sum_attr(results, "unmet_bt_kwh")
+    total_pac = _sum_attr(results, "heat_bt_from_pac_kwh")
+    total_compressor = _sum_attr(results, "electricity_compressor_kwh")
+    total_elec = _sum_attr(results, "electricity_pac_total_kwh")
+    total_system_elec = _sum_attr(results, "electricity_system_total_kwh")
+    total_solar_ht = _sum_attr(results, "solar_ht_direct_kwh")
+    total_solar_btes = _sum_attr(results, "solar_to_btes_kwh")
+    backup_power_kw = max(
+        (max(0.0, float(row.unmet_ht_kwh)) + max(0.0, float(row.unmet_bt_kwh)) for row in results),
+        default=0.0,
+    )
+    reference_gas_power_kw = max(
+        (max(0.0, float(row.demand_ht_kwh)) + max(0.0, float(row.demand_bt_kwh)) for row in results),
+        default=0.0,
+    )
+    total_need = total_ht + total_bt
+    non_ren_input = total_backup_ht + total_backup_bt + total_system_elec
+    annual = 1.0 / years
+    return {
+        "total_ht_kwh": total_ht * annual,
+        "total_bt_kwh": total_bt * annual,
+        "total_need_mwh": total_need / 1000.0 * annual,
+        "backup_ht_mwh": total_backup_ht / 1000.0 * annual,
+        "backup_bt_mwh": total_backup_bt / 1000.0 * annual,
+        "backup_total_mwh": (total_backup_ht + total_backup_bt) / 1000.0 * annual,
+        "pac_heat_mwh": total_pac / 1000.0 * annual,
+        "pac_compressor_mwh": total_compressor / 1000.0 * annual,
+        "pac_electricity_mwh": total_elec / 1000.0 * annual,
+        "system_electricity_mwh": total_system_elec / 1000.0 * annual,
+        "solar_ht_mwh": total_solar_ht / 1000.0 * annual,
+        "solar_btes_mwh": total_solar_btes / 1000.0 * annual,
+        "solar_ht_coverage": total_solar_ht / max(1e-9, total_ht),
+        "pac_bt_coverage": total_pac / max(1e-9, total_bt),
+        "mean_cop": total_pac / total_compressor if total_compressor > 0.0 else 0.0,
+        "spf_pac_total": total_pac / total_elec if total_elec > 0.0 else 0.0,
+        "spf_system": (total_pac + total_solar_ht) / total_system_elec if total_system_elec > 0.0 else 0.0,
+        "global_ren_rate": max(0.0, min(1.0, 1.0 - non_ren_input / max(1e-9, total_need))),
+        "backup_power_kw": backup_power_kw,
+        "reference_gas_power_kw": reference_gas_power_kw,
+        "t_source_pac_min_c": _min_attr(results, "t_source_pac_c"),
+        "t_source_pac_mean_c": _mean_attr(results, "t_source_pac_c"),
+        "q_extraction_max_w_m": _max_attr(results, "q_extraction_w_m"),
+        "q_injection_max_w_m": _max_attr(results, "q_injection_w_m"),
+        "source_limited_hours": float(sum(1 for row in results if row.source_temp_limited)),
+        "source_limited_unmet_mwh": _sum_attr(results, "source_temp_unmet_bt_kwh") / 1000.0,
+    }
+
+
+def _multiyear_btes_summary_from_results(
+    results: list[HourlyResult],
+    *,
+    t_min_c: float,
+    gmi_t_min_c: float = -3.0,
+    gmi_t_max_c: float = 40.0,
+    gmi_check_enabled: bool = True,
+) -> pd.DataFrame:
+    grouped: dict[tuple[int, int], list[HourlyResult]] = {}
+    for result in results:
+        grouped.setdefault((int(result.simulation_year), int(result.month)), []).append(result)
+    rows = []
+    for (year, month), group in sorted(grouped.items()):
+        elec_compressor = _sum_attr(group, "electricity_compressor_kwh")
+        elec_total = _sum_attr(group, "electricity_pac_total_kwh")
+        heat_pac = _sum_attr(group, "heat_bt_from_pac_kwh")
+        rows.append(
+            {
+                "Annee": int(year),
+                "Mois index": (int(year) - 1) * 12 + int(month),
+                "Mois": f"A{int(year):02d}-{int(month):02d}",
+                "T source PAC fin (C)": float(group[-1].t_source_pac_c),
+                "T source PAC min (C)": _min_attr(group, "t_source_pac_c"),
+                "T source PAC max (C)": _max_attr(group, "t_source_pac_c"),
+                "T source PAC moyenne (C)": _mean_attr(group, "t_source_pac_c"),
+                "T source PAC pour COP min (C)": _min_attr(group, "t_source_pac_for_cop_c"),
+                "T source PAC pour COP moyenne (C)": _mean_attr(group, "t_source_pac_for_cop_c"),
+                "T fluide entree echangeur geo min (C)": _min_attr(group, "t_fluide_entree_echangeur_geo_c"),
+                "T fluide injection max (C)": _max_attr(group, "t_fluide_injection_c"),
+                "T paroi forage fin (C)": float(group[-1].t_borehole_wall_c),
+                "T paroi forage min (C)": _min_attr(group, "t_borehole_wall_c"),
+                "T paroi forage max (C)": _max_attr(group, "t_borehole_wall_c"),
+                "T evaporateur PAC min (C)": _min_attr(group, "t_evaporator_pac_c"),
+                "Q net sol (MWh)": (_sum_attr(group, "btes_extracted_by_pac_kwh") - _sum_attr(group, "solar_to_btes_kwh")) / 1000.0,
+                "Injection BTES (MWh)": _sum_attr(group, "solar_to_btes_kwh") / 1000.0,
+                "Extraction PAC (MWh)": _sum_attr(group, "btes_extracted_by_pac_kwh") / 1000.0,
+                "q extraction max (W/m)": _max_attr(group, "q_extraction_w_m"),
+                "q injection max (W/m)": _max_attr(group, "q_injection_w_m"),
+                "q net moyen (W/m)": _mean_attr(group, "q_net_w_m"),
+                "COP machine": heat_pac / elec_compressor if elec_compressor > 0.0 else 0.0,
+                "SPF PAC complet": heat_pac / elec_total if elec_total > 0.0 else 0.0,
+                "Heures sous Tmin operationnelle": int(sum(1 for row in group if float(row.t_source_pac_for_cop_c) <= t_min_c + 1e-6)),
+                "Heures sous Tmin source": int(sum(1 for row in group if float(row.t_source_pac_c) <= t_min_c + 1e-6)),
+                "Heures sous Tmin GMI": int(sum(1 for row in group if float(row.t_fluide_entree_echangeur_geo_c) < gmi_t_min_c - 1e-6)),
+                "Heures sur Tmax GMI": int(sum(1 for row in group if float(row.t_fluide_injection_c) > gmi_t_max_c + 1e-6)),
+                "Conformite GMI": bool(
+                    (not gmi_check_enabled)
+                    or (
+                        all(float(row.t_fluide_entree_echangeur_geo_c) >= gmi_t_min_c - 1e-6 for row in group)
+                        and all(float(row.t_fluide_injection_c) <= gmi_t_max_c + 1e-6 for row in group)
+                    )
+                ),
+                "Heures limite source": int(sum(1 for row in group if row.source_temp_limited)),
+                "BT non couvert limite source (MWh)": _sum_attr(group, "source_temp_unmet_bt_kwh") / 1000.0,
+                "Heures COP max": int(sum(1 for row in group if row.cop_limited_max)),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _annual_metrics_trajectory_from_results(
+    results: list[HourlyResult],
+    *,
+    analysis_years: int,
+    gmi_t_min_c: float = -3.0,
+    gmi_t_max_c: float = 40.0,
+    gmi_check_enabled: bool = True,
+    pac_power_kw: float = 0.0,
+) -> pd.DataFrame:
+    years = max(1, int(analysis_years))
+    grouped = _results_by_year(results)
+    last_group = grouped[max(grouped)] if grouped else []
+    rows: list[dict[str, float | int]] = []
+    for year in range(1, years + 1):
+        group = grouped.get(year, last_group)
+        heat_pac = _sum_attr(group, "heat_bt_from_pac_kwh")
+        elec_comp = _sum_attr(group, "electricity_compressor_kwh")
+        total_ht = _sum_attr(group, "demand_ht_kwh")
+        total_bt = _sum_attr(group, "demand_bt_kwh")
+        backup_ht = _sum_attr(group, "unmet_ht_kwh")
+        backup_bt = _sum_attr(group, "unmet_bt_kwh")
+        elec_total = _sum_attr(group, "electricity_pac_total_kwh")
+        solar_ht = _sum_attr(group, "solar_ht_direct_kwh")
+        non_ren = backup_ht + backup_bt + elec_total
+        useful = total_ht + total_bt
+        equivalent_power = pac_power_kw if pac_power_kw > 0.0 else _max_attr(group, "heat_bt_from_pac_kwh")
+        rows.append(
+            {
+                "Annee": year,
+                "E utile HT (MWh)": total_ht / 1000.0,
+                "E utile BT (MWh)": total_bt / 1000.0,
+                "E utile totale (MWh)": useful / 1000.0,
+                "Solaire HT (MWh)": solar_ht / 1000.0,
+                "Injection solaire BTES (MWh)": _sum_attr(group, "solar_to_btes_kwh") / 1000.0,
+                "Chaleur PAC BT (MWh)": heat_pac / 1000.0,
+                "Appoint gaz HT (MWh)": backup_ht / 1000.0,
+                "Appoint gaz BT (MWh)": backup_bt / 1000.0,
+                "Appoint gaz total (MWh)": (backup_ht + backup_bt) / 1000.0,
+                "Electricite PAC (MWh)": elec_total / 1000.0,
+                "COP moyen": heat_pac / elec_comp if elec_comp > 0.0 else 0.0,
+                "SPF PAC complet": heat_pac / elec_total if elec_total > 0.0 else 0.0,
+                "Couverture PAC BT (%)": heat_pac / max(1e-9, total_bt) * 100.0,
+                "Heures equivalentes PAC BT": heat_pac / max(1e-9, equivalent_power),
+                "T_source_PAC_min (C)": _min_attr(group, "t_source_pac_c"),
+                "T_source_PAC_pour_COP_min (C)": _min_attr(group, "t_source_pac_for_cop_c"),
+                "T_fluide_injection_max (C)": _max_attr(group, "t_fluide_injection_c"),
+                "Heures sous Tmin GMI": int(sum(1 for row in group if float(row.t_fluide_entree_echangeur_geo_c) < gmi_t_min_c - 1e-6)),
+                "Heures sur Tmax GMI": int(sum(1 for row in group if float(row.t_fluide_injection_c) > gmi_t_max_c + 1e-6)),
+                "Conformite GMI": bool(
+                    (not gmi_check_enabled)
+                    or (
+                        all(float(row.t_fluide_entree_echangeur_geo_c) >= gmi_t_min_c - 1e-6 for row in group)
+                        and all(float(row.t_fluide_injection_c) <= gmi_t_max_c + 1e-6 for row in group)
+                    )
+                ),
+                "Heures limite source": int(sum(1 for row in group if row.source_temp_limited)),
+                "BT non couvert limite source (MWh)": _sum_attr(group, "source_temp_unmet_bt_kwh") / 1000.0,
+                "T_source_PAC_moy (C)": _mean_attr(group, "t_source_pac_c"),
+                "q_extraction_W_m_max": _max_attr(group, "q_extraction_w_m"),
+                "q_injection_W_m_max": _max_attr(group, "q_injection_w_m"),
+                "Taux EnR (%)": max(0.0, min(1.0, 1.0 - non_ren / max(1e-9, useful))) * 100.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def solar_surface_parametric_study(
     *,
     surfaces_m2: list[float],
@@ -197,6 +439,7 @@ def solar_surface_parametric_study(
     savings_search_mode: str = "fast",
     recharge_credit: float = 0.6,
     reduced_borefield_safety_factor: float = 1.10,
+    full_case_reference: dict[str, object] | None = None,
     simulation_cache: SimulationCache | None = None,
     progress: ProgressCallback | None = None,
 ) -> pd.DataFrame:
@@ -224,48 +467,81 @@ def solar_surface_parametric_study(
         )
 
         variant_config = replace(config, collector=replace(config.collector, area_m2=float(surface_m2)))
-        variant_multiyear_df = _simulate_hourly_dataframe(
-            weather=weather,
-            demands=demands,
-            config=variant_config,
-            hourly_demand_override=hourly_demand_override,
-            simulation_years=simulation_years,
-            simulation_cache=simulation_cache,
+        can_reuse_full_case = (
+            full_case_reference is not None
+            and abs(float(full_case_reference.get("surface_m2", -1.0)) - float(surface_m2)) <= 1e-9
+            and int(full_case_reference.get("boreholes", -1)) == int(variant_config.btes.boreholes)
+            and abs(float(full_case_reference.get("depth_m", -1.0)) - float(variant_config.btes.depth_m)) <= 1e-9
+            and int(full_case_reference.get("simulation_years", -1)) == int(simulation_years)
         )
-        variant_df = variant_multiyear_df[variant_multiyear_df["simulation_year"] == simulation_years].copy()
-        economic_metrics_variant = _hourly_metrics(variant_multiyear_df, annualization_years=simulation_years)
+        variant_results: list[HourlyResult] | None = None
+        if can_reuse_full_case:
+            if simulation_cache is not None:
+                simulation_cache.record_reuse(
+                    "simulate:reuse_summary",
+                    "Scenario principal reutilise pour le point solaire parametrique",
+                    {
+                        "Mode simulation": "solar_parametric_reuse",
+                        "Annees simulees": int(simulation_years),
+                        "Pas meteo": int(len(weather)),
+                        "Heures simulees": int(len(weather) * simulation_years),
+                        "Surface solaire (m2)": float(surface_m2),
+                        "Sondes": int(variant_config.btes.boreholes),
+                        "Lineaire sondes (ml)": float(variant_config.btes.boreholes) * float(variant_config.btes.depth_m),
+                    },
+                )
+            economic_metrics_variant = dict(full_case_reference.get("metrics", {}))
+            full_case_metrics = dict(full_case_reference.get("full_case_metrics", {}))
+            variant_trajectory_df = full_case_reference.get("trajectory_df", pd.DataFrame())
+            if isinstance(variant_trajectory_df, pd.DataFrame):
+                variant_trajectory_df = variant_trajectory_df.copy()
+            else:
+                variant_trajectory_df = pd.DataFrame()
+        else:
+            variant_results = _simulate_hourly_cached(
+                weather=weather,
+                demands=demands,
+                config=variant_config,
+                hourly_demand_override=hourly_demand_override,
+                simulation_years=simulation_years,
+                simulation_cache=simulation_cache,
+                cache_mode="pygfunction",
+            )
+            economic_metrics_variant = _hourly_metrics_from_results(variant_results, annualization_years=simulation_years)
+            full_case_metrics = _final_year_screening_metrics_from_results(
+                variant_results,
+                t_min_c=variant_config.btes.t_min_c,
+                gmi_t_min_c=variant_config.btes.gmi_t_min_c,
+                gmi_t_max_c=variant_config.btes.gmi_t_max_c,
+                demand_bt_kwh=0.0,
+            )
+            full_case_metrics["mean_cop"] = economic_metrics_variant["mean_cop"]
+            full_case_metrics["mean_bt_pac_kwh"] = economic_metrics_variant["pac_heat_mwh"] * 1000.0
+            variant_trajectory_df = _annual_metrics_trajectory_from_results(
+                variant_results,
+                analysis_years=simulation_years,
+                gmi_t_min_c=variant_config.btes.gmi_t_min_c,
+                gmi_t_max_c=variant_config.btes.gmi_t_max_c,
+                gmi_check_enabled=variant_config.btes.gmi_check_enabled,
+                pac_power_kw=float(variant_config.heat_pump.max_thermal_power_kw or 0.0),
+            )
 
-        total_ht_variant = float(variant_df["demand_ht_kwh"].sum())
-        total_bt_variant = float(variant_df["demand_bt_kwh"].sum())
-        total_preheat_ht_variant = float(variant_df["solar_ht_direct_kwh"].sum())
-        total_to_btes_variant = float(variant_df["solar_to_btes_kwh"].sum())
-        total_backup_ht_variant = float(variant_df["unmet_ht_kwh"].sum())
-        total_backup_bt_variant = float(variant_df["unmet_bt_kwh"].sum())
-        total_pac_variant = float(variant_df["heat_bt_from_pac_kwh"].sum())
-        total_compressor_variant = float(variant_df["electricity_compressor_kwh"].sum())
-        total_elec_variant = float(variant_df["electricity_pac_total_kwh"].sum())
-        backup_power_kw_variant = float(
-            (variant_df["unmet_ht_kwh"].clip(lower=0.0) + variant_df["unmet_bt_kwh"].clip(lower=0.0)).max()
+        final_row = (
+            variant_trajectory_df[variant_trajectory_df["Annee"] == simulation_years].iloc[-1]
+            if not variant_trajectory_df.empty and "Annee" in variant_trajectory_df
+            else pd.Series(dtype=float)
         )
-        global_ren_rate_variant = max(
-            0.0,
-            min(
-                1.0,
-                1.0
-                - (total_backup_ht_variant + total_backup_bt_variant + total_elec_variant)
-                / max(1e-9, total_ht_variant + total_bt_variant),
-            ),
-        )
+        total_ht_variant = float(final_row.get("E utile HT (MWh)", 0.0)) * 1000.0
+        total_bt_variant = float(final_row.get("E utile BT (MWh)", 0.0)) * 1000.0
+        total_preheat_ht_variant = float(final_row.get("Solaire HT (MWh)", 0.0)) * 1000.0
+        total_to_btes_variant = float(final_row.get("Injection solaire BTES (MWh)", 0.0)) * 1000.0
+        total_backup_ht_variant = float(final_row.get("Appoint gaz HT (MWh)", 0.0)) * 1000.0
+        total_backup_bt_variant = float(final_row.get("Appoint gaz BT (MWh)", 0.0)) * 1000.0
+        total_elec_variant = float(final_row.get("Electricite PAC (MWh)", 0.0)) * 1000.0
+        total_pac_variant = float(final_row.get("Chaleur PAC BT (MWh)", 0.0)) * 1000.0
+        final_cop_variant = float(full_case_metrics.get("final_cop", 0.0))
+        global_ren_rate_variant = float(final_row.get("Taux EnR (%)", 0.0)) / 100.0
         annual_ht_solar_coverage_variant = total_preheat_ht_variant / max(1e-9, total_ht_variant)
-        full_case_metrics = _final_year_screening_metrics(
-            variant_multiyear_df,
-            t_min_c=variant_config.btes.t_min_c,
-            gmi_t_min_c=variant_config.btes.gmi_t_min_c,
-            gmi_t_max_c=variant_config.btes.gmi_t_max_c,
-            demand_bt_kwh=float(variant_df["demand_bt_kwh"].sum()),
-        )
-        full_case_metrics["mean_cop"] = economic_metrics_variant["mean_cop"]
-        full_case_metrics["mean_bt_pac_kwh"] = economic_metrics_variant["pac_heat_mwh"] * 1000.0
 
         savings_variant = borefield_equivalent_savings(
             weather=weather,
@@ -279,11 +555,11 @@ def solar_surface_parametric_study(
             simulation_years=simulation_years,
             iterations=8,
             search_mode=savings_search_mode,
-            full_case_df=variant_multiyear_df,
             full_case_metrics=full_case_metrics,
             recharge_credit=recharge_credit,
             reduced_borefield_safety_factor=reduced_borefield_safety_factor,
             simulation_cache=simulation_cache,
+            include_hourly_df=False,
         )
         economic_borefield_length_m_variant = (
             float(savings_variant["equivalent_length_m"])
@@ -347,14 +623,14 @@ def solar_surface_parametric_study(
         )
         same_capex_variant = _capex_net_total(same_heat_costs_variant, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
         same_multiyear_cost_variant = _multiyear_heat_cost(
-            trajectory_df=_annual_metrics_trajectory(variant_multiyear_df, analysis_years=simulation_years),
+            trajectory_df=variant_trajectory_df,
             heat_costs=same_heat_costs_variant,
             economics=economics_config,
             capex_net_eur=same_capex_variant,
         )
         capex_variant = _capex_net_total(heat_costs_variant, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
         multiyear_cost_variant = _multiyear_heat_cost(
-            trajectory_df=_annual_metrics_trajectory(variant_multiyear_df, analysis_years=simulation_years),
+            trajectory_df=variant_trajectory_df,
             heat_costs=heat_costs_variant,
             economics=economics_config,
             capex_net_eur=capex_variant,
@@ -370,7 +646,7 @@ def solar_surface_parametric_study(
                 "Couverture solaire HT (%)": annual_ht_solar_coverage_variant * 100.0,
                 "Préchauffage HT solaire (MWh/an)": total_preheat_ht_variant / 1000.0,
                 "Injection BTES (MWh/an)": total_to_btes_variant / 1000.0,
-                "COP PAC moyen": total_pac_variant / total_compressor_variant if total_compressor_variant > 0.0 else 0.0,
+                "COP PAC moyen": final_cop_variant,
                 "COP PAC final": full_case_metrics["final_cop"],
                 "Chaleur PAC BT finale (MWh)": full_case_metrics["final_bt_pac_kwh"] / 1000.0,
                 "Couverture PAC BT finale (%)": full_case_metrics["final_bt_coverage"] * 100.0,
@@ -386,6 +662,7 @@ def solar_surface_parametric_study(
                 "Lineaire estime (ml)": float(savings_variant.get("estimated_length_m", full_borefield_length_m)),
                 "Lineaire verifie (ml)": float(savings_variant.get("verified_length_m", economic_borefield_length_m_variant)),
                 "Simulations economie sondes": int(savings_variant.get("savings_simulations_count", 0)),
+                "Scenario principal reutilise": bool(can_reuse_full_case),
                 "Linéaire sondes retenu éco (ml)": economic_borefield_length_m_variant,
                 "CAPEX solaire net (kEUR)": float(solar_economics_variant["net_capex_eur"]) / 1000.0,
             }
@@ -394,7 +671,7 @@ def solar_surface_parametric_study(
             simulation_cache.clear_entries(
                 reason=f"Nettoyage memoire apres surface solaire {index}/{total_points}"
             )
-        del variant_multiyear_df, variant_df
+        del variant_results, variant_trajectory_df
         gc.collect()
 
     return pd.DataFrame(rows)
@@ -1019,49 +1296,70 @@ def run_hourly_scenario(
         else "Calcul horaire avec solaire (1 an)...",
     )
     no_solar_config = replace(config, collector=replace(config.collector, area_m2=0.0))
+    display_mode = str(display_year_mode).lower()
+    if display_mode in {"annee 1", "annÃ©e 1", "year 1"}:
+        simulation_year_displayed = 1
+    elif display_mode in {"personnalisee", "personnalisÃ©e", "custom"}:
+        simulation_year_displayed = max(1, min(multiyear_years, int(custom_display_year or multiyear_years)))
+    else:
+        simulation_year_displayed = multiyear_years
     if run_geo_only:
         _notify(
             progress,
             16,
             f"Simulation solaire {multiyear_years} ans - demarrage",
         )
-        multiyear_df = _simulate_hourly_dataframe(
+        multiyear_results = _simulate_hourly_cached(
             weather=weather,
             demands=demands,
             config=config,
             hourly_demand_override=hourly_demand_override,
             simulation_years=multiyear_years,
             simulation_cache=simulation_cache,
+            cache_mode="pygfunction",
         )
         _notify(
             progress,
             30,
             f"Simulation solaire {multiyear_years} ans - agregation",
         )
-        hourly_df = multiyear_df
-        if run_multiyear:
-            hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
+        hourly_df = _results_year_to_dataframe(
+            multiyear_results,
+            year=simulation_year_displayed,
+            simulation_years=multiyear_years,
+            weather_len=len(weather),
+            simulation_cache=simulation_cache,
+            label="solaire",
+        )
+        if hourly_df.empty and simulation_year_displayed != 1:
+            simulation_year_displayed = 1
         _notify(
             progress,
             35,
             f"Simulation sans solaire {multiyear_years} ans - demarrage",
         )
-        no_solar_hourly_df = _simulate_hourly_dataframe(
+        no_solar_results = _simulate_hourly_cached(
             weather=weather,
             demands=demands,
             config=no_solar_config,
             hourly_demand_override=hourly_demand_override,
             simulation_years=multiyear_years,
             simulation_cache=simulation_cache,
+            cache_mode="pygfunction",
         )
         _notify(
             progress,
             45,
             f"Simulation sans solaire {multiyear_years} ans - agregation",
         )
-        no_solar_multiyear_df = no_solar_hourly_df
-        if run_multiyear:
-            no_solar_hourly_df = no_solar_multiyear_df[no_solar_multiyear_df["simulation_year"] == 1].copy()
+        no_solar_hourly_df = _results_year_to_dataframe(
+            no_solar_results,
+            year=simulation_year_displayed,
+            simulation_years=multiyear_years,
+            weather_len=len(weather),
+            simulation_cache=simulation_cache,
+            label="sans solaire",
+        )
         _notify(progress, 48, "Nettoyage memoire")
         gc.collect()
     else:
@@ -1070,38 +1368,44 @@ def run_hourly_scenario(
             16,
             f"Simulation solaire {multiyear_years} ans - demarrage",
         )
-        hourly_df = _simulate_hourly_dataframe(
+        multiyear_results = _simulate_hourly_cached(
             weather=weather,
             demands=demands,
             config=config,
             hourly_demand_override=hourly_demand_override,
             simulation_years=multiyear_years,
             simulation_cache=simulation_cache,
+            cache_mode="pygfunction",
         )
         _notify(
             progress,
             35,
             f"Simulation solaire {multiyear_years} ans - agregation",
         )
-        multiyear_df = hourly_df
-        if run_multiyear:
-            hourly_df = multiyear_df[multiyear_df["simulation_year"] == 1].copy()
+        hourly_df = _results_year_to_dataframe(
+            multiyear_results,
+            year=simulation_year_displayed,
+            simulation_years=multiyear_years,
+            weather_len=len(weather),
+            simulation_cache=simulation_cache,
+            label="solaire",
+        )
         no_solar_hourly_df = hourly_df.iloc[0:0].copy()
-        no_solar_multiyear_df = multiyear_df.iloc[0:0].copy()
+        no_solar_results: list[HourlyResult] = []
         _notify(progress, 48, "Nettoyage memoire")
         gc.collect()
 
     _notify(progress, 50, "Agrégation des résultats horaires...")
-    multiyear_btes_df = _multiyear_btes_summary(
-        multiyear_df,
+    multiyear_btes_df = _multiyear_btes_summary_from_results(
+        multiyear_results,
         t_min_c=config.btes.t_min_c,
         gmi_t_min_c=config.btes.gmi_t_min_c,
         gmi_t_max_c=config.btes.gmi_t_max_c,
         gmi_check_enabled=config.btes.gmi_check_enabled,
     )
     if run_geo_only:
-        no_solar_multiyear_btes_df = _multiyear_btes_summary(
-            no_solar_multiyear_df,
+        no_solar_multiyear_btes_df = _multiyear_btes_summary_from_results(
+            no_solar_results,
             t_min_c=config.btes.t_min_c,
             gmi_t_min_c=config.btes.gmi_t_min_c,
             gmi_t_max_c=config.btes.gmi_t_max_c,
@@ -1117,10 +1421,7 @@ def run_hourly_scenario(
         simulation_year_displayed = max(1, min(multiyear_years, int(custom_display_year or multiyear_years)))
     else:
         simulation_year_displayed = multiyear_years
-    displayed_hourly_df = multiyear_df[multiyear_df["simulation_year"] == simulation_year_displayed].copy()
-    if displayed_hourly_df.empty:
-        displayed_hourly_df = hourly_df.copy()
-        simulation_year_displayed = 1
+    displayed_hourly_df = hourly_df.copy()
     displayed_hourly_df["simulation_year_displayed"] = simulation_year_displayed
     displayed_hourly_df["simulation_years_total"] = multiyear_years
     displayed_hourly_df["scenario"] = "Geothermie + solaire meme sondes"
@@ -1131,11 +1432,7 @@ def run_hourly_scenario(
     displayed_hourly_df["tmin_source_operationnelle_c"] = float(config.btes.t_min_c)
     displayed_hourly_df["critere_gmi_active"] = bool(config.btes.gmi_check_enabled)
 
-    no_solar_displayed_hourly_df = no_solar_multiyear_df[
-        no_solar_multiyear_df["simulation_year"] == simulation_year_displayed
-    ].copy()
-    if no_solar_displayed_hourly_df.empty:
-        no_solar_displayed_hourly_df = no_solar_hourly_df.copy()
+    no_solar_displayed_hourly_df = no_solar_hourly_df.copy()
     if not no_solar_displayed_hourly_df.empty:
         no_solar_displayed_hourly_df["simulation_year_displayed"] = simulation_year_displayed
         no_solar_displayed_hourly_df["simulation_years_total"] = multiyear_years
@@ -1180,10 +1477,22 @@ def run_hourly_scenario(
     )
     no_solar_total_elec = float(no_solar_displayed_hourly_df["electricity_pac_total_kwh"].sum()) if not no_solar_displayed_hourly_df.empty else 0.0
     no_solar_cop = no_solar_total_pac / no_solar_total_compressor if no_solar_total_compressor > 0 else 0.0
-    if run_geo_only and run_reduced_borefield:
-        no_solar_economic_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years)
-    else:
-        no_solar_economic_metrics = None
+    same_metrics = _hourly_metrics_from_results(multiyear_results, annualization_years=multiyear_years)
+    geo_only_metrics = (
+        _hourly_metrics_from_results(no_solar_results, annualization_years=multiyear_years)
+        if run_geo_only
+        else None
+    )
+    full_case_metrics = _final_year_screening_metrics_from_results(
+        multiyear_results,
+        t_min_c=config.btes.t_min_c,
+        gmi_t_min_c=config.btes.gmi_t_min_c,
+        gmi_t_max_c=config.btes.gmi_t_max_c,
+        demand_bt_kwh=float(hourly_df["demand_bt_kwh"].sum()) if not hourly_df.empty else 0.0,
+    )
+    full_case_metrics["mean_cop"] = same_metrics["mean_cop"]
+    full_case_metrics["mean_bt_pac_kwh"] = same_metrics["pac_heat_mwh"] * 1000.0
+    no_solar_economic_metrics = geo_only_metrics if run_geo_only and run_reduced_borefield else None
     no_solar_reference_coverage = no_solar_total_pac / max(1e-9, float(no_solar_displayed_hourly_df["demand_bt_kwh"].sum())) if not no_solar_displayed_hourly_df.empty else 0.0
     no_solar_reference_limited_hours = (
         float(no_solar_displayed_hourly_df["Limite_temperature_source"].sum())
@@ -1204,7 +1513,7 @@ def run_hourly_scenario(
             hourly_demand_override=hourly_demand_override,
             simulation_years=multiyear_years,
             search_mode=savings_search_mode if run_reduced_borefield else "none",
-            full_case_df=multiyear_df,
+            full_case_metrics=full_case_metrics,
             simulation_cache=simulation_cache,
         )
     else:
@@ -1212,8 +1521,6 @@ def run_hourly_scenario(
     reduced_candidate_df = savings.pop("_equivalent_hourly_df", None)
 
     _notify(progress, 85, "Calcul économique solaire thermique...")
-    same_metrics = _hourly_metrics(multiyear_df, annualization_years=multiyear_years)
-    geo_only_metrics = _hourly_metrics(no_solar_multiyear_df, annualization_years=multiyear_years) if run_geo_only else None
     economic_solar_ht_mwh = same_metrics["solar_ht_mwh"]
     economic_solar_btes_mwh = same_metrics["solar_btes_mwh"]
     economic_solar_total_mwh = economic_solar_ht_mwh + economic_solar_btes_mwh
@@ -1259,9 +1566,10 @@ def run_hourly_scenario(
                 simulation_years=multiyear_years,
                 simulation_cache=simulation_cache,
             )
+        reduced_metrics = _hourly_metrics(reduced_hourly_df, annualization_years=multiyear_years)
     else:
-        reduced_hourly_df = multiyear_df.copy()
-    reduced_metrics = _hourly_metrics(reduced_hourly_df, annualization_years=multiyear_years)
+        reduced_hourly_df = pd.DataFrame()
+        reduced_metrics = same_metrics
 
     _notify(progress, 90, "Construction des couts par scenario...")
     geo_only_heat_costs = (
@@ -1335,30 +1643,36 @@ def run_hourly_scenario(
     elif not bool(savings["found"]):
         recharge_value["status"] = "non determine"
 
-    same_trajectory_df = _annual_metrics_trajectory(
-        multiyear_df,
+    same_trajectory_df = _annual_metrics_trajectory_from_results(
+        multiyear_results,
         analysis_years=int(economics.analysis_years),
         gmi_t_min_c=config.btes.gmi_t_min_c,
         gmi_t_max_c=config.btes.gmi_t_max_c,
         gmi_check_enabled=config.btes.gmi_check_enabled,
+        pac_power_kw=float(config.heat_pump.max_thermal_power_kw or 0.0),
     )
     geo_only_trajectory_df = (
+        _annual_metrics_trajectory_from_results(
+            no_solar_results,
+            analysis_years=int(economics.analysis_years),
+            gmi_t_min_c=config.btes.gmi_t_min_c,
+            gmi_t_max_c=config.btes.gmi_t_max_c,
+            gmi_check_enabled=config.btes.gmi_check_enabled,
+            pac_power_kw=float(no_solar_config.heat_pump.max_thermal_power_kw or 0.0),
+        )
+        if run_geo_only
+        else pd.DataFrame()
+    )
+    reduced_trajectory_df = (
         _annual_metrics_trajectory(
-            no_solar_multiyear_df,
+            reduced_hourly_df,
             analysis_years=int(economics.analysis_years),
             gmi_t_min_c=config.btes.gmi_t_min_c,
             gmi_t_max_c=config.btes.gmi_t_max_c,
             gmi_check_enabled=config.btes.gmi_check_enabled,
         )
-        if run_geo_only
-        else pd.DataFrame()
-    )
-    reduced_trajectory_df = _annual_metrics_trajectory(
-        reduced_hourly_df,
-        analysis_years=int(economics.analysis_years),
-        gmi_t_min_c=config.btes.gmi_t_min_c,
-        gmi_t_max_c=config.btes.gmi_t_max_c,
-        gmi_check_enabled=config.btes.gmi_check_enabled,
+        if run_reduced_borefield and bool(savings["found"]) and not reduced_hourly_df.empty
+        else same_trajectory_df.copy()
     )
     reference_trajectory_df = _reference_gas_trajectory_from(same_trajectory_df)
 
@@ -1494,6 +1808,15 @@ def run_hourly_scenario(
         var_name="Indicateur",
         value_name="Valeur",
     )
+    solar_parametric_reference = {
+        "surface_m2": float(config.collector.area_m2),
+        "boreholes": int(config.btes.boreholes),
+        "depth_m": float(config.btes.depth_m),
+        "simulation_years": int(economics.analysis_years),
+        "metrics": dict(same_metrics),
+        "full_case_metrics": dict(full_case_metrics),
+        "trajectory_df": same_trajectory_df.copy(),
+    }
 
     result = ScenarioResult(
         config=config,
@@ -1509,6 +1832,7 @@ def run_hourly_scenario(
         economic_comparison_df=economic_comparison_df,
         economic_comparison_chart_df=economic_comparison_chart_df,
         economic_trajectory_df=economic_trajectory_df,
+        solar_parametric_reference=solar_parametric_reference,
         recharge_value=recharge_value,
         solar_allocation=solar_allocation,
         total_ht_kwh=total_ht,

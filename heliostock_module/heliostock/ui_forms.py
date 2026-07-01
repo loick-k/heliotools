@@ -390,27 +390,40 @@ def render_economics_form() -> EconomicsInputs:
 
 
 def render_calculation_selection_form() -> CalculationSelectionFormResult:
-    with st.expander("6) Calculs a lancer", expanded=True):
+    with st.expander("6) Profil de calcul et calculs a lancer", expanded=True):
         profile_label = st.radio(
             "Profil de calcul",
-            options=["Previsualisation rapide", "Dimensionnement 25 ans", "Calcul final"],
+            options=[
+                "Previsualisation rapide - 1 an, scenario principal uniquement",
+                "Dimensionnement technique - 25 ans, sans parametriques",
+                "Calcul final complet - 25 ans, economie sondes et parametriques",
+            ],
             index=1,
             horizontal=True,
         )
         profile_map = {
-            "Previsualisation rapide": "previsualisation_rapide",
-            "Dimensionnement 25 ans": "dimensionnement_25_ans",
-            "Calcul final": "calcul_final",
+            "Previsualisation rapide - 1 an, scenario principal uniquement": "previsualisation_rapide",
+            "Dimensionnement technique - 25 ans, sans parametriques": "dimensionnement_25_ans",
+            "Calcul final complet - 25 ans, economie sondes et parametriques": "calcul_final",
         }
         calculation_profile = profile_map[str(profile_label)]
         quick_preview = calculation_profile == "previsualisation_rapide"
         final_profile = calculation_profile == "calcul_final"
         if quick_preview:
-            st.info("Simulation 1 an uniquement, scenario principal, sans economie de sondes ni etudes parametriques.")
+            st.info(
+                "Profil rapide : simulation 1 an du scenario principal uniquement. "
+                "Geothermie seule, economie de sondes et etudes parametriques sont masquees/desactivees."
+            )
         elif calculation_profile == "dimensionnement_25_ans":
-            st.info("Simulation 25 ans avec comparaison geothermie seule, sans economie de sondes ni etudes parametriques.")
+            st.info(
+                "Profil dimensionnement : simulation technique 25 ans avec comparaison geothermie seule. "
+                "Les etudes parametriques et l'economie de sondes restent desactivees."
+            )
         else:
-            st.info("Calcul complet 25 ans : economie de sondes et etudes parametriques activables.")
+            st.info(
+                "Profil final complet : simulation 25 ans avec options avancees. "
+                "Les etudes parametriques PAC/solaire et l'economie de sondes sont disponibles ci-dessous."
+            )
         run_multiyear = st.checkbox("Projection technique multiannuelle", value=not quick_preview, disabled=quick_preview)
         technical_simulation_years = st.number_input(
             "Duree simulation technique champ (ans)",
@@ -477,8 +490,8 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             run_reduced_borefield = False
             savings_search_mode = "none"
         st.caption(
-            "Le profil choisi force les options lourdes : la previsualisation reste legere, "
-            "le dimensionnement 25 ans exclut les optimisations, et le calcul final autorise les etudes avancees."
+            "Important : les etudes parametriques ne sont affichees et lancees que dans le profil "
+            "`Calcul final complet - 25 ans, economie sondes et parametriques`."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(
@@ -498,7 +511,13 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
 
 
 def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> ParametricFormsResult:
-    with st.expander("7) Etude parametrique PAC geothermie", expanded=False):
+    if disabled:
+        return ParametricFormsResult(
+            pac=ParametricRange(False, 50.0, 100.0, 10.0),
+            solar=ParametricRange(False, max(0.0, float(area_m2) * 0.5), max(50.0, float(area_m2) * 1.5), 250.0),
+        )
+
+    with st.expander("7) Etude parametrique PAC - Calcul final uniquement", expanded=False):
         enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False)
         pp1, pp2, pp3 = st.columns(3)
         param_pac_fraction_min_pct = pp1.number_input("P PAC min (% Pmax BT)", min_value=1.0, max_value=150.0, value=50.0, step=5.0)
@@ -511,7 +530,7 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             "Limite de sécurité : 25 points."
         )
 
-    with st.expander("8) Etude parametrique surface solaire", expanded=False):
+    with st.expander("8) Etude parametrique solaire + injection BTES - Calcul final uniquement", expanded=False):
         enable_solar_surface_parametric = st.checkbox("Activer l'étude paramétrique sur la surface solaire", value=False)
         p1, p2, p3 = st.columns(3)
         param_surface_min_m2 = p1.number_input("Surface min étudiée (m²)", min_value=0.0, value=max(0.0, float(area_m2) * 0.5), step=50.0)

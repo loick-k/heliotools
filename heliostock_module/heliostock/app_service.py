@@ -304,6 +304,7 @@ def run_hourly_calculation(
             savings_search_mode=request.calculation_selection.savings_search_mode,
             recharge_credit=request.calculation_selection.recharge_credit,
             reduced_borefield_safety_factor=request.calculation_selection.reduced_borefield_safety_factor,
+            full_case_reference=scenario.solar_parametric_reference,
             simulation_cache=simulation_cache,
             progress=progress_with_log,
         )
@@ -326,7 +327,6 @@ def run_hourly_calculation(
             "Cache hits": int(cache_summary["hits"]),
             "Cache misses": int(cache_summary["misses"]),
             "Entrees cache": int(cache_summary["entries"]),
-            "Simulations lancees": int(cache_summary["misses"]),
         },
         update_last_step=False,
     )

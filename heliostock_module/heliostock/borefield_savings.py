@@ -213,6 +213,7 @@ def borefield_equivalent_savings(
     recharge_credit: float = 0.6,
     reduced_borefield_safety_factor: float = 1.10,
     simulation_cache: SimulationCache | None = None,
+    include_hourly_df: bool = True,
 ) -> dict[str, float | bool | str | pd.DataFrame]:
     """Estimate equivalent borefield length saving with solar recharge.
 
@@ -385,16 +386,18 @@ def borefield_equivalent_savings(
             if final_ok(final2):
                 best_results = results2
                 best_cop, best_bt, best_boreholes, best_final = cop2, bt2, boreholes2, final2
-            best_df = (
-                full_case_df.copy()
-                if best_results is None and full_case_df is not None
-                else _selected_results_to_dataframe(
-                    best_results,
-                    simulation_cache=simulation_cache,
-                    years=years,
-                    weather_len=len(weather),
+            best_df = pd.DataFrame()
+            if include_hourly_df:
+                best_df = (
+                    full_case_df.copy()
+                    if best_results is None and full_case_df is not None
+                    else _selected_results_to_dataframe(
+                        best_results,
+                        simulation_cache=simulation_cache,
+                        years=years,
+                        weather_len=len(weather),
+                    )
                 )
-            )
             return _base_return(
                 found=True,
                 base_length_m=base_length_m,
@@ -410,16 +413,18 @@ def borefield_equivalent_savings(
         larger_length = min(base_length_m, max(test_length * 1.20, test_length + config.btes.depth_m))
         results3, cop3, bt3, boreholes3, final3 = run_length(larger_length)
         if final_ok(final3):
-            df3 = (
-                full_case_df.copy()
-                if results3 is None and full_case_df is not None
-                else _selected_results_to_dataframe(
-                    results3,
-                    simulation_cache=simulation_cache,
-                    years=years,
-                    weather_len=len(weather),
+            df3 = pd.DataFrame()
+            if include_hourly_df:
+                df3 = (
+                    full_case_df.copy()
+                    if results3 is None and full_case_df is not None
+                    else _selected_results_to_dataframe(
+                        results3,
+                        simulation_cache=simulation_cache,
+                        years=years,
+                        weather_len=len(weather),
+                    )
                 )
-            )
             return _base_return(
                 found=True,
                 base_length_m=base_length_m,
@@ -485,16 +490,18 @@ def borefield_equivalent_savings(
         "savings_simulations_count": simulations_count,
         **{f"equivalent_{key}": value for key, value in best_final.items()},
     }
-    best_df = (
-        full_df.copy()
-        if best_uses_full_case_df and "full_df" in locals() and isinstance(full_df, pd.DataFrame)
-        else _selected_results_to_dataframe(
-            best_results,
-            simulation_cache=simulation_cache,
-            years=years,
-            weather_len=len(weather),
+    best_df = pd.DataFrame()
+    if include_hourly_df:
+        best_df = (
+            full_df.copy()
+            if best_uses_full_case_df and "full_df" in locals() and isinstance(full_df, pd.DataFrame)
+            else _selected_results_to_dataframe(
+                best_results,
+                simulation_cache=simulation_cache,
+                years=years,
+                weather_len=len(weather),
+            )
         )
-    )
     if not best_df.empty:
         result["_equivalent_hourly_df"] = best_df
     return result
