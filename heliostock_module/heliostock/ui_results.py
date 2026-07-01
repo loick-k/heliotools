@@ -5,7 +5,6 @@ import streamlit as st
 
 from .charts import (
     _bar_chart,
-    _efficiency_chart,
     _line_chart,
     _multiyear_btes_flux_chart,
     _multiyear_btes_temperature_chart,
@@ -156,8 +155,8 @@ def render_hourly_results(
     with tab_temp:
         st.markdown("### Température du ballon solaire et du champ BTES")
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
-        st.markdown("### Rendement capteur horaire")
-        st.altair_chart(_efficiency_chart(hourly_df), width="stretch")
+        st.markdown("### Rendement moyen capteur")
+        _render_collector_efficiency_kpis(hourly_df)
 
     with tab_multi:
         _render_multiyear_tab(multiyear_btes_df, no_solar_multiyear_btes_df)
@@ -196,6 +195,35 @@ def render_hourly_results(
         _render_detail_tab(hourly_by_month_df, hourly_profile_df, hourly_df)
 
     return hourly_df
+
+
+def _weighted_average_efficiency(hourly_df: pd.DataFrame, efficiency_column: str, energy_column: str) -> float:
+    if efficiency_column not in hourly_df or energy_column not in hourly_df:
+        return 0.0
+    energy = pd.to_numeric(hourly_df[energy_column], errors="coerce").fillna(0.0).clip(lower=0.0)
+    efficiency = pd.to_numeric(hourly_df[efficiency_column], errors="coerce").fillna(0.0).clip(lower=0.0)
+    total_energy = float(energy.sum())
+    if total_energy <= 1e-9:
+        return 0.0
+    return float((efficiency * energy).sum() / total_energy)
+
+
+def _render_collector_efficiency_kpis(hourly_df: pd.DataFrame) -> None:
+    ht_eff = _weighted_average_efficiency(hourly_df, "collector_eff_ht", "solar_ht_to_buffer_kwh")
+    storage_eff = _weighted_average_efficiency(hourly_df, "collector_eff_storage", "solar_to_btes_kwh")
+    ht_energy_mwh = float(hourly_df["solar_ht_to_buffer_kwh"].sum()) / 1000.0 if "solar_ht_to_buffer_kwh" in hourly_df else 0.0
+    storage_energy_mwh = float(hourly_df["solar_to_btes_kwh"].sum()) / 1000.0 if "solar_to_btes_kwh" in hourly_df else 0.0
+
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Charge ballon", f"{ht_eff * 100:.1f} %", delta=f"{ht_energy_mwh:.0f} MWh captés")
+    k2.metric("Injection BTES", f"{storage_eff * 100:.1f} %", delta=f"{storage_energy_mwh:.0f} MWh injectés")
+    if ht_energy_mwh + storage_energy_mwh > 1e-9:
+        combined_eff = (
+            ht_eff * ht_energy_mwh + storage_eff * storage_energy_mwh
+        ) / max(1e-9, ht_energy_mwh + storage_energy_mwh)
+        k3.metric("Moyenne pondérée", f"{combined_eff * 100:.1f} %")
+    else:
+        k3.metric("Moyenne pondérée", "non disponible")
 
 
 def _render_pac_electricity_summary(

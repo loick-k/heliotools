@@ -149,36 +149,6 @@ def _multiyear_btes_flux_chart(summary_df: pd.DataFrame):
     )
 
 
-def _efficiency_chart(results_df: pd.DataFrame):
-    eff_df = results_df[["Jour annee", "collector_eff_ht", "collector_eff_storage"]].rename(
-        columns={
-            "collector_eff_ht": "Rendement capteur charge ballon",
-            "collector_eff_storage": "Rendement capteur injection BTES",
-        }
-    )
-    eff_long = eff_df.melt(
-        id_vars=["Jour annee"],
-        value_vars=["Rendement capteur charge ballon", "Rendement capteur injection BTES"],
-        var_name="Grandeur",
-        value_name="Rendement",
-    )
-    return (
-        alt.Chart(eff_long)
-        .mark_line(strokeWidth=1.2)
-        .encode(
-            x=alt.X("Jour annee:Q", title="Jour de l'annee"),
-            y=alt.Y("Rendement:Q", title="Rendement"),
-            color="Grandeur:N",
-            tooltip=[
-                alt.Tooltip("Jour annee:Q", format=".1f"),
-                "Grandeur:N",
-                alt.Tooltip("Rendement:Q", format=".3f"),
-            ],
-        )
-        .properties(height=300)
-    )
-
-
 def _duration_chart(duration_df: pd.DataFrame, *, sort_by: str):
     return (
         alt.Chart(duration_df)
