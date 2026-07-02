@@ -3,6 +3,84 @@ from __future__ import annotations
 import altair as alt
 import pandas as pd
 
+ENERGY_COLOR_DOMAIN = [
+    "Solaire thermique",
+    "Prechauffage HT solaire (MWh)",
+    "Préchauffage HT solaire (MWh)",
+    "Solaire HT",
+    "Injection BTES (MWh)",
+    "Injection solaire BTES",
+    "Recharge solaire BTES",
+    "Extraction PAC (MWh)",
+    "Extraction champ vers PAC",
+    "BT PAC (MWh)",
+    "Géothermie PAC",
+    "Geothermie PAC",
+    "Bilan net sol",
+    "Q net sol (MWh)",
+    "Appoint HT",
+    "Appoint HT (MWh)",
+    "Appoint BT",
+    "Appoint BT (MWh)",
+    "Appoint gaz",
+]
+ENERGY_COLOR_RANGE = [
+    "#facc15",
+    "#facc15",
+    "#facc15",
+    "#facc15",
+    "#f97316",
+    "#f97316",
+    "#f97316",
+    "#16a34a",
+    "#16a34a",
+    "#16a34a",
+    "#16a34a",
+    "#16a34a",
+    "#0f766e",
+    "#0f766e",
+    "#4b5563",
+    "#4b5563",
+    "#d1d5db",
+    "#d1d5db",
+    "#9ca3af",
+]
+GENERATOR_COLOR_DOMAIN = [
+    "Solaire thermique",
+    "Géothermie PAC",
+    "Geothermie PAC",
+    "Appoint gaz",
+    "Mix ENR",
+    "Reference 100% gaz",
+    "Référence 100% gaz",
+]
+GENERATOR_COLOR_RANGE = [
+    "#facc15",
+    "#16a34a",
+    "#16a34a",
+    "#9ca3af",
+    "#0f766e",
+    "#6b7280",
+    "#6b7280",
+]
+
+
+def _energy_color(field: str = "Poste:N") -> alt.Color:
+    return alt.Color(
+        field,
+        title="Poste",
+        scale=alt.Scale(domain=ENERGY_COLOR_DOMAIN, range=ENERGY_COLOR_RANGE),
+    )
+
+
+def _generator_color(field: str) -> alt.Color:
+    return alt.Color(
+        field,
+        title=None,
+        scale=alt.Scale(domain=GENERATOR_COLOR_DOMAIN, range=GENERATOR_COLOR_RANGE),
+    )
+
+
 def _temperature_chart(results_df: pd.DataFrame):
     temp_df = results_df[
         [
@@ -182,8 +260,8 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 "Poste:N",
                 title="Poste",
                 scale=alt.Scale(
-                    domain=["Solaire thermique", "Géothermie PAC", "Geothermie PAC", "Appoint HT", "Appoint BT", "Appoint gaz"],
-                    range=["#facc15", "#16a34a", "#16a34a", "#4b5563", "#d1d5db", "#9ca3af"],
+                    domain=ENERGY_COLOR_DOMAIN,
+                    range=ENERGY_COLOR_RANGE,
                 ),
             ),
             order=alt.Order("Ordre:Q", sort="ascending"),
@@ -212,15 +290,8 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 "Poste:N",
                 title="Poste",
                 scale=alt.Scale(
-                    domain=[
-                        "Solaire thermique",
-                        "Géothermie PAC",
-                        "Geothermie PAC",
-                        "Appoint HT",
-                        "Appoint BT",
-                        "Appoint gaz",
-                    ],
-                    range=["#facc15", "#16a34a", "#16a34a", "#4b5563", "#d1d5db", "#9ca3af"],
+                    domain=ENERGY_COLOR_DOMAIN,
+                    range=ENERGY_COLOR_RANGE,
                 ),
             ),
             order=alt.Order("Ordre:Q", sort="ascending"),
@@ -245,11 +316,33 @@ def _bar_chart(df: pd.DataFrame, *, y_title: str = "MWh/mois", height: int = 340
         .encode(
             x=alt.X("Mois:N", title="Mois", sort=None),
             y=alt.Y("Valeur:Q", title=y_title),
-            color=alt.Color("Poste:N", title="Poste"),
+            color=_energy_color(),
             tooltip=["Mois:N", "Poste:N", alt.Tooltip("Valeur:Q", format=".1f")],
         )
         .properties(height=height)
     )
+
+
+def _percent_bar_chart(df: pd.DataFrame, *, y_title: str = "%", height: int = 300):
+    bars = (
+        alt.Chart(df)
+        .mark_bar(color="#2f855a")
+        .encode(
+            x=alt.X("Mois:N", title="Mois", sort=None),
+            y=alt.Y("Valeur:Q", title=y_title, scale=alt.Scale(domain=[0, 100])),
+            tooltip=["Mois:N", alt.Tooltip("Valeur:Q", title=y_title, format=".0f")],
+        )
+    )
+    labels = (
+        alt.Chart(df)
+        .mark_text(dy=-6, color="#1f2937", fontSize=11)
+        .encode(
+            x=alt.X("Mois:N", sort=None),
+            y=alt.Y("Valeur:Q", scale=alt.Scale(domain=[0, 100])),
+            text=alt.Text("Valeur:Q", format=".0f"),
+        )
+    )
+    return (bars + labels).properties(height=height)
 
 
 def _line_chart(df: pd.DataFrame, *, y_title: str, height: int = 300, y_domain: list[float] | None = None):
@@ -349,7 +442,7 @@ def _heat_cost_summary_chart(heat_cost_df: pd.DataFrame):
                 sort=["Solaire thermique", "Geothermie PAC", "Appoint gaz", "Mix ENR", "Reference 100% gaz"],
             ),
             y=alt.Y("Cout chaleur (EUR/MWh):Q", title="EUR/MWh"),
-            color=alt.Color("Generateur:N", legend=None),
+            color=_generator_color("Generateur:N"),
             tooltip=[
                 "Generateur:N",
                 alt.Tooltip("Energie (MWh/an):Q", format=",.1f"),

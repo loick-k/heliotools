@@ -11,6 +11,7 @@ from .charts import (
     _multiyear_btes_temperature_comparison_chart,
     _parametric_pac_chart,
     _parametric_surface_chart,
+    _percent_bar_chart,
     _stacked_coverage_duration_chart,
     _temperature_chart,
 )
@@ -413,7 +414,7 @@ def _render_monthly_tab(
     chart_a, chart_b = st.columns(2)
     with chart_a:
         st.markdown("### Couverture solaire HT")
-        st.altair_chart(_line_chart(coverage_rate_df, y_title="Couverture solaire HT (%)", y_domain=[0, 100]), width="stretch")
+        st.altair_chart(_percent_bar_chart(coverage_rate_df, y_title="Couverture solaire HT (%)"), width="stretch")
         st.caption(
             "La priorité HT est appliquée au pas horaire via le ballon solaire journalier. "
             "Une injection BTES mensuelle peut donc coexister avec un taux HT inférieur à 100 %."
