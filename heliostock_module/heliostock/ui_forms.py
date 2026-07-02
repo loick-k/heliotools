@@ -192,15 +192,10 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
                 hourly_weather,
             )
             st.success(
-                "Profil process 8760 h charge : "
+                "Profil process 8760 h chargé : "
                 f"{demand_info['rows']:.0f} lignes, "
                 f"HT {demand_info['ht_kwh'] / 1000:.0f} MWh/an, "
                 f"BT {demand_info['bt_kwh'] / 1000:.0f} MWh/an."
-            )
-            st.caption(
-                f"Mapping appliqué : besoin HT -> process {process_ht_target_c:.0f} °C ; "
-                f"besoin BT -> process {process_bt_target_c:.0f} °C. "
-                "Les valeurs horaires recalées sont utilisées directement."
             )
         except Exception as exc:
             st.error(f"Lecture du fichier besoin impossible : {exc}")
@@ -283,10 +278,10 @@ def render_geothermal_form(
     process_bt_target_c: float,
 ) -> GeothermalFormResult:
     pre_peak_bt_power_kw = _peak_bt_power_kw(hourly_weather, demands, hourly_demand_override)
-    with st.expander("4) Geothermie PAC et champ de sondes", expanded=True):
+    with st.expander("4) Géothermie PAC et champ de sondes", expanded=True):
         st.caption(
-            "Bloc simplifie : la PAC est dimensionnee en % du Pmax BT. Le predimensionnement propose un nombre de sondes, "
-            "mais le nombre effectivement simule reste modifiable ci-dessous."
+            "Bloc simplifié : la PAC est dimensionnée en % du Pmax BT. Le prédimensionnement propose un nombre de sondes, "
+            "mais le nombre effectivement simulé reste modifiable ci-dessous."
         )
         use_probe_predesign = True
         geo_fixed = FixedGeoAssumptions(air_target_bt_c=float(process_bt_target_c))
@@ -329,51 +324,54 @@ def render_geothermal_form(
 
         g1, g2, g3, g4 = st.columns(4)
         g1.metric("P PAC retenue", f"{predesign.pac_power_kw:.0f} kW", delta=f"{pac_power_fraction_pct:.0f} % Pmax BT")
-        g2.metric("COP de predim", f"{predesign.cop:.1f}")
+        g2.metric("COP de prédim.", f"{predesign.cop:.1f}")
         g3.metric("P sous-sol", f"{predesign.ground_power_kw:.0f} kW")
         g4.metric("Chaleur sous-sol", f"{predesign.ground_heat_mwh_year:.0f} MWh/an")
 
-        g5, g6, g7 = st.columns(3)
-        g5.metric("Longueur requise", f"{predesign.required_length_m:.0f} ml")
-        g6.metric("Nombre de sondes predim", f"{predesign.boreholes}")
-        g7.metric("Lineaire effectif", f"{predesign.effective_length_m:.0f} ml")
+        g5, g6 = st.columns(2)
+        g5.metric("Linéaire effectif", f"{predesign.effective_length_m:.0f} ml")
+        g6.metric("Nombre de sondes prédim.", f"{predesign.boreholes}")
 
         boreholes = st.number_input(
-            "Nombre de sondes a simuler",
+            "Nombre de sondes à simuler",
             min_value=1,
             max_value=1000,
             value=int(predesign.boreholes),
             step=1,
-            help="Valeur utilisee dans le calcul physique et economique. Le predimensionnement reste seulement un repere.",
+            help="Valeur utilisée dans le calcul physique et économique. Le prédimensionnement reste seulement un repère.",
         )
         depth_m = predesign.unit_depth_m
         selected_borefield_length_m = float(boreholes) * float(depth_m)
         delta_boreholes = int(boreholes) - int(predesign.boreholes)
         st.caption(
-            f"Champ simule : {int(boreholes)} sondes x {depth_m:.0f} m = {selected_borefield_length_m:.0f} ml "
-            f"({delta_boreholes:+d} sondes vs predimensionnement)."
+            f"Champ simulé : {int(boreholes)} sondes x {depth_m:.0f} m = {selected_borefield_length_m:.0f} ml "
+            f"({delta_boreholes:+d} sondes vs prédimensionnement)."
         )
 
-        with st.expander("Hypotheses geothermie fixees", expanded=False):
+        with st.expander("Hypothèses géothermie fixées", expanded=False):
             st.dataframe(geo_fixed.to_table(), width="stretch", hide_index=True)
             st.caption(
-                "Ces valeurs sont fixees pour reduire les degres de liberte de l'interface. "
-                "Le COP horaire reste calcule dynamiquement avec la temperature du champ."
+                "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
+                "Le COP horaire reste calculé dynamiquement avec la température du champ."
             )
-        with st.expander("Seuils source PAC et critere GMI", expanded=True):
+        with st.expander("Seuils source PAC et critère GMI", expanded=True):
             s1, s2, s3 = st.columns(3)
             t_min_operation_c = s1.number_input(
-                "Tmin source PAC operationnelle (C)",
+                "Tmin source PAC opérationnelle (°C)",
                 min_value=-10.0,
                 max_value=20.0,
                 value=geo_fixed.t_min_c,
                 step=1.0,
+                help=(
+                    "Seuil de pilotage utilisé pour brider la PAC. "
+                    "0 °C est une valeur de prédimensionnement courante ; -3 °C correspond au plancher GMI affiché séparément."
+                ),
             )
-            gmi_t_min_c = s2.number_input("Tmin GMI (C)", min_value=-10.0, max_value=10.0, value=geo_fixed.gmi_t_min_c, step=1.0)
-            gmi_t_max_c = s3.number_input("Tmax GMI (C)", min_value=20.0, max_value=60.0, value=geo_fixed.gmi_t_max_c, step=1.0)
-            gmi_check_enabled = st.checkbox("Afficher la conformite GMI", value=geo_fixed.gmi_check_enabled)
+            gmi_t_min_c = s2.number_input("Tmin GMI (°C)", min_value=-10.0, max_value=10.0, value=geo_fixed.gmi_t_min_c, step=1.0)
+            gmi_t_max_c = s3.number_input("Tmax GMI (°C)", min_value=20.0, max_value=60.0, value=geo_fixed.gmi_t_max_c, step=1.0)
+            gmi_check_enabled = st.checkbox("Afficher la conformité GMI", value=geo_fixed.gmi_check_enabled)
             if t_min_operation_c > gmi_t_min_c:
-                st.warning("La Tmin operationnelle PAC est plus restrictive que le critere GMI bas.")
+                st.warning("La Tmin opérationnelle PAC est plus restrictive que le critère GMI bas.")
         with st.expander("Hypothèses avancées P1 électrique", expanded=False):
             st.markdown(
                 f"""

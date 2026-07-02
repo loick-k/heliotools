@@ -87,7 +87,7 @@ class BtesInputs:
         if self.spacing_m <= 0.0:
             warnings.append("L'espacement moyen des sondes doit etre strictement positif.")
         if self.t_max_c <= self.t_min_c:
-            warnings.append("Tmax injection doit etre superieure a la Tmin source PAC operationnelle.")
+            warnings.append("Tmax injection doit être supérieure à la Tmin source PAC opérationnelle.")
         if not self.t_min_c <= self.t_initial_c <= self.t_max_c:
             warnings.append("Tsol initiale devrait etre comprise entre Tmin et Tmax champ.")
         return warnings

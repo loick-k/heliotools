@@ -124,7 +124,7 @@ class FixedGeoAssumptions:
     cop_min: float = 2.0
     cop_max: float = 8.0
     t_initial_c: float = 12.0
-    t_min_c: float = 5.0
+    t_min_c: float = 0.0
     t_max_c: float = 40.0
     gmi_t_min_c: float = -3.0
     gmi_t_max_c: float = 40.0
@@ -145,32 +145,32 @@ class FixedGeoAssumptions:
     def to_table(self) -> pd.DataFrame:
         return pd.DataFrame(
             [
-                ("Air cible BT calcul", self.air_target_bt_c, "C"),
+                ("Air cible BT calcul", self.air_target_bt_c, "°C"),
                 ("Approche condenseur calcul", self.condenser_approach_k, "K"),
-                ("Approche evaporateur calcul", self.evaporator_approach_k, "K"),
+                ("Approche évaporateur calcul", self.evaporator_approach_k, "K"),
                 ("Rendement Carnot calcul", self.carnot_efficiency, "-"),
                 ("COP min calcul", self.cop_min, "-"),
                 ("COP max calcul", self.cop_max, "-"),
-                ("Tsol initial", self.t_initial_c, "C"),
-                ("Tmin source PAC operationnelle", self.t_min_c, "C"),
-                ("Tmin GMI", self.gmi_t_min_c, "C"),
-                ("Tmax GMI", self.gmi_t_max_c, "C"),
-                ("Critere GMI actif", self.gmi_check_enabled, "-"),
-                ("Tmax injection BTES", self.t_max_c, "C"),
+                ("Tsol initial", self.t_initial_c, "°C"),
+                ("Tmin source PAC opérationnelle", self.t_min_c, "°C"),
+                ("Tmin GMI", self.gmi_t_min_c, "°C"),
+                ("Tmax GMI", self.gmi_t_max_c, "°C"),
+                ("Critère GMI actif", self.gmi_check_enabled, "-"),
+                ("Tmax injection BTES", self.t_max_c, "°C"),
                 ("Espacement moyen force", self.spacing_m, "m"),
-                ("Conductivite sol", self.ground_conductivity_w_m_k, "W/m.K"),
-                ("Diffusivite sol", self.ground_diffusivity_m2_s, "m2/s"),
+                ("Conductivité sol", self.ground_conductivity_w_m_k, "W/m.K"),
+                ("Diffusivité sol", self.ground_diffusivity_m2_s, "m2/s"),
                 ("Rayon forage", self.borehole_radius_m, "m"),
-                ("Profondeur enterree", self.borehole_buried_depth_m, "m"),
-                ("Resistance forage Rb_eff", self.borehole_thermal_resistance_m_k_w, "m.K/W"),
-                ("Puissance lineique extraction max", self.probe_power_ratio_w_m, "W/ml"),
-                ("Puissance lineique injection max", self.max_injection_w_m, "W/ml"),
+                ("Profondeur enterrée", self.borehole_buried_depth_m, "m"),
+                ("Résistance forage Rb_eff", self.borehole_thermal_resistance_m_k_w, "m.K/W"),
+                ("Puissance linéique extraction max", self.probe_power_ratio_w_m, "W/ml"),
+                ("Puissance linéique injection max", self.max_injection_w_m, "W/ml"),
                 ("Extraction max annuelle sondes", self.max_extraction_kwh_per_m_year, "kWh/ml.an"),
-                ("Facteur securite predimensionnement", self.safety_factor, "-"),
-                ("Forfait auxiliaires PAC/geothermie", self.aux_pac_ratio, "part elec compresseur"),
-                ("Veille/regulation PAC", self.standby_power_kw, "kW"),
+                ("Facteur sécurité prédimensionnement", self.safety_factor, "-"),
+                ("Forfait auxiliaires PAC/géothermie", self.aux_pac_ratio, "part élec compresseur"),
+                ("Veille/régulation PAC", self.standby_power_kw, "kW"),
             ],
-            columns=["Hypothese", "Valeur", "Unite"],
+            columns=["Hypothèse", "Valeur", "Unité"],
         )
 
 
