@@ -324,6 +324,7 @@ def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_bt
     m2.metric(f"T source fin an {years_count}", f"{last_year_end:.0f} C", delta=f"{last_year_end - first_year_end:+.0f} C")
     m3.metric("T min période", f"{period_min:.0f} C")
     m4.metric("Heures source Tmin", f"{hours_tmin:.0f} h")
+    chart_col_1, chart_col_2, chart_col_3 = st.columns(3)
     if not no_solar_multiyear_btes_df.empty:
         comparison_btes_df = pd.concat(
             [
@@ -332,11 +333,19 @@ def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_bt
             ],
             ignore_index=True,
         )
-        st.markdown("### Comparaison température sous-sol : géothermie seule vs recharge solaire")
-        st.altair_chart(_multiyear_btes_temperature_comparison_chart(comparison_btes_df), width="stretch")
-    st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), width="stretch")
-    st.markdown("### Flux mensuels champ de sondes")
-    st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), width="stretch")
+        with chart_col_1:
+            st.markdown("### Comparaison")
+            st.altair_chart(_multiyear_btes_temperature_comparison_chart(comparison_btes_df), width="stretch")
+    else:
+        with chart_col_1:
+            st.markdown("### Comparaison")
+            st.info("Comparaison géothermie seule indisponible.")
+    with chart_col_2:
+        st.markdown("### Température")
+        st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), width="stretch")
+    with chart_col_3:
+        st.markdown("### Flux mensuels")
+        st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), width="stretch")
     st.dataframe(display_dataframe(multiyear_btes_df), width="stretch", hide_index=True)
 
 
