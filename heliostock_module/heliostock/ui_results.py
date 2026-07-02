@@ -397,20 +397,9 @@ def _render_monthly_tab(
     st.markdown("### Bilan annuel, calcule depuis les 8760 heures")
     st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
 
-    st.markdown("### Taux de couverture solaire mensuel du besoin HT")
     coverage_rate_df = hourly_by_month_df[["Mois", "Taux couverture solaire HT (%)"]].rename(
         columns={"Taux couverture solaire HT (%)": "Valeur"}
     )
-    st.altair_chart(_line_chart(coverage_rate_df, y_title="Couverture solaire HT (%)", y_domain=[0, 100]), width="stretch")
-    st.caption(
-        "La priorite HT est appliquee au pas horaire via le ballon solaire journalier : "
-        "le solaire charge d'abord le ballon HT, le process HT soutire ensuite ce ballon, "
-        "et le BTES ne recoit que le reliquat lorsque le ballon est sature. "
-        "Une injection BTES mensuelle peut donc coexister avec un taux HT inferieur a 100 % "
-        "si les heures de soleil, les heures d'appel HT ou la temperature utile du ballon ne coincident pas parfaitement."
-    )
-
-    st.markdown("### Flux sous-sol : energie injectee et extraite vers PAC")
     ground_flux_df = pd.concat(
         [
             hourly_by_month_df[["Mois", "Injection BTES (MWh)"]].rename(columns={"Injection BTES (MWh)": "Valeur"}).assign(Poste="Injection solaire BTES"),
@@ -420,18 +409,40 @@ def _render_monthly_tab(
         ignore_index=True,
     )
     ground_flux_df.loc[ground_flux_df["Poste"] == "Extraction champ vers PAC", "Valeur"] *= -1.0
-    st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
-    st.caption(
-        "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire. "
-        "La dérive thermique du champ est calculée par pygfunction à partir des charges linéiques horaires."
-    )
 
-    st.markdown("### Production solaire valorisee : prechauffage HT et injection BTES")
-    st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Injection BTES (MWh)"])), width="stretch")
-    st.markdown("### Couverture mensuelle du besoin HT")
-    st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Appoint HT (MWh)"])), width="stretch")
-    st.markdown("### Couverture mensuelle du besoin BT")
-    st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
+    chart_a, chart_b = st.columns(2)
+    with chart_a:
+        st.markdown("### Couverture solaire HT")
+        st.altair_chart(_line_chart(coverage_rate_df, y_title="Couverture solaire HT (%)", y_domain=[0, 100]), width="stretch")
+        st.caption(
+            "La priorité HT est appliquée au pas horaire via le ballon solaire journalier. "
+            "Une injection BTES mensuelle peut donc coexister avec un taux HT inférieur à 100 %."
+        )
+    with chart_b:
+        st.markdown("### Flux sous-sol")
+        st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
+        st.caption(
+            "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire."
+        )
+
+    chart_c, chart_d = st.columns(2)
+    with chart_c:
+        st.markdown("### Production solaire valorisée")
+        st.altair_chart(
+            _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Injection BTES (MWh)"])),
+            width="stretch",
+        )
+    with chart_d:
+        st.markdown("### Couverture besoin HT")
+        st.altair_chart(
+            _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Appoint HT (MWh)"])),
+            width="stretch",
+        )
+
+    chart_e, _chart_empty = st.columns(2)
+    with chart_e:
+        st.markdown("### Couverture besoin BT")
+        st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
 
     st.markdown("### Comparaison horaire sans solaire / avec solaire")
     if no_solar_cop <= 0.0:
@@ -439,7 +450,7 @@ def _render_monthly_tab(
         return
     c1, c2, c3 = st.columns(3)
     c1.metric("Gain BT PAC", f"{(total_pac - no_solar_total_pac) / 1000:.0f} MWh")
-    c2.metric("Ecart electricite PAC", f"{(no_solar_total_elec - total_elec) / 1000:.0f} MWh")
+    c2.metric("Écart électricité PAC", f"{(no_solar_total_elec - total_elec) / 1000:.0f} MWh")
     c3.metric("Gain COP", f"{mean_cop - no_solar_cop:+.1f}", delta=f"{mean_cop:.1f} vs {no_solar_cop:.1f}")
 
 
