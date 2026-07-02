@@ -70,7 +70,7 @@ def render_hourly_results(
     savings = scenario.savings
     backup_power_kw = scenario.backup_power_kw
 
-    st.subheader("Resultats 8760 h")
+    st.subheader("Résumé technique")
     st.caption(
         f"Simulation technique champ : {scenario.simulation_years_total} an(s). "
         f"Annee affichee pour les resultats techniques : {scenario.simulation_year_displayed}. "
@@ -79,56 +79,54 @@ def render_hourly_results(
         f"critere GMI {'actif' if scenario.gmi_check_enabled else 'inactif'} "
         f"({scenario.config.btes.gmi_t_min_c:.1f} / {scenario.config.btes.gmi_t_max_c:.1f} C)."
     )
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
-    k2.metric("Prechauffage HT solaire", f"{total_preheat_ht / 1000:.0f} MWh")
-    k3.metric("Charge ballon solaire", f"{total_charge_buffer / 1000:.0f} MWh")
-    k4.metric("Injection BTES", f"{total_to_btes / 1000:.0f} MWh")
-
-    k5, k6, k7, k8 = st.columns(4)
-    k5.metric("Productivite solaire valorisee", f"{solar_productivity_valued:.0f} kWh/m2.an")
-    k6.metric("Consommation appoint", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh")
-    k7.metric("Couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %")
-    k8.metric(
-        "COP PAC avec solaire",
-        f"{mean_cop:.1f}",
-        delta=f"{mean_cop - no_solar_cop:+.1f} vs sans solaire" if no_solar_cop > 0.0 else None,
-    )
-
-    k9, k10, k11, k12 = st.columns(4)
-    k9.metric("Taux EnR global", f"{global_ren_rate * 100:.0f} %")
-    k10.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lance")
-    k11.metric("Lineaire simule 8760 h", f"{scenario.full_borefield_length_m:.0f} ml")
-    if bool(savings["found"]):
-        k12.metric("Gain equivalent eco", f"{float(savings['saved_length_m']):.0f} ml")
-    else:
-        k12.metric("Gain equivalent eco", "non trouve")
-
     equivalent_full_power_hours = total_pac / pac_nominal_power_kw if pac_nominal_power_kw > 0.0 else 0.0
-    p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW")
-    p2.metric("P PAC retenue", f"{pac_nominal_power_kw:.0f} kW", delta=f"{pac_power_fraction_pct:.0f} % Pmax")
-    p3.metric("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an")
-    p4.metric("Pic appoint appele", f"{backup_power_kw:.0f} kW")
     gmi_hours_low = int((hourly_df["T_fluide_entree_echangeur_geo_C"] < scenario.config.btes.gmi_t_min_c - 1e-6).sum())
     gmi_hours_high = int((hourly_df["T_fluide_injection_C"] > scenario.config.btes.gmi_t_max_c + 1e-6).sum())
     source_limit_hours = int(hourly_df["Limite_temperature_source"].sum())
     source_limit_energy = float(hourly_df["BT_non_couvert_limite_source_kWh"].sum()) / 1000.0
-    d1, d2, d3, d4 = st.columns(4)
+
+    st.markdown("#### Données d'entrée principales")
+    i1, i2, i3, i4 = st.columns(4)
+    i1.metric("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m²")
+    i2.metric("Stockage solaire", f"{total_charge_buffer / 1000:.0f} MWh")
+    i3.metric("P PAC retenue", f"{pac_nominal_power_kw:.0f} kW", delta=f"{pac_power_fraction_pct:.0f} % Pmax")
+    i4.metric("Linéaire sondes", f"{scenario.full_borefield_length_m:.0f} ml")
+
+    st.markdown("#### Bilan énergie")
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
+    k2.metric("Prechauffage HT solaire", f"{total_preheat_ht / 1000:.0f} MWh")
+    k3.metric("Injection BTES", f"{total_to_btes / 1000:.0f} MWh")
+    k4.metric("Consommation appoint", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh")
+
+    k5, k6, k7, k8 = st.columns(4)
+    k5.metric("Productivite solaire valorisee", f"{solar_productivity_valued:.0f} kWh/m2.an")
+    k6.metric("Couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %")
+    k7.metric("Taux EnR global", f"{global_ren_rate * 100:.0f} %")
+    if bool(savings["found"]):
+        k8.metric("Gain equivalent eco", f"{float(savings['saved_length_m']):.0f} ml")
+    else:
+        k8.metric("Gain equivalent eco", "non trouve")
+
+    st.markdown("#### PAC et appoint")
+    p1, p2, p3, p4 = st.columns(4)
+    p1.metric("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW")
+    p2.metric(
+        "COP PAC avec solaire",
+        f"{mean_cop:.1f}",
+        delta=f"{mean_cop - no_solar_cop:+.1f} vs sans solaire" if no_solar_cop > 0.0 else None,
+    )
+    p3.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lance")
+    p4.metric("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an")
+    p5, p6 = st.columns(2)
+    p5.metric("Pic appoint appele", f"{backup_power_kw:.0f} kW")
+    p6.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
+
+    st.markdown("#### Champ de sondes et sécurité")
+    d1, d2, d3 = st.columns(3)
     d1.metric("Heures sous Tmin operationnelle", f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h")
     d2.metric("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h")
     d3.metric("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} C")
-    d4.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
-
-    _render_pac_electricity_summary(
-        total_compressor=total_compressor,
-        total_auxiliaries=total_auxiliaries,
-        total_standby=total_standby,
-        total_elec=total_elec,
-        mean_cop=mean_cop,
-        spf_pac_total=spf_pac_total,
-        spf_system=spf_system,
-    )
     _render_btes_warnings(
         scenario=scenario,
         hourly_df=hourly_df,
@@ -144,7 +142,7 @@ def render_hourly_results(
 
     tab_temp, tab_multi, tab_mono, tab_monthly, tab_economics, tab_parametric_pac, tab_parametric_solar, tab_detail = st.tabs(
         [
-            "Températures horaires",
+            "Analyse solaire et géothermie",
             "Multiannuel BTES",
             "Monotone horaire",
             "Analyses mensuelles",
@@ -156,7 +154,11 @@ def render_hourly_results(
     )
 
     with tab_temp:
-        st.markdown("### Température du ballon solaire et du champ BTES")
+        st.markdown("### Grandeurs solaires et géothermie horaire")
+        st.caption(
+            "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
+            "vue par la PAC. La température de paroi forage est affichée séparément."
+        )
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
         st.markdown("### Rendement moyen capteur")
         _render_collector_efficiency_kpis(hourly_df)
@@ -186,6 +188,13 @@ def render_hourly_results(
             economic_trajectory_df=scenario.economic_trajectory_df,
             recharge_value=scenario.recharge_value,
             heat_costs=scenario.heat_costs,
+            total_compressor=total_compressor,
+            total_auxiliaries=total_auxiliaries,
+            total_standby=total_standby,
+            total_elec=total_elec,
+            mean_cop=mean_cop,
+            spf_pac_total=spf_pac_total,
+            spf_system=spf_system,
         )
 
     with tab_parametric_pac:
@@ -227,28 +236,6 @@ def _render_collector_efficiency_kpis(hourly_df: pd.DataFrame) -> None:
         k3.metric("Moyenne pondérée", f"{combined_eff * 100:.1f} %")
     else:
         k3.metric("Moyenne pondérée", "non disponible")
-
-
-def _render_pac_electricity_summary(
-    *,
-    total_compressor: float,
-    total_auxiliaries: float,
-    total_standby: float,
-    total_elec: float,
-    mean_cop: float,
-    spf_pac_total: float,
-    spf_system: float,
-) -> None:
-    st.markdown("### Synthèse P1 électrique PAC/géothermie")
-    e1, e2, e3, e4 = st.columns(4)
-    e1.metric("Electricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an")
-    e2.metric("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an")
-    e3.metric("Veille/régulation", f"{total_standby / 1000.0:.1f} MWh/an")
-    e4.metric("Electricité totale PAC", f"{total_elec / 1000.0:.1f} MWh/an")
-    e5, e6, e7 = st.columns(3)
-    e5.metric("COP machine", f"{mean_cop:.1f}")
-    e6.metric("SPF PAC complet", f"{spf_pac_total:.1f}")
-    e7.metric("SPF système simplifié", f"{spf_system:.1f}")
 
 
 def _render_btes_warnings(

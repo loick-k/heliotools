@@ -80,6 +80,13 @@ def render_economics_tab(
     economic_trajectory_df: pd.DataFrame,
     recharge_value: dict[str, float | bool | str],
     heat_costs: dict[str, float | pd.DataFrame],
+    total_compressor: float,
+    total_auxiliaries: float,
+    total_standby: float,
+    total_elec: float,
+    mean_cop: float,
+    spf_pac_total: float,
+    spf_system: float,
 ) -> None:
     st.markdown("### Comparaison economique des 4 scenarios")
     st.caption(
@@ -100,6 +107,17 @@ def render_economics_tab(
     for col, indicator in zip(chart_cols, chart_titles):
         chart_df = economic_comparison_chart_df[economic_comparison_chart_df["Indicateur"] == indicator]
         col.altair_chart(_scenario_comparison_chart(chart_df, title=chart_titles[indicator]), width="stretch")
+
+    st.markdown("### Synthèse P1 électrique PAC/géothermie")
+    e1, e2, e3, e4 = st.columns(4)
+    e1.metric("Electricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an")
+    e2.metric("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an")
+    e3.metric("Veille/régulation", f"{total_standby / 1000.0:.1f} MWh/an")
+    e4.metric("Electricité totale PAC", f"{total_elec / 1000.0:.1f} MWh/an")
+    e5, e6, e7 = st.columns(3)
+    e5.metric("COP machine", f"{mean_cop:.1f}")
+    e6.metric("SPF PAC complet", f"{spf_pac_total:.1f}")
+    e7.metric("SPF système simplifié", f"{spf_system:.1f}")
 
     st.markdown("### Valeur economique de la recharge solaire")
     if not bool(recharge_value["applicable"]):
