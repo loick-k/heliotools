@@ -103,10 +103,12 @@ def render_hourly_results(
     else:
         k12.metric("Gain equivalent eco", "non trouve")
 
-    p1, p2, p3 = st.columns(3)
+    equivalent_full_power_hours = total_pac / pac_nominal_power_kw if pac_nominal_power_kw > 0.0 else 0.0
+    p1, p2, p3, p4 = st.columns(4)
     p1.metric("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW")
     p2.metric("P PAC retenue", f"{pac_nominal_power_kw:.0f} kW", delta=f"{pac_power_fraction_pct:.0f} % Pmax")
-    p3.metric("Pic appoint appele", f"{backup_power_kw:.0f} kW")
+    p3.metric("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an")
+    p4.metric("Pic appoint appele", f"{backup_power_kw:.0f} kW")
     gmi_hours_low = int((hourly_df["T_fluide_entree_echangeur_geo_C"] < scenario.config.btes.gmi_t_min_c - 1e-6).sum())
     gmi_hours_high = int((hourly_df["T_fluide_injection_C"] > scenario.config.btes.gmi_t_max_c + 1e-6).sum())
     source_limit_hours = int(hourly_df["Limite_temperature_source"].sum())
