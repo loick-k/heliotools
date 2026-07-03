@@ -73,11 +73,11 @@ def render_hourly_results(
     st.subheader("Résumé technique")
     st.caption(
         f"Simulation technique champ : {scenario.simulation_years_total} an(s). "
-        f"Annee affichee pour les resultats techniques : {scenario.simulation_year_displayed}. "
-        f"Economie : trajectoire de {scenario.economic_years_used} an(s). "
-        f"Tmin operationnelle PAC : {scenario.config.btes.t_min_c:.1f} C ; "
-        f"critere GMI {'actif' if scenario.gmi_check_enabled else 'inactif'} "
-        f"({scenario.config.btes.gmi_t_min_c:.1f} / {scenario.config.btes.gmi_t_max_c:.1f} C)."
+        f"Année affichée pour les résultats techniques : {scenario.simulation_year_displayed}. "
+        f"Économie : trajectoire de {scenario.economic_years_used} an(s). "
+        f"Tmin opérationnelle PAC : {scenario.config.btes.t_min_c:.1f} °C ; "
+        f"critère GMI {'actif' if scenario.gmi_check_enabled else 'inactif'} "
+        f"({scenario.config.btes.gmi_t_min_c:.1f} / {scenario.config.btes.gmi_t_max_c:.1f} °C)."
     )
     equivalent_full_power_hours = total_pac / pac_nominal_power_kw if pac_nominal_power_kw > 0.0 else 0.0
     gmi_hours_low = int((hourly_df["T_fluide_entree_echangeur_geo_C"] < scenario.config.btes.gmi_t_min_c - 1e-6).sum())
@@ -95,18 +95,18 @@ def render_hourly_results(
     st.markdown("#### Bilan énergie")
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
-    k2.metric("Prechauffage HT solaire", f"{total_preheat_ht / 1000:.0f} MWh")
+    k2.metric("Préchauffage HT solaire", f"{total_preheat_ht / 1000:.0f} MWh")
     k3.metric("Injection BTES", f"{total_to_btes / 1000:.0f} MWh")
     k4.metric("Consommation appoint", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh")
 
     k5, k6, k7, k8 = st.columns(4)
-    k5.metric("Productivite solaire valorisee", f"{solar_productivity_valued:.0f} kWh/m2.an")
+    k5.metric("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an")
     k6.metric("Couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %")
     k7.metric("Taux EnR global", f"{global_ren_rate * 100:.0f} %")
     if bool(savings["found"]):
-        k8.metric("Gain equivalent eco", f"{float(savings['saved_length_m']):.0f} ml")
+        k8.metric("Gain équivalent éco", f"{float(savings['saved_length_m']):.0f} ml")
     else:
-        k8.metric("Gain equivalent eco", "non trouve")
+        k8.metric("Gain équivalent éco", "non trouvé")
 
     st.markdown("#### PAC et appoint")
     p1, p2, p3, p4 = st.columns(4)
@@ -116,17 +116,17 @@ def render_hourly_results(
         f"{mean_cop:.1f}",
         delta=f"{mean_cop - no_solar_cop:+.1f} vs sans solaire" if no_solar_cop > 0.0 else None,
     )
-    p3.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lance")
+    p3.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lancé")
     p4.metric("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an")
     p5, p6 = st.columns(2)
-    p5.metric("Pic appoint appele", f"{backup_power_kw:.0f} kW")
+    p5.metric("Pic appoint appelé", f"{backup_power_kw:.0f} kW")
     p6.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
 
     st.markdown("#### Champ de sondes et sécurité")
     d1, d2, d3 = st.columns(3)
-    d1.metric("Heures sous Tmin operationnelle", f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h")
+    d1.metric("Heures sous Tmin opérationnelle", f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h")
     d2.metric("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h")
-    d3.metric("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} C")
+    d3.metric("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C")
     _render_btes_warnings(
         scenario=scenario,
         hourly_df=hourly_df,
@@ -146,7 +146,7 @@ def render_hourly_results(
             "Multiannuel BTES",
             "Monotone horaire",
             "Analyses mensuelles",
-            "Economie",
+            "Économie",
             "Paramétrique PAC",
             "Paramétrique solaire",
             "Données",
@@ -308,9 +308,9 @@ def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_bt
     period_min = float(multiyear_btes_df["T source PAC min (C)"].min())
     hours_tmin = int(multiyear_btes_df["Heures sous Tmin source"].sum())
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("T source fin an 1", f"{first_year_end:.0f} C")
-    m2.metric(f"T source fin an {years_count}", f"{last_year_end:.0f} C", delta=f"{last_year_end - first_year_end:+.0f} C")
-    m3.metric("T min période", f"{period_min:.0f} C")
+    m1.metric("T source fin an 1", f"{first_year_end:.0f} °C")
+    m2.metric(f"T source fin an {years_count}", f"{last_year_end:.0f} °C", delta=f"{last_year_end - first_year_end:+.0f} °C")
+    m3.metric("T min période", f"{period_min:.0f} °C")
     m4.metric("Heures source Tmin", f"{hours_tmin:.0f} h")
     chart_col_1, chart_col_2, chart_col_3 = st.columns(3)
     if not no_solar_multiyear_btes_df.empty:
@@ -382,7 +382,7 @@ def _render_monthly_tab(
     mean_cop: float,
     no_solar_cop: float,
 ) -> None:
-    st.markdown("### Bilan annuel, calcule depuis les 8760 heures")
+    st.markdown("### Bilan annuel, calculé depuis les 8760 heures")
     st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
 
     coverage_rate_df = hourly_by_month_df[["Mois", "Taux couverture solaire HT (%)"]].rename(
@@ -434,7 +434,7 @@ def _render_monthly_tab(
 
     st.markdown("### Comparaison horaire sans solaire / avec solaire")
     if no_solar_cop <= 0.0:
-        st.info("Comparaison sans solaire non lancee.")
+        st.info("Comparaison sans solaire non lancée.")
         return
     c1, c2, c3 = st.columns(3)
     c1.metric("Gain BT PAC", f"{(total_pac - no_solar_total_pac) / 1000:.0f} MWh")
@@ -550,16 +550,16 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
             hide_index=True,
         )
 
-    with st.expander("Hypotheses restantes"):
+    with st.expander("Hypothèses restantes"):
         st.markdown(
             """
             - Les besoins process doivent venir d'un fichier Excel horaire 8760 h.
-            - Les colonnes `E/P besoin HT` alimentent le besoin HT 60 C.
-            - Les colonnes `E/P besoin BT` alimentent le besoin BT 25 C.
+            - Les colonnes `E/P besoin HT` alimentent le besoin HT 60 °C.
+            - Les colonnes `E/P besoin BT` alimentent le besoin BT 25 °C.
             - Le stockage solaire journalier est un volume d'eau equivalent.
             - Le solaire charge le ballon ; il ne va jamais directement au process.
-            - Le ballon prechauffe le process HT jusqu'a 60 C si son niveau de temperature le permet.
+            - Le ballon préchauffe le process HT jusqu'à sa température cible si son niveau de température le permet.
             - La ressource solaire restante part vers le BTES uniquement quand le ballon ne peut plus absorber, donc quand il atteint `Tmax ballon`.
-            - Le champ de sondes utilise pygfunction pour calculer la temperature source PAC.
+            - Le champ de sondes utilise pygfunction pour calculer la température source PAC.
             """
         )

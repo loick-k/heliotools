@@ -35,16 +35,16 @@ def _recharge_value_table(recharge_value: dict[str, float | bool | str]) -> pd.D
     )
     return pd.DataFrame(
         [
-            ("Part solaire affectee a la recharge", float(recharge_value["solar_recharge_part"]) * 100.0, "%"),
-            ("CAPEX solaire affecte recharge", float(recharge_value["capex_solar_recharge_eur"]), "EUR"),
-            ("Economie CAPEX sondes brute", float(recharge_value["saved_borefield_capex_eur"]), "EUR"),
-            ("Economie CAPEX sondes nette", float(recharge_value["saved_borefield_net_capex_eur"]), "EUR"),
-            ("Economie electricite PAC", float(recharge_value["electricity_savings_eur_an"]), "EUR/an"),
-            ("Cout annuel solaire recharge", float(recharge_value["annual_solar_recharge_cost_eur_an"]), "EUR/an"),
+            ("Part solaire affectée à la recharge", float(recharge_value["solar_recharge_part"]) * 100.0, "%"),
+            ("CAPEX solaire affecté recharge", float(recharge_value["capex_solar_recharge_eur"]), "EUR"),
+            ("Économie CAPEX sondes brute", float(recharge_value["saved_borefield_capex_eur"]), "EUR"),
+            ("Économie CAPEX sondes nette", float(recharge_value["saved_borefield_net_capex_eur"]), "EUR"),
+            ("Économie électricité PAC", float(recharge_value["electricity_savings_eur_an"]), "EUR/an"),
+            ("Coût annuel solaire recharge", float(recharge_value["annual_solar_recharge_cost_eur_an"]), "EUR/an"),
             ("Bilan net recharge", float(recharge_value["net_recharge_balance_eur_an"]), "EUR/an"),
             ("TRB recharge", payback, "ans"),
         ],
-        columns=["Grandeur", "Valeur", "Unite"],
+        columns=["Grandeur", "Valeur", "Unité"],
     )
 
 
@@ -55,18 +55,18 @@ def _generator_economic_table(heat_costs: dict[str, float | pd.DataFrame]) -> pd
     assert isinstance(p1_p2_p4_df, pd.DataFrame)
 
     p1_p2_table = p1_p2_p4_df.pivot(index="Generateur", columns="Poste", values="EUR/MWh").reset_index()
-    p1_p2_table["Cout chaleur (EUR/MWh)"] = p1_p2_table[["P1", "P2", "P4"]].sum(axis=1)
+    p1_p2_table["Coût chaleur (EUR/MWh)"] = p1_p2_table[["P1", "P2", "P4"]].sum(axis=1)
     generator_table = p1_p2_table.merge(capex_df, on="Generateur", how="left")
     generator_table["Generateur"] = generator_table["Generateur"].replace(
         {
             "Appoint gaz": "Appoint gaz",
-            "Geothermie PAC": "Geothermie",
+            "Geothermie PAC": "Géothermie",
             "Solaire thermique": "Solaire thermique",
             "Mix ENR": "Mix ENR",
-            "Reference 100% gaz": "Reference 100 % gaz",
+            "Reference 100% gaz": "Référence 100 % gaz",
         }
     )
-    generator_order = ["Appoint gaz", "Geothermie", "Solaire thermique", "Mix ENR", "Reference 100 % gaz"]
+    generator_order = ["Appoint gaz", "Géothermie", "Solaire thermique", "Mix ENR", "Référence 100 % gaz"]
     generator_table["Ordre"] = generator_table["Generateur"].apply(
         lambda value: generator_order.index(value) if value in generator_order else 99
     )
@@ -88,21 +88,21 @@ def render_economics_tab(
     spf_pac_total: float,
     spf_system: float,
 ) -> None:
-    st.markdown("### Comparaison economique des 4 scenarios")
+    st.markdown("### Comparaison économique des 4 scénarios")
     st.caption(
-        "Lecture type Dim A / Dim B / Dim C : reference gaz, geothermie seule, geothermie + solaire a lineaire "
-        "constant, puis geothermie + solaire avec lineaire reduit. La recharge solaire est analysee comme un "
-        "service rendu au champ de sondes, sans economie P2 proportionnelle aux ml economises. Les couts variables "
-        "sont calcules sur une trajectoire physique multiannuelle nominale."
+        "Lecture type Dim A / Dim B / Dim C : référence gaz, géothermie seule, géothermie + solaire à linéaire "
+        "constant, puis géothermie + solaire avec linéaire réduit. La recharge solaire est analysée comme un "
+        "service rendu au champ de sondes, sans économie P2 proportionnelle aux ml économisés. Les coûts variables "
+        "sont calculés sur une trajectoire physique multiannuelle nominale."
     )
     st.dataframe(display_dataframe(economic_comparison_df), width="stretch", hide_index=True)
 
     chart_cols = st.columns(4)
     chart_titles = {
-        "Cout chaleur global (EUR/MWh)": "Cout chaleur",
+        "Cout chaleur global (EUR/MWh)": "Coût chaleur",
         "Taux EnR global (%)": "Taux EnR",
-        "Lineaire sondes (ml)": "Lineaire sondes",
-        "Electricite PAC (MWh/an)": "Electricite PAC",
+        "Lineaire sondes (ml)": "Linéaire sondes",
+        "Electricite PAC (MWh/an)": "Électricité PAC",
     }
     for col, indicator in zip(chart_cols, chart_titles):
         chart_df = economic_comparison_chart_df[economic_comparison_chart_df["Indicateur"] == indicator]
@@ -119,24 +119,24 @@ def render_economics_tab(
     e6.metric("SPF PAC complet", f"{spf_pac_total:.1f}")
     e7.metric("SPF système simplifié", f"{spf_system:.1f}")
 
-    st.markdown("### Valeur economique de la recharge solaire")
+    st.markdown("### Valeur économique de la recharge solaire")
     if not bool(recharge_value["applicable"]):
-        st.info("Recharge solaire non applicable : aucune energie solaire injectee au BTES.")
+        st.info("Recharge solaire non applicable : aucune énergie solaire injectée au BTES.")
     elif str(recharge_value["status"]) == "desactive":
-        st.info("Optimisation par recharge solaire non lancee.")
+        st.info("Optimisation par recharge solaire non lancée.")
     elif str(recharge_value["status"]) == "non determine":
-        st.warning("Gain de lineaire non determine : le solveur n'a pas trouve de reduction equivalente robuste.")
+        st.warning("Gain de linéaire non déterminé : le solveur n'a pas trouvé de réduction équivalente robuste.")
 
     st.caption(
-        "`Cout annuel solaire recharge` = annuite de la part de CAPEX solaire affectee a la recharge "
+        "`Coût annuel solaire recharge` = annuité de la part de CAPEX solaire affectée à la recharge "
         "+ P2 solaire recharge + P4 solaire recharge. `Bilan net recharge` = gains annuels de recharge "
-        "(economie CAPEX sondes nette annualisee + economie electricite PAC) - cout annuel solaire recharge. "
-        "L'economie nette tient compte de la baisse d'aide ADEME quand le CAPEX sondes diminue."
+        "(économie CAPEX sondes nette annualisée + économie électricité PAC) - coût annuel solaire recharge. "
+        "L'économie nette tient compte de la baisse d'aide ADEME quand le CAPEX sondes diminue."
     )
     st.dataframe(display_dataframe(_recharge_value_table(recharge_value)), width="stretch", hide_index=True)
-    st.caption("Aucune economie de P2 n'est appliquee au lineaire de sondes economise.")
+    st.caption("Aucune économie de P2 n'est appliquée au linéaire de sondes économisé.")
 
-    st.markdown("### Detail economique par generateur")
+    st.markdown("### Détail économique par générateur")
     st.dataframe(display_dataframe(_generator_economic_table(heat_costs)), width="stretch", hide_index=True)
     st.altair_chart(_heat_cost_vector_chart(heat_costs["cost_bars"]), width="stretch")
 

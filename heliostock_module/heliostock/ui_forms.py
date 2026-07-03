@@ -254,35 +254,29 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
 
 def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
     with st.expander("3) Champ solaire et ballon journalier", expanded=True):
-        collector_name = st.selectbox("Bibliotheque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0)
+        collector_name = st.selectbox("Bibliothèque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0)
         collector_ref = COLLECTOR_LIBRARY[collector_name]
         st.caption(
             f"Capteur sélectionné : fabricant {collector_ref['manufacturer']} - modèle {collector_ref['model']}. "
             "Les coefficients restent modifiables ci-dessous."
         )
         c1, c2, c3, c4 = st.columns(4)
-        area_m2 = c1.number_input("Surface capteurs (m2)", min_value=1.0, value=500.0, step=50.0)
+        area_m2 = c1.number_input("Surface capteurs (m²)", min_value=1.0, value=500.0, step=50.0)
         eta0 = c2.number_input("eta0", min_value=0.0, max_value=1.0, value=float(collector_ref["eta0"]), step=0.001, format="%.3f", key=f"eta0_{collector_name}")
         a1 = c3.number_input("a1 (W/m2.K)", min_value=0.0, value=float(collector_ref["a1_w_m2_k"]), step=0.001, format="%.3f", key=f"a1_{collector_name}")
         a2 = c4.number_input("a2 (W/m2.K2)", min_value=0.0, value=float(collector_ref["a2_w_m2_k2"]), step=0.001, format="%.3f", key=f"a2_{collector_name}")
 
         solar_fixed = FixedSolarAssumptions()
-        c9, c10, c11 = st.columns(3)
-        daily_buffer_ambient_temp_c = c9.number_input("Ambiance ballon (C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0)
-        daily_buffer_max_temp_c = c10.number_input("Tmax ballon / bascule BTES (C)", min_value=30.0, max_value=120.0, value=80.0, step=1.0)
-        solar_preheat_target_ht_c = c11.number_input(
-            "Cible max préchauffage HT solaire (°C)",
-            min_value=0.0,
-            max_value=120.0,
-            value=float(process_ht_target_c),
-            step=1.0,
-        )
+        c9, c10 = st.columns(2)
+        daily_buffer_ambient_temp_c = c9.number_input("T° ambiance ballon (°C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0)
+        daily_buffer_max_temp_c = c10.number_input("Tmax ballon / bascule BTES (°C)", min_value=30.0, max_value=120.0, value=80.0, step=1.0)
+        solar_preheat_target_ht_c = float(process_ht_target_c)
 
-        with st.expander("Hypotheses solaires fixees", expanded=False):
+        with st.expander("Hypothèses solaires fixées", expanded=False):
             st.dataframe(solar_fixed.to_table(), width="stretch", hide_index=True)
             st.caption(
-                "Ces valeurs sont fixees pour reduire les degres de liberte de l'interface. "
-                "Le volume ballon est force a 60 L/m2 de capteurs."
+                "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
+                "Le volume ballon est fixé à 60 L/m² de capteurs."
             )
 
     return SolarFormResult(
@@ -460,21 +454,21 @@ def render_geothermal_form(
 
 
 def render_economics_form() -> EconomicsInputs:
-    with st.expander("5) Economie", expanded=False):
+    with st.expander("5) Économie", expanded=False):
         st.caption(
-            "Reference de chaleur evitee : appoint gaz. Les couts sont decomposes par generateur : "
-            "solaire thermique, geothermie PAC et appoint gaz."
+            "Référence de chaleur évitée : appoint gaz. Les coûts sont décomposés par générateur : "
+            "solaire thermique, géothermie PAC et appoint gaz."
         )
         economics_fixed = FixedEconomicsAssumptions()
         c1, c2 = st.columns(2)
         eta_appoint_eco = c1.number_input("Rendement appoint gaz", min_value=0.01, max_value=1.50, value=0.82, step=0.01)
-        reference_energy_inflation_pct = c2.number_input("Inflation gaz reference (%/an)", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
-        st.caption("Duree d'analyse economique par defaut : 20 ans. Aucune autre aide publique deja acquise n'est appliquee.")
+        reference_energy_inflation_pct = c2.number_input("Inflation gaz référence (%/an)", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
+        st.caption("Durée d'analyse économique par défaut : 20 ans. Aucune autre aide publique déjà acquise n'est appliquée.")
 
-        st.markdown("#### P1 - Energies")
+        st.markdown("#### P1 - Énergies")
         p1a, p1b, p1c = st.columns(3)
-        reference_energy_cost_eur_mwh = p1a.number_input("P1 gaz reference (EUR/MWh PCI)", min_value=0.0, value=70.0, step=5.0)
-        electricity_cost_eur_mwh = p1b.number_input("P1 electricite auxiliaires/PAC (EUR/MWh)", min_value=0.0, value=200.0, step=10.0)
+        reference_energy_cost_eur_mwh = p1a.number_input("P1 gaz référence (EUR/MWh PCI)", min_value=0.0, value=70.0, step=5.0)
+        electricity_cost_eur_mwh = p1b.number_input("P1 électricité auxiliaires/PAC (EUR/MWh)", min_value=0.0, value=200.0, step=10.0)
         auxiliary_electricity_ratio_pct = p1c.number_input("P1' auxiliaires solaires (% prod.)", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
         st.caption("Le P1' solaire ne couvre pas les pompes de transfert solaire vers BTES.")
 
@@ -486,8 +480,8 @@ def render_economics_form() -> EconomicsInputs:
         st.markdown("#### P4 - Investissements")
         st.dataframe(economics_fixed.p4_table(), width="stretch", hide_index=True)
         st.caption(
-            "CAPEX = S x cout unitaire(S). Aide ADEME solaire plafonnee a 65 % du CAPEX. "
-            "Les autres aides publiques sont forcees a 0 EUR."
+            "CAPEX = S x coût unitaire(S). Aide ADEME solaire plafonnée à 65 % du CAPEX. "
+            "Les autres aides publiques sont forcées à 0 EUR."
         )
 
     return EconomicsInputs(
@@ -505,43 +499,43 @@ def render_economics_form() -> EconomicsInputs:
 
 
 def render_calculation_selection_form() -> CalculationSelectionFormResult:
-    with st.expander("6) Profil de calcul et calculs a lancer", expanded=True):
+    with st.expander("6) Profil de calcul et calculs à lancer", expanded=True):
         profile_label = st.radio(
             "Profil de calcul",
             options=[
-                "Previsualisation rapide - 1 an, scenario principal uniquement",
-                "Dimensionnement technique - 20 ans, sans parametriques",
-                "Calcul final complet - 20 ans, economie sondes et parametriques",
+                "Prévisualisation rapide - 1 an, scénario principal uniquement",
+                "Dimensionnement technique - 20 ans, sans paramétriques",
+                "Calcul final complet - 20 ans, économie sondes et paramétriques",
             ],
             index=1,
             horizontal=True,
         )
         profile_map = {
-            "Previsualisation rapide - 1 an, scenario principal uniquement": "previsualisation_rapide",
-            "Dimensionnement technique - 20 ans, sans parametriques": "dimensionnement_25_ans",
-            "Calcul final complet - 20 ans, economie sondes et parametriques": "calcul_final",
+            "Prévisualisation rapide - 1 an, scénario principal uniquement": "previsualisation_rapide",
+            "Dimensionnement technique - 20 ans, sans paramétriques": "dimensionnement_25_ans",
+            "Calcul final complet - 20 ans, économie sondes et paramétriques": "calcul_final",
         }
         calculation_profile = profile_map[str(profile_label)]
         quick_preview = calculation_profile == "previsualisation_rapide"
         final_profile = calculation_profile == "calcul_final"
         if quick_preview:
             st.info(
-                "Profil rapide : simulation 1 an du scenario principal uniquement. "
-                "Geothermie seule, economie de sondes et etudes parametriques sont masquees/desactivees."
+                "Profil rapide : simulation 1 an du scénario principal uniquement. "
+                "Géothermie seule, économie de sondes et études paramétriques sont masquées/désactivées."
             )
         elif calculation_profile == "dimensionnement_25_ans":
             st.info(
-                "Profil dimensionnement : simulation technique 20 ans avec comparaison geothermie seule. "
-                "Les etudes parametriques et l'economie de sondes restent desactivees."
+                "Profil dimensionnement : simulation technique 20 ans avec comparaison géothermie seule. "
+                "Les études paramétriques et l'économie de sondes restent désactivées."
             )
         else:
             st.info(
-                "Profil final complet : simulation 20 ans avec options avancees. "
-                "Les etudes parametriques PAC/solaire et l'economie de sondes sont disponibles ci-dessous."
+                "Profil final complet : simulation 20 ans avec options avancées. "
+                "Les études paramétriques PAC/solaire et l'économie de sondes sont disponibles ci-dessous."
             )
         run_multiyear = st.checkbox("Projection technique multiannuelle", value=not quick_preview, disabled=quick_preview)
         technical_simulation_years = st.number_input(
-            "Duree simulation technique champ (ans)",
+            "Durée simulation technique champ (ans)",
             min_value=1,
             max_value=50,
             value=1 if quick_preview else 20,
@@ -549,35 +543,35 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             disabled=quick_preview or not run_multiyear,
         )
         display_year_mode = st.radio(
-            "Annee technique affichee",
-            options=["finale", "annee 1", "personnalisee"],
+            "Année technique affichée",
+            options=["finale", "année 1", "personnalisée"],
             index=0,
             horizontal=True,
             disabled=quick_preview,
         )
         custom_display_year = st.number_input(
-            "Annee personnalisee",
+            "Année personnalisée",
             min_value=1,
             max_value=int(technical_simulation_years),
             value=int(technical_simulation_years),
             step=1,
-            disabled=quick_preview or display_year_mode != "personnalisee",
+            disabled=quick_preview or display_year_mode != "personnalisée",
         )
         run_geo_only = st.checkbox(
-            "Scenario geothermie seule",
+            "Scénario géothermie seule",
             value=not quick_preview,
             disabled=calculation_profile == "dimensionnement_25_ans",
         )
         savings_method_label = st.selectbox(
-            "Methode economie de sondes",
-            options=["desactivee", "rapide predimensionnement", "experte detaillee"],
+            "Méthode économie de sondes",
+            options=["désactivée", "rapide prédimensionnement", "experte détaillée"],
             index=1 if final_profile else 0,
             disabled=not final_profile or not run_geo_only,
         )
         savings_mode_map = {
-            "desactivee": "none",
-            "rapide predimensionnement": "fast",
-            "experte detaillee": "expert",
+            "désactivée": "none",
+            "rapide prédimensionnement": "fast",
+            "experte détaillée": "expert",
         }
         savings_search_mode = savings_mode_map[str(savings_method_label)]
         if quick_preview:
@@ -592,9 +586,9 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             run_geo_only = True
             savings_search_mode = "none"
         run_reduced_borefield = savings_search_mode != "none" and bool(run_geo_only)
-        recharge_credit = st.number_input("Credit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
+        recharge_credit = st.number_input("Crédit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
         reduced_borefield_safety_factor = st.number_input(
-            "Marge securite sondes reduites",
+            "Marge sécurité sondes réduites",
             min_value=1.0,
             max_value=2.0,
             value=1.10,
@@ -605,8 +599,8 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             run_reduced_borefield = False
             savings_search_mode = "none"
         st.caption(
-            "Important : les etudes parametriques ne sont affichees et lancees que dans le profil "
-            "`Calcul final complet - 20 ans, economie sondes et parametriques`."
+            "Important : les études paramétriques ne sont affichées et lancées que dans le profil "
+            "`Calcul final complet - 20 ans, économie sondes et paramétriques`."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(

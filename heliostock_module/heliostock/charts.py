@@ -14,6 +14,7 @@ ENERGY_COLOR_DOMAIN = [
     "Extraction PAC (MWh)",
     "Extraction champ vers PAC",
     "BT PAC (MWh)",
+    "Géothermie PAC (MWh)",
     "Géothermie PAC",
     "Geothermie PAC",
     "Bilan net sol",
@@ -32,6 +33,7 @@ ENERGY_COLOR_RANGE = [
     "#f97316",
     "#f97316",
     "#f97316",
+    "#16a34a",
     "#16a34a",
     "#16a34a",
     "#16a34a",
@@ -95,40 +97,40 @@ def _temperature_chart(results_df: pd.DataFrame):
         ]
     ].rename(
         columns={
-            "solar_ht_buffer_temp_end_c": "T ballon solaire (C)",
-            "collector_temp_ht_c": "T capteur charge ballon (C)",
-            "T_source_PAC_pour_COP_C": "Temperature source PAC pour COP (C)",
-            "T_source_PAC_fin_heure_C": "Temperature source PAC fin d'heure (C)",
-            "T_paroi_forage_C": "Temperature paroi forage (C)",
-            "T_evaporateur_PAC_C": "Temperature evaporateur PAC (C)",
-            "T_fluide_injection_C": "Temperature fluide injection (C)",
+            "solar_ht_buffer_temp_end_c": "T ballon solaire (°C)",
+            "collector_temp_ht_c": "T capteur charge ballon (°C)",
+            "T_source_PAC_pour_COP_C": "Température source PAC pour COP (°C)",
+            "T_source_PAC_fin_heure_C": "Température source PAC fin d'heure (°C)",
+            "T_paroi_forage_C": "Température paroi forage (°C)",
+            "T_evaporateur_PAC_C": "Température évaporateur PAC (°C)",
+            "T_fluide_injection_C": "Température fluide injection (°C)",
         }
     )
     temp_long = temp_df.melt(
         id_vars=["Jour annee"],
         value_vars=[
-            "T ballon solaire (C)",
-            "T capteur charge ballon (C)",
-            "Temperature source PAC pour COP (C)",
-            "Temperature source PAC fin d'heure (C)",
-            "Temperature paroi forage (C)",
-            "Temperature evaporateur PAC (C)",
-            "Temperature fluide injection (C)",
+            "T ballon solaire (°C)",
+            "T capteur charge ballon (°C)",
+            "Température source PAC pour COP (°C)",
+            "Température source PAC fin d'heure (°C)",
+            "Température paroi forage (°C)",
+            "Température évaporateur PAC (°C)",
+            "Température fluide injection (°C)",
         ],
         var_name="Grandeur",
-        value_name="Temperature (C)",
+        value_name="Température (°C)",
     )
     return (
         alt.Chart(temp_long)
         .mark_line(strokeWidth=1.4)
         .encode(
             x=alt.X("Jour annee:Q", title="Jour de l'annee"),
-            y=alt.Y("Temperature (C):Q", title="Temperature (C)"),
+            y=alt.Y("Température (°C):Q", title="Température (°C)"),
             color="Grandeur:N",
             tooltip=[
                 alt.Tooltip("Jour annee:Q", format=".1f"),
                 "Grandeur:N",
-                alt.Tooltip("Temperature (C):Q", format=".1f"),
+                alt.Tooltip("Température (°C):Q", format=".1f"),
             ],
         )
         .properties(height=390)
@@ -154,19 +156,19 @@ def _multiyear_btes_temperature_chart(summary_df: pd.DataFrame):
             "T paroi forage fin (C)",
         ],
         var_name="Grandeur",
-        value_name="Temperature (C)",
+        value_name="Température (°C)",
     )
     return (
         alt.Chart(temp_long)
         .mark_line(point=False, strokeWidth=1.8)
         .encode(
             x=alt.X("Mois index:Q", title="Mois de simulation"),
-            y=alt.Y("Temperature (C):Q", title="Température (C)"),
+            y=alt.Y("Température (°C):Q", title="Température (°C)"),
             color=alt.Color("Grandeur:N", title="Grandeur"),
             tooltip=[
                 "Mois:N",
                 "Grandeur:N",
-                alt.Tooltip("Temperature (C):Q", format=".1f"),
+                alt.Tooltip("Température (°C):Q", format=".1f"),
             ],
         )
         .properties(height=390)
@@ -179,14 +181,14 @@ def _multiyear_btes_temperature_comparison_chart(comparison_df: pd.DataFrame):
         .mark_line(point=False, strokeWidth=2.0)
         .encode(
             x=alt.X("Mois index:Q", title="Mois de simulation"),
-            y=alt.Y("T source PAC fin (C):Q", title="Température source PAC fin de mois (C)"),
+            y=alt.Y("T source PAC fin (C):Q", title="Température source PAC fin de mois (°C)"),
             color=alt.Color("Scenario:N", title="Scenario"),
             tooltip=[
                 "Scenario:N",
                 "Mois:N",
-                alt.Tooltip("T source PAC fin (C):Q", format=".1f"),
-                alt.Tooltip("T source PAC min (C):Q", format=".1f"),
-                alt.Tooltip("T source PAC max (C):Q", format=".1f"),
+                alt.Tooltip("T source PAC fin (C):Q", title="T source PAC fin (°C)", format=".1f"),
+                alt.Tooltip("T source PAC min (C):Q", title="T source PAC min (°C)", format=".1f"),
+                alt.Tooltip("T source PAC max (C):Q", title="T source PAC max (°C)", format=".1f"),
                 alt.Tooltip("Heures sous Tmin source:Q", format=".0f"),
             ],
         )
@@ -242,7 +244,7 @@ def _duration_chart(duration_df: pd.DataFrame, *, sort_by: str):
                 "Mois:Q",
                 "Jour:Q",
                 "Heure EPW:Q",
-                alt.Tooltip("Tair (C):Q", format=".1f"),
+                alt.Tooltip("Tair (C):Q", title="Tair (°C)", format=".1f"),
             ],
         )
         .properties(height=430)
@@ -255,7 +257,7 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
         .mark_area(interpolate="step-after")
         .encode(
             x=alt.X("Heure triee:Q", title="Heures triees par besoin decroissant"),
-            y=alt.Y("Puissance (kW):Q", title="Puissance appelee/couverte (kW)", stack="zero"),
+            y=alt.Y("Puissance (kW):Q", title="Puissance appelée/couverte (kW)", stack="zero"),
             color=alt.Color(
                 "Poste:N",
                 title="Poste",
@@ -272,7 +274,7 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 "Mois:Q",
                 "Jour:Q",
                 "Heure EPW:Q",
-                alt.Tooltip("Tair (C):Q", format=".1f"),
+                alt.Tooltip("Tair (C):Q", title="Tair (°C)", format=".1f"),
             ],
         )
         .properties(height=360, title=title)
@@ -285,7 +287,7 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
         .mark_area(interpolate="step-after")
         .encode(
             x=alt.X("Heure triee:Q", title="Heures triees par besoin decroissant"),
-            y=alt.Y("Puissance (kW):Q", title="Puissance appelee/couverte (kW)", stack="zero"),
+            y=alt.Y("Puissance (kW):Q", title="Puissance appelée/couverte (kW)", stack="zero"),
             color=alt.Color(
                 "Poste:N",
                 title="Poste",
@@ -302,7 +304,7 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 "Mois:Q",
                 "Jour:Q",
                 "Heure EPW:Q",
-                alt.Tooltip("Tair (C):Q", format=".1f"),
+                alt.Tooltip("Tair (C):Q", title="Tair (°C)", format=".1f"),
             ],
         )
         .properties(height=360, title=title)
@@ -446,7 +448,7 @@ def _heat_cost_summary_chart(heat_cost_df: pd.DataFrame):
             tooltip=[
                 "Generateur:N",
                 alt.Tooltip("Energie (MWh/an):Q", format=",.1f"),
-                alt.Tooltip("Cout chaleur (EUR/MWh):Q", format=".1f"),
+                alt.Tooltip("Cout chaleur (EUR/MWh):Q", title="Coût chaleur (EUR/MWh)", format=".1f"),
             ],
         )
         .properties(height=320)

@@ -302,12 +302,19 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
 
 
 def _melt_monthly(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    return df[["Mois", *columns]].melt(
+    out = df[["Mois", *columns]].melt(
         id_vars=["Mois"],
         value_vars=columns,
         var_name="Poste",
         value_name="Valeur",
     )
+    out["Poste"] = out["Poste"].replace(
+        {
+            "Prechauffage HT solaire (MWh)": "Préchauffage HT solaire (MWh)",
+            "BT PAC (MWh)": "Géothermie PAC (MWh)",
+        }
+    )
+    return out
 
 
 def _mean_cop(results_df: pd.DataFrame) -> float:
