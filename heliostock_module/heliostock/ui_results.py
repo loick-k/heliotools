@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 import pandas as pd
 import streamlit as st
 
@@ -22,6 +24,132 @@ from .postprocess import (
 from .scenarios import ScenarioResult
 from .ui_economics import render_economics_tab
 from .ui_formatting import display_dataframe, round_display_df
+
+
+KPI_SECTION_TONES = {
+    "inputs": "#f8fafc",
+    "energy": "#fff7ed",
+    "solar": "#fffbeb",
+    "pac": "#ecfdf5",
+    "gas": "#f3f4f6",
+}
+
+
+def _render_kpi_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        .heliostock-kpi-section {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 0.85rem 1rem 1rem 1rem;
+            margin: 0.85rem 0 1rem 0;
+        }
+        .heliostock-kpi-section h4 {
+            margin: 0 0 0.35rem 0;
+            font-size: 1.02rem;
+            line-height: 1.25;
+        }
+        .heliostock-kpi-caption {
+            margin: 0 0 0.8rem 0;
+            color: #6b7280;
+            font-size: 0.78rem;
+            line-height: 1.35;
+        }
+        .heliostock-kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.75rem;
+            align-items: stretch;
+            justify-items: start;
+        }
+        .heliostock-kpi-card {
+            width: 100%;
+            min-height: 74px;
+            padding: 0.45rem 0.55rem;
+            border-left: 3px solid #cbd5e1;
+            background: rgba(255,255,255,0.68);
+            border-radius: 7px;
+        }
+        .heliostock-kpi-label {
+            color: #374151;
+            font-size: 0.72rem;
+            line-height: 1.2;
+            margin-bottom: 0.28rem;
+        }
+        .heliostock-kpi-value {
+            color: #111827;
+            font-size: 1.38rem;
+            line-height: 1.12;
+            font-weight: 500;
+        }
+        .heliostock-kpi-delta {
+            display: inline-block;
+            margin-top: 0.32rem;
+            padding: 0.08rem 0.35rem;
+            border-radius: 999px;
+            background: #dcfce7;
+            color: #166534;
+            font-size: 0.68rem;
+            line-height: 1.2;
+        }
+        .heliostock-kpi-delta-negative {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        @media (max-width: 1100px) {
+            .heliostock-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (max-width: 640px) {
+            .heliostock-kpi-grid { grid-template-columns: 1fr; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_kpi_section(
+    title: str,
+    metrics: list[tuple[str, str] | tuple[str, str, str | None]],
+    *,
+    caption: str | None = None,
+    tone: str = "inputs",
+) -> None:
+    background = KPI_SECTION_TONES.get(tone, KPI_SECTION_TONES["inputs"])
+    metric_cards: list[str] = []
+    for metric in metrics:
+        label = str(metric[0])
+        value = str(metric[1])
+        delta = str(metric[2]) if len(metric) > 2 and metric[2] else ""
+        delta_class = " heliostock-kpi-delta-negative" if delta.startswith("-") else ""
+        delta_html = (
+            f'<div class="heliostock-kpi-delta{delta_class}">{escape(delta)}</div>'
+            if delta
+            else ""
+        )
+        metric_cards.append(
+            """
+            <div class="heliostock-kpi-card">
+                <div class="heliostock-kpi-label">{label}</div>
+                <div class="heliostock-kpi-value">{value}</div>
+                {delta}
+            </div>
+            """.format(label=escape(label), value=escape(value), delta=delta_html)
+        )
+    caption_html = f'<p class="heliostock-kpi-caption">{escape(caption)}</p>' if caption else ""
+    st.markdown(
+        f"""
+        <section class="heliostock-kpi-section" style="background:{background};">
+            <h4>{escape(title)}</h4>
+            {caption_html}
+            <div class="heliostock-kpi-grid">
+                {''.join(metric_cards)}
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _scenario_economic_row(economic_comparison_df: pd.DataFrame, scenario_name: str) -> pd.Series | None:
@@ -146,92 +274,122 @@ def render_hourly_results(
             return "n.d."
         return f"{value:.1f} °C"
 
-    st.markdown("#### Données d'entrée principales")
-    i1, i2, i3, i4 = st.columns(4)
-    i1.metric("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m²")
-    i2.metric("Volume stockage solaire", f"{solar_storage_volume_m3:.0f} m³")
-    i3.metric("P PAC géothermie retenue", f"{pac_nominal_power_kw:.0f} kW", delta=f"{pac_power_fraction_pct:.0f} % Pmax")
-    i4.metric("Linéaire sondes", f"{scenario.full_borefield_length_m:.0f} ml")
-
-    st.markdown("#### Besoins et production par générateur")
-    st.caption(
-        "Lecture comptable : besoin total = part EnR PAC géothermie + électricité PAC "
-        "+ production solaire ECS + appoint gaz. L'injection solaire dans le BTES est détaillée "
-        "dans le solaire thermique pour éviter un double comptage."
+    _render_kpi_styles()
+    ht_eff = _weighted_average_efficiency(hourly_df, "collector_eff_ht", "solar_ht_to_buffer_kwh")
+    storage_eff = _weighted_average_efficiency(hourly_df, "collector_eff_storage", "solar_to_btes_kwh")
+    ht_energy_mwh = float(hourly_df["solar_ht_to_buffer_kwh"].sum()) / 1000.0 if "solar_ht_to_buffer_kwh" in hourly_df else 0.0
+    storage_energy_mwh = float(hourly_df["solar_to_btes_kwh"].sum()) / 1000.0 if "solar_to_btes_kwh" in hourly_df else 0.0
+    combined_eff = (
+        (ht_eff * ht_energy_mwh + storage_eff * storage_energy_mwh)
+        / max(1e-9, ht_energy_mwh + storage_energy_mwh)
+        if ht_energy_mwh + storage_energy_mwh > 1e-9
+        else 0.0
     )
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    k1.metric("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
-    k2.metric("Part EnR PAC géothermie", f"{geothermal_renewable_kwh / 1000:.0f} MWh")
-    k3.metric("Électricité PAC", f"{total_elec / 1000:.0f} MWh")
-    k4.metric("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh")
-    k5.metric("Consommation appoint gaz", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh")
-    k6.metric("Taux EnR global", f"{global_ren_rate * 100:.0f} %")
 
-    st.markdown("#### Solaire thermique")
-    s1, s2, s3 = st.columns(3)
-    s1.metric("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh")
-    s2.metric("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh")
-    s3.metric("Production solaire injectée dans le BTES", f"{total_to_btes / 1000:.0f} MWh")
-    s4, s5 = st.columns(2)
-    s4.metric("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an")
-    s5.metric("Taux de couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %")
-    st.markdown("##### Rendement moyen capteur")
-    _render_collector_efficiency_kpis(hourly_df)
-
-    st.markdown("#### PAC géothermie")
-    p1, p2, p3, p4 = st.columns(4)
-    p1.metric("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW")
-    p2.metric(
-        "COP PAC avec solaire",
-        f"{mean_cop:.1f}",
-        delta=f"{mean_cop - no_solar_cop:+.1f} vs sans solaire" if no_solar_cop > 0.0 else None,
+    _render_kpi_section(
+        "Données d'entrée principales",
+        [
+            ("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m²"),
+            ("Volume stockage solaire", f"{solar_storage_volume_m3:.0f} m³"),
+            ("P PAC géothermie retenue", f"{pac_nominal_power_kw:.0f} kW", f"{pac_power_fraction_pct:.0f} % Pmax"),
+            ("Linéaire sondes", f"{scenario.full_borefield_length_m:.0f} ml"),
+        ],
+        tone="inputs",
     )
-    p3.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lancé")
-    p4.metric("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an")
-    if no_solar_cop > 0.0:
-        h1, h2, h3 = st.columns(3)
-        h1.metric("Gain BT PAC avec solaire", f"{(total_pac - no_solar_total_pac) / 1000:.0f} MWh")
-        h2.metric("Écart électricité PAC", f"{(no_solar_total_elec - total_elec) / 1000:.0f} MWh")
-        h3.metric("Gain COP avec solaire", f"{mean_cop - no_solar_cop:+.1f}", delta=f"{mean_cop:.1f} vs {no_solar_cop:.1f}")
-
-    st.markdown("##### Comparaison linéaire de sondes")
-    l1, l2, l3 = st.columns(3)
-    l1.metric("Sondes initiales", f"{scenario.full_borefield_length_m:.0f} ml")
-    l2.metric("COP initial", f"{initial_borefield_cop:.1f}" if initial_borefield_cop > 0.0 else "n.d.")
-    l3.metric("Électricité PAC initiale", f"{initial_borefield_elec_mwh:.0f} MWh/an")
-    r1, r2, r3 = st.columns(3)
-    r1.metric("Sondes réduites", f"{reduced_borefield_length_m:.0f} ml" if reduced_borefield_available else "non déterminé")
-    r2.metric("COP sondes réduites", f"{reduced_borefield_cop:.1f}" if reduced_borefield_available and reduced_borefield_cop > 0.0 else "n.d.")
-    r3.metric(
-        "Électricité PAC sondes réduites",
-        f"{reduced_borefield_elec_mwh:.0f} MWh/an" if reduced_borefield_available else "n.d.",
-    )
-    c1, c2 = st.columns(2)
-    if bool(savings["found"]):
-        c1.metric("Gain équivalent éco", f"{float(savings['saved_length_m']):.0f} ml")
-    else:
-        c1.metric("Gain équivalent éco", "non trouvé")
-    c2.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
-    t1, t2, t3 = st.columns(3)
-    t1.metric("T source fin année 1", _format_temp(first_year_end_source_c))
-    t2.metric(
-        f"T source fin année {multiyear_years_count}",
-        _format_temp(final_year_end_source_c),
-        delta=(
-            f"{final_year_end_source_c - first_year_end_source_c:+.1f} °C"
-            if final_year_end_source_c is not None and first_year_end_source_c is not None
-            else None
+    _render_kpi_section(
+        "Besoins et production par générateur",
+        [
+            ("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh"),
+            ("Part EnR PAC géothermie", f"{geothermal_renewable_kwh / 1000:.0f} MWh"),
+            ("Électricité PAC", f"{total_elec / 1000:.0f} MWh"),
+            ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+            ("Consommation appoint gaz", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh"),
+            ("Taux EnR global", f"{global_ren_rate * 100:.0f} %"),
+        ],
+        caption=(
+            "Lecture comptable : besoin total = part EnR PAC géothermie + électricité PAC "
+            "+ production solaire ECS + appoint gaz. L'injection solaire dans le BTES est détaillée "
+            "dans le solaire thermique pour éviter un double comptage."
         ),
+        tone="energy",
     )
-    t3.metric("T source min période", _format_temp(period_min_source_c))
-    d1, d2, d3 = st.columns(3)
-    d1.metric("Heures sous Tmin opérationnelle", f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h")
-    d2.metric("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h")
-    d3.metric("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C")
+    _render_kpi_section(
+        "Solaire thermique",
+        [
+            ("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh"),
+            ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+            ("Production solaire injectée dans le BTES", f"{total_to_btes / 1000:.0f} MWh"),
+            ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
+            ("Taux de couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %"),
+            ("η solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
+            ("η solaire BTES", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh injectés"),
+            ("η solaire global", f"{combined_eff * 100:.1f} %" if combined_eff > 0.0 else "non disponible"),
+        ],
+        tone="solar",
+    )
 
-    st.markdown("#### Appoint gaz")
-    g1 = st.columns(1)[0]
-    g1.metric("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW")
+    pac_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = [
+        ("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW"),
+        (
+            "COP PAC avec solaire",
+            f"{mean_cop:.1f}",
+            f"{mean_cop - no_solar_cop:+.1f} vs sans solaire" if no_solar_cop > 0.0 else None,
+        ),
+        ("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lancé"),
+        ("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an"),
+    ]
+    if no_solar_cop > 0.0:
+        pac_metrics.extend(
+            [
+                ("Gain BT PAC avec solaire", f"{(total_pac - no_solar_total_pac) / 1000:.0f} MWh"),
+                ("Écart électricité PAC", f"{(no_solar_total_elec - total_elec) / 1000:.0f} MWh"),
+                ("Gain COP avec solaire", f"{mean_cop - no_solar_cop:+.1f}", f"{mean_cop:.1f} vs {no_solar_cop:.1f}"),
+            ]
+        )
+    pac_metrics.extend(
+        [
+            ("Sondes initiales", f"{scenario.full_borefield_length_m:.0f} ml"),
+            ("COP initial", f"{initial_borefield_cop:.1f}" if initial_borefield_cop > 0.0 else "n.d."),
+            ("Électricité PAC initiale", f"{initial_borefield_elec_mwh:.0f} MWh/an"),
+            ("Sondes réduites", f"{reduced_borefield_length_m:.0f} ml" if reduced_borefield_available else "non déterminé"),
+            ("COP sondes réduites", f"{reduced_borefield_cop:.1f}" if reduced_borefield_available and reduced_borefield_cop > 0.0 else "n.d."),
+            (
+                "Électricité PAC sondes réduites",
+                f"{reduced_borefield_elec_mwh:.0f} MWh/an" if reduced_borefield_available else "n.d.",
+            ),
+        ]
+    )
+    gain_value = f"{float(savings['saved_length_m']):.0f} ml" if bool(savings["found"]) else "non trouvé"
+    pac_metrics.extend(
+        [
+            ("Gain équivalent éco", gain_value),
+            ("Limite source PAC", f"{source_limit_hours} h", f"{source_limit_energy:.1f} MWh"),
+            ("T source fin année 1", _format_temp(first_year_end_source_c)),
+            (
+                f"T source fin année {multiyear_years_count}",
+                _format_temp(final_year_end_source_c),
+                (
+                    f"{final_year_end_source_c - first_year_end_source_c:+.1f} °C"
+                    if final_year_end_source_c is not None and first_year_end_source_c is not None
+                    else None
+                ),
+            ),
+            ("T source min période", _format_temp(period_min_source_c)),
+            (
+                "Heures sous Tmin opérationnelle",
+                f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h",
+            ),
+            ("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h"),
+            ("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C"),
+        ]
+    )
+    _render_kpi_section("PAC géothermie", pac_metrics, tone="pac")
+
+    _render_kpi_section(
+        "Appoint gaz",
+        [("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW")],
+        tone="gas",
+    )
     _render_btes_warnings(
         scenario=scenario,
         hourly_df=hourly_df,
