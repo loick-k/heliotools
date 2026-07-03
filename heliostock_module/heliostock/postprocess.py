@@ -210,56 +210,20 @@ def _load_duration_dataframe(results_df: pd.DataFrame, sort_by: str = "Besoin to
 
 
 def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str) -> pd.DataFrame:
-    if mode == "HT":
-        sort_column = "Puissance besoin HT (kW)"
-        components = [
-            ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
-            ("Appoint gaz", "Puissance appoint HT (kW)", 2),
-        ]
-    elif mode == "BT":
-        sort_column = "Puissance besoin BT (kW)"
-        components = [
-            ("Géothermie PAC", "Puissance BT PAC (kW)", 1),
-            ("Appoint gaz", "Puissance appoint BT (kW)", 2),
-        ]
-    else:
-        raise ValueError("mode doit valoir HT ou BT")
-
-    sorted_df = results_df.sort_values(sort_column, ascending=False).reset_index(drop=True).copy()
-    sorted_df["Heure triee"] = sorted_df.index + 1
-    rows = []
-    for _, row in sorted_df.iterrows():
-        for label, column, order in components:
-            rows.append(
-                {
-                    "Heure triee": int(row["Heure triee"]),
-                    "Poste": label,
-                    "Ordre": order,
-                    "Puissance (kW)": float(row[column]),
-                    "Mois": int(row["month"]),
-                    "Jour": int(row["day"]),
-                    "Heure EPW": int(row["hour"]),
-                    "Tair (C)": float(row["tair_c"]),
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str) -> pd.DataFrame:
     """Build duration curves for stacked coverage charts with vectorized pandas operations."""
 
     working_df = results_df
     if mode == "HT":
         sort_column = "Puissance besoin HT (kW)"
         components = [
-            ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
-            ("Appoint gaz", "Puissance appoint HT (kW)", 2),
+            ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 2),
+            ("Appoint gaz", "Puissance appoint HT (kW)", 1),
         ]
     elif mode == "BT":
         sort_column = "Puissance besoin BT (kW)"
         components = [
-            ("Géothermie PAC", "Puissance BT PAC (kW)", 1),
-            ("Appoint gaz", "Puissance appoint BT (kW)", 2),
+            ("Géothermie PAC", "Puissance BT PAC (kW)", 2),
+            ("Appoint gaz", "Puissance appoint BT (kW)", 1),
         ]
     elif mode == "GLOBAL":
         sort_column = "Puissance besoin total (kW)"
