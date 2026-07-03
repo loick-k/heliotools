@@ -310,7 +310,8 @@ def _melt_monthly(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     )
     out["Poste"] = out["Poste"].replace(
         {
-            "Prechauffage HT solaire (MWh)": "Préchauffage HT solaire (MWh)",
+            "Prechauffage HT solaire (MWh)": "Production solaire ECS (MWh)",
+            "Injection BTES (MWh)": "Production solaire injectée dans le BTES (MWh)",
             "BT PAC (MWh)": "Géothermie PAC (MWh)",
         }
     )
