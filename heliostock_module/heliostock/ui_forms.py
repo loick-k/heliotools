@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import html
+from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from .app_service import CalculationSelection, ParametricRange
 from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
@@ -30,6 +29,50 @@ from .ui_inputs import (
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 PROCESS_TEMPLATE_XLSX = ASSETS_DIR / "modele_besoins_process_8760h.xlsx"
+
+
+def _process_template_excel_bytes() -> bytes:
+    if PROCESS_TEMPLATE_XLSX.exists():
+        return PROCESS_TEMPLATE_XLSX.read_bytes()
+
+    rows = []
+    hour_index = 0
+    month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    for month, days in enumerate(month_days, start=1):
+        for day in range(1, days + 1):
+            for hour in range(1, 25):
+                rows.append(
+                    {
+                        "hour_index": hour_index,
+                        "month": month,
+                        "day": day,
+                        "hour": hour,
+                        "E besoin HT kWh": 0.0,
+                        "E besoin BT kWh": 0.0,
+                    }
+                )
+                hour_index += 1
+
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        pd.DataFrame(rows).to_excel(writer, index=False, sheet_name="besoins_8760h")
+        pd.DataFrame(
+            [
+                {
+                    "Colonne": "E besoin HT kWh",
+                    "Description": "Energie horaire du besoin process haute température, en kWh sur l'heure.",
+                },
+                {
+                    "Colonne": "E besoin BT kWh",
+                    "Description": "Energie horaire du besoin process basse température, en kWh sur l'heure.",
+                },
+                {
+                    "Colonne": "P besoin HT kW / P besoin BT kW",
+                    "Description": "Colonnes alternatives acceptées si vous préférez fournir des puissances moyennes horaires.",
+                },
+            ]
+        ).to_excel(writer, index=False, sheet_name="notice")
+    return buffer.getvalue()
 
 
 @dataclass(frozen=True)
@@ -108,20 +151,13 @@ def render_weather_form() -> WeatherFormResult:
             lat = float(station.latitude_deg)
             lon = float(station.longitude_deg)
             delta = 0.45
-            station_title = html.escape(f"{region_name} - {station_label}", quote=True)
-            components.html(
-                f"""
-                <div style="width:100%; aspect-ratio:1 / 1; overflow:hidden; border-radius:8px; border:1px solid #d7dce2;">
-                  <iframe
-                    title="Station météo {station_title}"
-                    width="100%"
-                    height="100%"
-                    style="border:0;"
-                    loading="lazy"
-                    src="https://www.openstreetmap.org/export/embed.html?bbox={lon - delta}%2C{lat - delta}%2C{lon + delta}%2C{lat + delta}&layer=mapnik&marker={lat}%2C{lon}">
-                  </iframe>
-                </div>
-                """,
+            map_url = (
+                "https://www.openstreetmap.org/export/embed.html"
+                f"?bbox={lon - delta}%2C{lat - delta}%2C{lon + delta}%2C{lat + delta}"
+                f"&layer=mapnik&marker={lat}%2C{lon}"
+            )
+            st.iframe(
+                map_url,
                 height=360,
             )
 
@@ -147,13 +183,12 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
             "température et une colonne pour le besoin basse température. Le fichier reste local : aucun profil "
             "industriel n'est embarqué dans le dépôt public."
         )
-        if PROCESS_TEMPLATE_XLSX.exists():
-            st.download_button(
-                "Télécharger un modèle Excel vierge",
-                data=PROCESS_TEMPLATE_XLSX.read_bytes(),
-                file_name="modele_besoins_process_8760h.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
+        st.download_button(
+            "Télécharger un modèle Excel vierge",
+            data=_process_template_excel_bytes(),
+            file_name="modele_besoins_process_8760h.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
         temp_bt_col, temp_ht_col = st.columns(2)
         process_bt_target_c = temp_bt_col.number_input(
             "Température process basse température (°C)",
