@@ -286,6 +286,7 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
 
 
 def _bar_chart(df: pd.DataFrame, *, y_title: str = "MWh/mois", height: int = 340):
+    order = alt.Order("Ordre:Q", sort="ascending") if "Ordre" in df.columns else alt.Undefined
     return (
         alt.Chart(df)
         .mark_bar()
@@ -293,6 +294,7 @@ def _bar_chart(df: pd.DataFrame, *, y_title: str = "MWh/mois", height: int = 340
             x=alt.X("Mois:N", title="Mois", sort=None),
             y=alt.Y("Valeur:Q", title=y_title),
             color=_energy_color(),
+            order=order,
             tooltip=["Mois:N", "Poste:N", alt.Tooltip("Valeur:Q", format=".1f")],
         )
         .properties(height=height)

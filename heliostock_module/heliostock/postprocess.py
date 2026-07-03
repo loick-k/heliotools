@@ -216,14 +216,14 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
     if mode == "HT":
         sort_column = "Puissance besoin HT (kW)"
         components = [
-            ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 2),
-            ("Appoint gaz", "Puissance appoint HT (kW)", 1),
+            ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
+            ("Appoint gaz", "Puissance appoint HT (kW)", 2),
         ]
     elif mode == "BT":
         sort_column = "Puissance besoin BT (kW)"
         components = [
-            ("Géothermie PAC", "Puissance BT PAC (kW)", 2),
-            ("Appoint gaz", "Puissance appoint BT (kW)", 1),
+            ("Géothermie PAC", "Puissance BT PAC (kW)", 1),
+            ("Appoint gaz", "Puissance appoint BT (kW)", 2),
         ]
     elif mode == "GLOBAL":
         sort_column = "Puissance besoin total (kW)"
@@ -279,6 +279,14 @@ def _melt_monthly(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
             "BT PAC (MWh)": "Géothermie PAC (MWh)",
         }
     )
+    order_by_poste = {
+        "Production solaire ECS (MWh)": 1,
+        "Production solaire injectée dans le BTES (MWh)": 2,
+        "Géothermie PAC (MWh)": 1,
+        "Appoint HT (MWh)": 2,
+        "Appoint BT (MWh)": 2,
+    }
+    out["Ordre"] = out["Poste"].map(order_by_poste).fillna(1).astype(int)
     return out
 
 
