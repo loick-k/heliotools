@@ -86,11 +86,29 @@ def render_hourly_results(
     source_limit_energy = float(hourly_df["BT_non_couvert_limite_source_kWh"].sum()) / 1000.0
     solar_useful_kwh = total_preheat_ht + total_to_btes
     geothermal_renewable_kwh = max(total_pac - total_elec, 0.0)
+    multiyear_years_count = scenario.simulation_years_total
+    first_year_end_source_c = None
+    final_year_end_source_c = None
+    period_min_source_c = None
+    if not multiyear_btes_df.empty:
+        multiyear_years_count = int(multiyear_btes_df["Annee"].max())
+        first_year_rows = multiyear_btes_df[multiyear_btes_df["Annee"] == 1]
+        final_year_rows = multiyear_btes_df[multiyear_btes_df["Annee"] == multiyear_years_count]
+        if not first_year_rows.empty:
+            first_year_end_source_c = float(first_year_rows["T source PAC fin (C)"].iloc[-1])
+        if not final_year_rows.empty:
+            final_year_end_source_c = float(final_year_rows["T source PAC fin (C)"].iloc[-1])
+        period_min_source_c = float(multiyear_btes_df["T source PAC min (C)"].min())
     solar_storage_volume_m3 = (
         float(scenario.config.collector.area_m2)
         * float(scenario.config.collector.daily_buffer_l_per_m2)
         / 1000.0
     )
+
+    def _format_temp(value: float | None) -> str:
+        if value is None:
+            return "n.d."
+        return f"{value:.1f} °C"
 
     st.markdown("#### Données d'entrée principales")
     i1, i2, i3, i4 = st.columns(4)
@@ -146,6 +164,18 @@ def render_hourly_results(
     else:
         c2.metric("Gain équivalent éco", "non trouvé")
     c3.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
+    t1, t2, t3 = st.columns(3)
+    t1.metric("T source fin année 1", _format_temp(first_year_end_source_c))
+    t2.metric(
+        f"T source fin année {multiyear_years_count}",
+        _format_temp(final_year_end_source_c),
+        delta=(
+            f"{final_year_end_source_c - first_year_end_source_c:+.1f} °C"
+            if final_year_end_source_c is not None and first_year_end_source_c is not None
+            else None
+        ),
+    )
+    t3.metric("T source min période", _format_temp(period_min_source_c))
     d1, d2, d3 = st.columns(3)
     d1.metric("Heures sous Tmin opérationnelle", f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h")
     d2.metric("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h")
@@ -322,17 +352,9 @@ def _render_multiyear_tab(multiyear_btes_df: pd.DataFrame, no_solar_multiyear_bt
     st.caption(
         "Projection physique obtenue en répétant la même météo EPW et les mêmes besoins horaires "
         f"sur {years_count} ans. Elle sert à visualiser la dérive thermique du champ ; "
-        "les tableaux économiques restent calculés sur les indicateurs annuels."
+        "les tableaux économiques restent calculés sur les indicateurs annuels. "
+        "Les températures clés sont reprises dans le résumé technique."
     )
-    first_year_end = float(multiyear_btes_df[multiyear_btes_df["Annee"] == 1]["T source PAC fin (C)"].iloc[-1])
-    last_year_end = float(multiyear_btes_df[multiyear_btes_df["Annee"] == years_count]["T source PAC fin (C)"].iloc[-1])
-    period_min = float(multiyear_btes_df["T source PAC min (C)"].min())
-    hours_tmin = int(multiyear_btes_df["Heures sous Tmin source"].sum())
-    m1, m2, m3, m4 = st.columns(4)
-    m1.metric("T source fin an 1", f"{first_year_end:.0f} °C")
-    m2.metric(f"T source fin an {years_count}", f"{last_year_end:.0f} °C", delta=f"{last_year_end - first_year_end:+.0f} °C")
-    m3.metric("T min période", f"{period_min:.0f} °C")
-    m4.metric("Heures source Tmin", f"{hours_tmin:.0f} h")
     chart_col_1, chart_col_2, chart_col_3 = st.columns(3)
     if not no_solar_multiyear_btes_df.empty:
         comparison_btes_df = pd.concat(
