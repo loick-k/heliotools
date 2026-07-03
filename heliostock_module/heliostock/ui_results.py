@@ -123,12 +123,13 @@ def render_hourly_results(
         "+ production solaire ECS + appoint gaz. L'injection solaire dans le BTES est détaillée "
         "dans le solaire thermique pour éviter un double comptage."
     )
-    k1, k2, k3, k4, k5 = st.columns(5)
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
     k1.metric("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
     k2.metric("Part EnR PAC géothermie", f"{geothermal_renewable_kwh / 1000:.0f} MWh")
     k3.metric("Électricité PAC", f"{total_elec / 1000:.0f} MWh")
     k4.metric("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh")
     k5.metric("Consommation appoint gaz", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh")
+    k6.metric("Taux EnR global", f"{global_ren_rate * 100:.0f} %")
 
     st.markdown("#### Solaire thermique")
     s1, s2, s3 = st.columns(3)
@@ -151,19 +152,12 @@ def render_hourly_results(
     )
     p3.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lancé")
     p4.metric("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an")
-
-    st.markdown("#### Appoint gaz")
-    g1 = st.columns(1)[0]
-    g1.metric("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW")
-
-    st.markdown("#### Champ de sondes et sécurité")
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Taux EnR global", f"{global_ren_rate * 100:.0f} %")
+    c1, c2 = st.columns(2)
     if bool(savings["found"]):
-        c2.metric("Gain équivalent éco", f"{float(savings['saved_length_m']):.0f} ml")
+        c1.metric("Gain équivalent éco", f"{float(savings['saved_length_m']):.0f} ml")
     else:
-        c2.metric("Gain équivalent éco", "non trouvé")
-    c3.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
+        c1.metric("Gain équivalent éco", "non trouvé")
+    c2.metric("Limite source PAC", f"{source_limit_hours} h", delta=f"{source_limit_energy:.1f} MWh")
     t1, t2, t3 = st.columns(3)
     t1.metric("T source fin année 1", _format_temp(first_year_end_source_c))
     t2.metric(
@@ -180,6 +174,10 @@ def render_hourly_results(
     d1.metric("Heures sous Tmin opérationnelle", f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h")
     d2.metric("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h")
     d3.metric("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C")
+
+    st.markdown("#### Appoint gaz")
+    g1 = st.columns(1)[0]
+    g1.metric("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW")
     _render_btes_warnings(
         scenario=scenario,
         hourly_df=hourly_df,

@@ -214,13 +214,13 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
         sort_column = "Puissance besoin HT (kW)"
         components = [
             ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
-            ("Appoint HT", "Puissance appoint HT (kW)", 2),
+            ("Appoint gaz", "Puissance appoint HT (kW)", 2),
         ]
     elif mode == "BT":
         sort_column = "Puissance besoin BT (kW)"
         components = [
             ("Géothermie PAC", "Puissance BT PAC (kW)", 1),
-            ("Appoint BT", "Puissance appoint BT (kW)", 2),
+            ("Appoint gaz", "Puissance appoint BT (kW)", 2),
         ]
     else:
         raise ValueError("mode doit valoir HT ou BT")
@@ -253,13 +253,13 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
         sort_column = "Puissance besoin HT (kW)"
         components = [
             ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
-            ("Appoint HT", "Puissance appoint HT (kW)", 2),
+            ("Appoint gaz", "Puissance appoint HT (kW)", 2),
         ]
     elif mode == "BT":
         sort_column = "Puissance besoin BT (kW)"
         components = [
-            ("Geothermie PAC", "Puissance BT PAC (kW)", 1),
-            ("Appoint BT", "Puissance appoint BT (kW)", 2),
+            ("Géothermie PAC", "Puissance BT PAC (kW)", 1),
+            ("Appoint gaz", "Puissance appoint BT (kW)", 2),
         ]
     elif mode == "GLOBAL":
         sort_column = "Puissance besoin total (kW)"
@@ -269,7 +269,7 @@ def _stacked_coverage_duration_dataframe(results_df: pd.DataFrame, *, mode: str)
         )
         components = [
             ("Solaire thermique", "Puissance prechauffage HT solaire (kW)", 1),
-            ("Geothermie PAC", "Puissance BT PAC (kW)", 2),
+            ("Géothermie PAC", "Puissance BT PAC (kW)", 2),
             ("Appoint gaz", "Puissance appoint total (kW)", 3),
         ]
     else:

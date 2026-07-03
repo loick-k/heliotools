@@ -266,38 +266,8 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
                 "Poste:N",
                 title="Poste",
                 scale=alt.Scale(
-                    domain=ENERGY_COLOR_DOMAIN,
-                    range=ENERGY_COLOR_RANGE,
-                ),
-            ),
-            order=alt.Order("Ordre:Q", sort="ascending"),
-            tooltip=[
-                "Heure triee:Q",
-                "Poste:N",
-                alt.Tooltip("Puissance (kW):Q", format=".1f"),
-                "Mois:Q",
-                "Jour:Q",
-                "Heure EPW:Q",
-                alt.Tooltip("Tair (C):Q", title="Tair (°C)", format=".1f"),
-            ],
-        )
-        .properties(height=360, title=title)
-    )
-
-
-def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
-    return (
-        alt.Chart(df)
-        .mark_area(interpolate="step-after")
-        .encode(
-            x=alt.X("Heure triee:Q", title="Heures triees par besoin decroissant"),
-            y=alt.Y("Puissance (kW):Q", title="Puissance appelée/couverte (kW)", stack="zero"),
-            color=alt.Color(
-                "Poste:N",
-                title="Poste",
-                scale=alt.Scale(
-                    domain=ENERGY_COLOR_DOMAIN,
-                    range=ENERGY_COLOR_RANGE,
+                    domain=["Solaire thermique", "Géothermie PAC", "Appoint gaz"],
+                    range=["#facc15", "#16a34a", "#9ca3af"],
                 ),
             ),
             order=alt.Order("Ordre:Q", sort="ascending"),
