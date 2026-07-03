@@ -24,6 +24,24 @@ from .ui_economics import render_economics_tab
 from .ui_formatting import display_dataframe, round_display_df
 
 
+def _scenario_economic_row(economic_comparison_df: pd.DataFrame, scenario_name: str) -> pd.Series | None:
+    if economic_comparison_df.empty or "Scenario" not in economic_comparison_df:
+        return None
+    rows = economic_comparison_df[economic_comparison_df["Scenario"].astype(str) == scenario_name]
+    if rows.empty:
+        return None
+    return rows.iloc[0]
+
+
+def _row_float(row: pd.Series | None, column: str, default: float = 0.0) -> float:
+    if row is None or column not in row:
+        return default
+    value = pd.to_numeric(pd.Series([row[column]]), errors="coerce").iloc[0]
+    if pd.isna(value):
+        return default
+    return float(value)
+
+
 def render_hourly_results(
     *,
     scenario: ScenarioResult,
@@ -69,6 +87,24 @@ def render_hourly_results(
     no_solar_cop = scenario.no_solar_cop
     savings = scenario.savings
     backup_power_kw = scenario.backup_power_kw
+    same_borefield_row = _scenario_economic_row(
+        scenario.economic_comparison_df,
+        "Geothermie + solaire meme sondes",
+    )
+    reduced_borefield_row = _scenario_economic_row(
+        scenario.economic_comparison_df,
+        "Geothermie + solaire sondes reduites",
+    )
+    initial_borefield_cop = _row_float(same_borefield_row, "COP PAC moyen", mean_cop)
+    initial_borefield_elec_mwh = _row_float(same_borefield_row, "Electricite PAC (MWh/an)", total_elec / 1000.0)
+    reduced_borefield_available = bool(savings["found"]) and reduced_borefield_row is not None
+    reduced_borefield_length_m = _row_float(
+        reduced_borefield_row,
+        "Lineaire sondes (ml)",
+        scenario.economic_borefield_length_m,
+    )
+    reduced_borefield_cop = _row_float(reduced_borefield_row, "COP PAC moyen", 0.0)
+    reduced_borefield_elec_mwh = _row_float(reduced_borefield_row, "Electricite PAC (MWh/an)", 0.0)
 
     st.subheader("Résumé technique")
     st.caption(
@@ -152,6 +188,24 @@ def render_hourly_results(
     )
     p3.metric("COP PAC sans solaire", f"{no_solar_cop:.1f}" if no_solar_cop > 0.0 else "non lancé")
     p4.metric("Heures pleine puissance PAC", f"{equivalent_full_power_hours:.0f} h/an")
+    if no_solar_cop > 0.0:
+        h1, h2, h3 = st.columns(3)
+        h1.metric("Gain BT PAC avec solaire", f"{(total_pac - no_solar_total_pac) / 1000:.0f} MWh")
+        h2.metric("Écart électricité PAC", f"{(no_solar_total_elec - total_elec) / 1000:.0f} MWh")
+        h3.metric("Gain COP avec solaire", f"{mean_cop - no_solar_cop:+.1f}", delta=f"{mean_cop:.1f} vs {no_solar_cop:.1f}")
+
+    st.markdown("##### Comparaison linéaire de sondes")
+    l1, l2, l3 = st.columns(3)
+    l1.metric("Sondes initiales", f"{scenario.full_borefield_length_m:.0f} ml")
+    l2.metric("COP initial", f"{initial_borefield_cop:.1f}" if initial_borefield_cop > 0.0 else "n.d.")
+    l3.metric("Électricité PAC initiale", f"{initial_borefield_elec_mwh:.0f} MWh/an")
+    r1, r2, r3 = st.columns(3)
+    r1.metric("Sondes réduites", f"{reduced_borefield_length_m:.0f} ml" if reduced_borefield_available else "non déterminé")
+    r2.metric("COP sondes réduites", f"{reduced_borefield_cop:.1f}" if reduced_borefield_available and reduced_borefield_cop > 0.0 else "n.d.")
+    r3.metric(
+        "Électricité PAC sondes réduites",
+        f"{reduced_borefield_elec_mwh:.0f} MWh/an" if reduced_borefield_available else "n.d.",
+    )
     c1, c2 = st.columns(2)
     if bool(savings["found"]):
         c1.metric("Gain équivalent éco", f"{float(savings['saved_length_m']):.0f} ml")
@@ -222,12 +276,6 @@ def render_hourly_results(
         _render_monthly_tab(
             annual_df=annual_df,
             hourly_by_month_df=hourly_by_month_df,
-            total_pac=total_pac,
-            no_solar_total_pac=no_solar_total_pac,
-            total_elec=total_elec,
-            no_solar_total_elec=no_solar_total_elec,
-            mean_cop=mean_cop,
-            no_solar_cop=no_solar_cop,
         )
 
     with tab_economics:
@@ -416,12 +464,6 @@ def _render_monthly_tab(
     *,
     annual_df: pd.DataFrame,
     hourly_by_month_df: pd.DataFrame,
-    total_pac: float,
-    no_solar_total_pac: float,
-    total_elec: float,
-    no_solar_total_elec: float,
-    mean_cop: float,
-    no_solar_cop: float,
 ) -> None:
     st.markdown("### Bilan annuel, calculé depuis les 8760 heures")
     st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
@@ -472,15 +514,6 @@ def _render_monthly_tab(
     with chart_e:
         st.markdown("### Couverture besoin BT")
         st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
-
-    st.markdown("### Comparaison horaire sans solaire / avec solaire")
-    if no_solar_cop <= 0.0:
-        st.info("Comparaison sans solaire non lancée.")
-        return
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Gain BT PAC", f"{(total_pac - no_solar_total_pac) / 1000:.0f} MWh")
-    c2.metric("Écart électricité PAC", f"{(no_solar_total_elec - total_elec) / 1000:.0f} MWh")
-    c3.metric("Gain COP", f"{mean_cop - no_solar_cop:+.1f}", delta=f"{mean_cop:.1f} vs {no_solar_cop:.1f}")
 
 
 def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_id: str) -> None:

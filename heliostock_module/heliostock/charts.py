@@ -51,6 +51,7 @@ ENERGY_COLOR_RANGE = [
     "#d1d5db",
     "#9ca3af",
 ]
+ENERGY_COLOR_BY_POSTE = dict(zip(ENERGY_COLOR_DOMAIN, ENERGY_COLOR_RANGE))
 GENERATOR_COLOR_DOMAIN = [
     "Solaire thermique",
     "Géothermie PAC",
@@ -287,13 +288,20 @@ def _stacked_coverage_duration_chart(df: pd.DataFrame, *, title: str):
 
 def _bar_chart(df: pd.DataFrame, *, y_title: str = "MWh/mois", height: int = 340):
     order = alt.Order("Ordre:Q", sort="ascending") if "Ordre" in df.columns else alt.Undefined
+    postes = [str(poste) for poste in pd.unique(df["Poste"]) if pd.notna(poste)] if "Poste" in df.columns else []
+    color_range = [ENERGY_COLOR_BY_POSTE.get(poste, "#6b7280") for poste in postes]
+    color = alt.Color(
+        "Poste:N",
+        title="Poste",
+        scale=alt.Scale(domain=postes, range=color_range),
+    )
     return (
         alt.Chart(df)
         .mark_bar()
         .encode(
             x=alt.X("Mois:N", title="Mois", sort=None),
             y=alt.Y("Valeur:Q", title=y_title),
-            color=_energy_color(),
+            color=color,
             order=order,
             tooltip=["Mois:N", "Poste:N", alt.Tooltip("Valeur:Q", format=".1f")],
         )
