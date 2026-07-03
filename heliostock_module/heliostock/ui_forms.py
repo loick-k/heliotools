@@ -25,6 +25,7 @@ from .ui_inputs import (
     FixedGeoAssumptions,
     FixedSolarAssumptions,
 )
+from .ui_formatting import display_dataframe
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -273,7 +274,7 @@ def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
         solar_preheat_target_ht_c = float(process_ht_target_c)
 
         with st.expander("Hypothèses solaires fixées", expanded=False):
-            st.dataframe(solar_fixed.to_table(), width="stretch", hide_index=True)
+            st.dataframe(display_dataframe(solar_fixed.to_table()), width="stretch", hide_index=True)
             st.caption(
                 "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
                 "Le volume ballon est fixé à 60 L/m² de capteurs."
@@ -381,7 +382,7 @@ def render_geothermal_form(
         )
 
         with st.expander("Hypothèses géothermie fixées", expanded=False):
-            st.dataframe(geo_fixed.to_table(), width="stretch", hide_index=True)
+            st.dataframe(display_dataframe(geo_fixed.to_table()), width="stretch", hide_index=True)
             st.caption(
                 "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
                 "Le COP horaire reste calculé dynamiquement avec la température du champ."
@@ -481,7 +482,7 @@ def render_economics_form() -> EconomicsInputs:
         backup_p2_eur_kw_year = p2b.number_input("P2 appoint gaz (EUR/kW.an)", min_value=0.0, max_value=100.0, value=10.0, step=1.0)
 
         st.markdown("#### P4 - Investissements")
-        st.dataframe(economics_fixed.p4_table(), width="stretch", hide_index=True)
+        st.dataframe(display_dataframe(economics_fixed.p4_table()), width="stretch", hide_index=True)
         st.caption(
             "CAPEX = S x coût unitaire(S). Aide ADEME solaire plafonnée à 65 % du CAPEX. "
             "Les autres aides publiques sont forcées à 0 EUR."
