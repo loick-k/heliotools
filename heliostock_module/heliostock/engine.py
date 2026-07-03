@@ -41,6 +41,9 @@ class CollectorConfig:
     daily_buffer_min_temp_c: float = 20.0
     daily_buffer_max_temp_c: float = 80.0
     daily_buffer_loss_fraction_per_day: float = 0.02
+    daily_buffer_tank_count: int = 1
+    daily_buffer_insulation_thickness_cm: float = 10.0
+    daily_buffer_insulation_lambda_w_m_k: float = 0.035
 
 
 @dataclass(frozen=True)

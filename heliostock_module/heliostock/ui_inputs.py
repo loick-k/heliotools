@@ -97,7 +97,9 @@ class FixedSolarAssumptions:
     system_efficiency: float = 0.90
     daily_buffer_charge_factor_ht: float = 1.0
     daily_buffer_l_per_m2: float = 60.0
-    daily_buffer_loss_pct: float = 2.0
+    daily_buffer_tank_count: int = 1
+    daily_buffer_insulation_thickness_cm: float = 10.0
+    daily_buffer_insulation_lambda_w_m_k: float = 0.035
     solar_buffer_hx_approach_k: float = 5.0
     solar_buffer_collector_approach_k: float = 10.0
 
@@ -107,7 +109,10 @@ class FixedSolarAssumptions:
                 ("Rendement hydraulique global", self.system_efficiency, "-"),
                 ("Facteur charge ballon solaire", self.daily_buffer_charge_factor_ht, "-"),
                 ("Volume ballon", self.daily_buffer_l_per_m2, "L/m2 capteur"),
-                ("Pertes ballon", self.daily_buffer_loss_pct, "%/jour"),
+                ("Modèle pertes ballon", "SOLO2018 détaillé", "-"),
+                ("Nombre de ballons", self.daily_buffer_tank_count, "-"),
+                ("Épaisseur isolant ballon", self.daily_buffer_insulation_thickness_cm, "cm"),
+                ("Lambda isolant ballon", self.daily_buffer_insulation_lambda_w_m_k, "W/m/K"),
                 ("Approche echangeur ballon-process", self.solar_buffer_hx_approach_k, "K"),
                 ("Approche capteur sur ballon", self.solar_buffer_collector_approach_k, "K"),
             ],

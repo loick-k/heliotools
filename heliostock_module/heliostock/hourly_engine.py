@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import math
 from dataclasses import dataclass
 from typing import Callable
 
@@ -103,6 +104,10 @@ def expand_monthly_demands_to_hourly(
     return hourly
 
 
+def _daily_buffer_volume_l(collector: CollectorConfig) -> float:
+    return max(0.0, collector.area_m2) * max(0.0, collector.daily_buffer_l_per_m2)
+
+
 def _daily_buffer_capacity_kwh(collector: CollectorConfig) -> float:
     """Thermal energy stored above ambient in the daily solar tank.
 
@@ -110,7 +115,7 @@ def _daily_buffer_capacity_kwh(collector: CollectorConfig) -> float:
     E_buffer_max = m_water * Cp_water * (T_tank_max - T_ambient)
     """
 
-    volume_l = max(0.0, collector.area_m2) * max(0.0, collector.daily_buffer_l_per_m2)
+    volume_l = _daily_buffer_volume_l(collector)
     delta_t = max(
         0.0,
         collector.daily_buffer_max_temp_c - collector.daily_buffer_ambient_temp_c,
@@ -121,7 +126,7 @@ def _daily_buffer_capacity_kwh(collector: CollectorConfig) -> float:
 
 
 def _daily_buffer_heat_capacity_kwh_k(collector: CollectorConfig) -> float:
-    volume_l = max(0.0, collector.area_m2) * max(0.0, collector.daily_buffer_l_per_m2)
+    volume_l = _daily_buffer_volume_l(collector)
     return volume_l * WATER_BUFFER_KWH_PER_L_K
 
 
@@ -132,10 +137,77 @@ def _daily_buffer_temperature_c(buffer_energy_kwh: float, collector: CollectorCo
     return collector.daily_buffer_ambient_temp_c + max(0.0, buffer_energy_kwh) / heat_capacity
 
 
+def _solo2018_tank_surface_m2(volume_m3: float) -> float:
+    if volume_m3 <= 0.0:
+        return 0.0
+    height_over_diameter = 2.0
+    diameter_m = (4.0 * volume_m3 / (math.pi * height_over_diameter)) ** (1.0 / 3.0)
+    height_m = height_over_diameter * diameter_m
+    return math.pi * diameter_m**2 / 2.0 + math.pi * height_m * diameter_m
+
+
+def _solo2018_cr_stock_wh_l_k_day(collector: CollectorConfig) -> float:
+    volume_total_l = _daily_buffer_volume_l(collector)
+    if volume_total_l <= 0.0:
+        return 0.0
+    tank_count = max(1, int(collector.daily_buffer_tank_count))
+    volume_unit_l = volume_total_l / tank_count
+    if volume_unit_l <= 0.0:
+        return 0.0
+    volume_unit_m3 = volume_unit_l / 1000.0
+    surface_m2 = _solo2018_tank_surface_m2(volume_unit_m3)
+    thickness_m = collector.daily_buffer_insulation_thickness_cm / 100.0
+    lambda_iso = collector.daily_buffer_insulation_lambda_w_m_k
+    if thickness_m <= 0.0 or lambda_iso <= 0.0 or surface_m2 <= 0.0:
+        return 0.0
+
+    r_iso_m2_k_w = thickness_m / lambda_iso
+    h_conv_w_m2_k = 10.0
+    u_w_m2_k = 1.0 / (r_iso_m2_k_w + 1.0 / h_conv_w_m2_k)
+    conductance_w_k = u_w_m2_k * surface_m2
+    correction_cr = 1.1 + 0.05 / volume_unit_m3
+    cr_base_wh_l_k_day = conductance_w_k * 24.0 / volume_unit_l
+    return max(0.0, correction_cr * cr_base_wh_l_k_day)
+
+
+def _solo2018_buffer_loss_diagnostic(collector: CollectorConfig) -> dict[str, float]:
+    volume_total_l = _daily_buffer_volume_l(collector)
+    tank_count = max(1, int(collector.daily_buffer_tank_count))
+    volume_unit_l = volume_total_l / tank_count if volume_total_l > 0.0 else 0.0
+    cr_stock_wh_l_k_day = _solo2018_cr_stock_wh_l_k_day(collector)
+    return {
+        "volume_total_l": volume_total_l,
+        "tank_count": float(tank_count),
+        "volume_unit_l": volume_unit_l,
+        "cr_stock_wh_l_k_day": cr_stock_wh_l_k_day,
+        "equivalent_loss_fraction_per_day": cr_stock_wh_l_k_day / 1.163,
+    }
+
+
 def _hourly_buffer_loss(buffer_energy_kwh: float, collector: CollectorConfig) -> float:
-    daily_loss = max(0.0, min(1.0, collector.daily_buffer_loss_fraction_per_day))
-    hourly_fraction = 1.0 - (1.0 - daily_loss) ** (1.0 / 24.0)
-    return buffer_energy_kwh * hourly_fraction
+    buffer_energy_kwh = max(0.0, buffer_energy_kwh)
+    if buffer_energy_kwh <= 0.0:
+        return 0.0
+
+    volume_l = _daily_buffer_volume_l(collector)
+    if volume_l <= 0.0:
+        return 0.0
+
+    t_buffer = _daily_buffer_temperature_c(buffer_energy_kwh, collector)
+    t_env = collector.daily_buffer_ambient_temp_c
+    delta_t = max(0.0, t_buffer - t_env)
+    if delta_t <= 0.0:
+        return 0.0
+
+    cr = _solo2018_cr_stock_wh_l_k_day(collector)
+    if cr <= 0.0:
+        return 0.0
+
+    # SOLO2018 donne une perte journalière du stock :
+    # pertes_jour = DeltaT * V_litres * CRStockSolaire / 1000
+    # HelioStock est horaire, donc on divise par 24.
+    loss_kwh = delta_t * volume_l * cr / 1000.0 / 24.0
+    return min(buffer_energy_kwh, max(0.0, loss_kwh))
 
 
 def _solar_yield_hour_kwh(

@@ -25,6 +25,9 @@ class SolarInputs:
     solar_preheat_target_ht_c: float
     solar_buffer_hx_approach_k: float
     solar_buffer_collector_approach_k: float
+    daily_buffer_tank_count: int = 1
+    daily_buffer_insulation_thickness_cm: float = 10.0
+    daily_buffer_insulation_lambda_w_m_k: float = 0.035
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
@@ -36,6 +39,12 @@ class SolarInputs:
             warnings.append("Le rendement hydraulique global doit etre compris entre 0 et 1.")
         if self.daily_buffer_max_temp_c <= self.daily_buffer_ambient_temp_c:
             warnings.append("Tmax ballon doit etre superieure a la temperature ambiante du ballon.")
+        if self.daily_buffer_tank_count <= 0:
+            warnings.append("Le nombre de ballons solaires doit etre strictement positif.")
+        if self.daily_buffer_insulation_thickness_cm <= 0.0:
+            warnings.append("L'epaisseur d'isolant du ballon doit etre strictement positive.")
+        if self.daily_buffer_insulation_lambda_w_m_k <= 0.0:
+            warnings.append("Le lambda de l'isolant du ballon doit etre strictement positif.")
         return warnings
 
     def to_collector_config(self) -> CollectorConfig:
@@ -55,6 +64,9 @@ class SolarInputs:
             daily_buffer_max_temp_c=self.daily_buffer_max_temp_c,
             daily_buffer_delta_t_k=max(0.0, self.daily_buffer_max_temp_c - self.daily_buffer_ambient_temp_c),
             daily_buffer_loss_fraction_per_day=self.daily_buffer_loss_pct_per_day / 100.0,
+            daily_buffer_tank_count=self.daily_buffer_tank_count,
+            daily_buffer_insulation_thickness_cm=self.daily_buffer_insulation_thickness_cm,
+            daily_buffer_insulation_lambda_w_m_k=self.daily_buffer_insulation_lambda_w_m_k,
         )
 
 
