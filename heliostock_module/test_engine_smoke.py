@@ -2272,6 +2272,7 @@ def test_default_technical_years_is_25():
     assert selection.calculation_profile == "calcul_final"
     assert selection.technical_simulation_years == 25
     assert selection.custom_display_year == 25
+    assert selection.savings_search_mode == "expert"
 
 
 def test_technical_years_not_economic_years():

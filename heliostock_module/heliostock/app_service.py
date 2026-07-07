@@ -42,7 +42,7 @@ class CalculationSelection:
     custom_display_year: int = 25
     run_geo_only: bool = True
     run_reduced_borefield: bool = False
-    savings_search_mode: str = "fast"
+    savings_search_mode: str = "expert"
     recharge_credit: float = 0.6
     reduced_borefield_safety_factor: float = 1.10
 
@@ -186,9 +186,11 @@ def run_hourly_calculation(
     technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
     display_year_mode = "finale"
     custom_display_year = technical_simulation_years
-    run_geo_only = bool(request.calculation_selection.run_geo_only)
-    run_reduced_borefield = bool(request.calculation_selection.run_reduced_borefield)
+    run_geo_only = True
     savings_search_mode = str(request.calculation_selection.savings_search_mode or "none")
+    if savings_search_mode == "fast":
+        savings_search_mode = "expert"
+    run_reduced_borefield = savings_search_mode != "none" and bool(request.calculation_selection.run_reduced_borefield)
     mark("scenario:start", "Scenario principal : annuel, multiannuel, economie")
     scenario = run_hourly_scenario(
         weather=request.weather,
@@ -282,7 +284,7 @@ def run_hourly_calculation(
             ademe_eur_mwh_year=request.economics.ademe_eur_mwh_year,
             other_public_aid_eur=request.economics.other_public_aid_eur,
             technical_simulation_years=int(technical_simulation_years),
-            savings_search_mode=request.calculation_selection.savings_search_mode,
+            savings_search_mode=savings_search_mode,
             recharge_credit=request.calculation_selection.recharge_credit,
             reduced_borefield_safety_factor=request.calculation_selection.reduced_borefield_safety_factor,
             full_case_reference=scenario.solar_parametric_reference,

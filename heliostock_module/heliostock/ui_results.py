@@ -395,7 +395,7 @@ def render_hourly_results(
             ("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C"),
         ]
     )
-    pac_metrics.extend(
+    pac_security_metrics.extend(
         [
             ("Injection BTES annee finale", f"{final_btes_injection_mwh:.0f} MWh"),
             ("Extraction sol annee finale", f"{final_btes_extraction_mwh:.0f} MWh"),

@@ -508,21 +508,18 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             value=25,
             step=1,
         )
-        run_geo_only = st.checkbox("Scénario géothermie seule", value=True)
         savings_method_label = st.selectbox(
             "Méthode économie de sondes",
-            options=["désactivée", "rapide prédimensionnement", "experte détaillée"],
+            options=["désactivée", "experte détaillée"],
             index=1,
-            disabled=not run_geo_only,
         )
         savings_mode_map = {
             "désactivée": "none",
-            "rapide prédimensionnement": "fast",
             "experte détaillée": "expert",
         }
         savings_search_mode = savings_mode_map[str(savings_method_label)]
-        run_reduced_borefield = savings_search_mode != "none" and bool(run_geo_only)
-        recharge_credit = st.number_input("Crédit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
+        run_reduced_borefield = savings_search_mode != "none"
+        recharge_credit = 0.60
         reduced_borefield_safety_factor = st.number_input(
             "Marge sécurité sondes réduites",
             min_value=1.0,
@@ -531,9 +528,6 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             step=0.05,
             disabled=savings_search_mode == "none",
         )
-        if not run_geo_only and run_reduced_borefield:
-            run_reduced_borefield = False
-            savings_search_mode = "none"
         st.caption(
             "Les résultats techniques affichés correspondent automatiquement à l'année finale simulée."
         )
@@ -545,7 +539,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             technical_simulation_years=int(technical_simulation_years),
             display_year_mode="finale",
             custom_display_year=int(technical_simulation_years),
-            run_geo_only=bool(run_geo_only),
+            run_geo_only=True,
             run_reduced_borefield=bool(run_reduced_borefield),
             savings_search_mode=str(savings_search_mode),
             recharge_credit=float(recharge_credit),
