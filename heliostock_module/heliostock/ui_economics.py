@@ -95,7 +95,7 @@ def render_economics_tab(
         "service rendu au champ de sondes, sans économie P2 proportionnelle aux ml économisés. Les coûts variables "
         "sont calculés sur une trajectoire physique multiannuelle nominale."
     )
-    st.dataframe(display_dataframe(economic_comparison_df), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(economic_comparison_df), use_container_width=True, hide_index=True)
 
     chart_cols = st.columns(4)
     chart_titles = {
@@ -106,7 +106,7 @@ def render_economics_tab(
     }
     for col, indicator in zip(chart_cols, chart_titles):
         chart_df = economic_comparison_chart_df[economic_comparison_chart_df["Indicateur"] == indicator]
-        col.altair_chart(_scenario_comparison_chart(chart_df, title=chart_titles[indicator]), width="stretch")
+        col.altair_chart(_scenario_comparison_chart(chart_df, title=chart_titles[indicator]), use_container_width=True)
 
     st.markdown("### Synthèse P1 électrique PAC/géothermie")
     e1, e2, e3, e4 = st.columns(4)
@@ -133,15 +133,15 @@ def render_economics_tab(
         "(économie CAPEX sondes nette annualisée + économie électricité PAC) - coût annuel solaire recharge. "
         "L'économie nette tient compte de la baisse d'aide ADEME quand le CAPEX sondes diminue."
     )
-    st.dataframe(display_dataframe(_recharge_value_table(recharge_value)), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(_recharge_value_table(recharge_value)), use_container_width=True, hide_index=True)
     st.caption("Aucune économie de P2 n'est appliquée au linéaire de sondes économisé.")
 
     st.markdown("### Détail économique par générateur")
-    st.dataframe(display_dataframe(_generator_economic_table(heat_costs)), width="stretch", hide_index=True)
-    st.altair_chart(_heat_cost_vector_chart(heat_costs["cost_bars"]), width="stretch")
+    st.dataframe(display_dataframe(_generator_economic_table(heat_costs)), use_container_width=True, hide_index=True)
+    st.altair_chart(_heat_cost_vector_chart(heat_costs["cost_bars"]), use_container_width=True)
 
     st.markdown("### Trajectoire annuelle utilisée pour l'économie")
     st.caption(
         "Si l'horizon économique dépasse les années simulées, la dernière année simulée est répétée comme année stabilisée."
     )
-    st.dataframe(display_dataframe(economic_trajectory_df), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(economic_trajectory_df), use_container_width=True, hide_index=True)

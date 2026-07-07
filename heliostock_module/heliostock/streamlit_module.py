@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import time
 from pathlib import Path
@@ -70,7 +70,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
     if not weather_form.hourly_weather:
         return pd.DataFrame()
 
-    run_clicked = st.button("Lancer le profil de calcul selectionne", type="primary", width="stretch")
+    run_clicked = st.button("Lancer le profil de calcul selectionne", type="primary", use_container_width=True)
     if not run_clicked and "heliostock_last_result" not in st.session_state:
         st.info("Paramètres prêts. Clique sur **Lancer le calcul** pour exécuter la simulation horaire.")
         return pd.DataFrame()
@@ -180,7 +180,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
             ).astype("Float64")
             for column in ["Duree depuis etape precedente (s)", "Duree cumulee (s)"]:
                 display_log[column] = display_log[column].astype(float).round(2)
-            st.dataframe(display_dataframe(display_log), width="stretch", hide_index=True)
+            st.dataframe(display_dataframe(display_log), use_container_width=True, hide_index=True)
     return hourly_df
 
 

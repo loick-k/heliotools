@@ -151,14 +151,11 @@ def render_weather_form() -> WeatherFormResult:
         with map_col:
             lat = float(station.latitude_deg)
             lon = float(station.longitude_deg)
-            delta = 0.45
-            map_url = (
-                "https://www.openstreetmap.org/export/embed.html"
-                f"?bbox={lon - delta}%2C{lat - delta}%2C{lon + delta}%2C{lat + delta}"
-                f"&layer=mapnik&marker={lat}%2C{lon}"
-            )
-            st.iframe(
-                map_url,
+            st.map(
+                pd.DataFrame([{"lat": lat, "lon": lon}]),
+                latitude="lat",
+                longitude="lon",
+                zoom=7,
                 height=360,
             )
 
@@ -274,7 +271,7 @@ def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
         solar_preheat_target_ht_c = float(process_ht_target_c)
 
         with st.expander("Hypothèses solaires fixées", expanded=False):
-            st.dataframe(display_dataframe(solar_fixed.to_table()), width="stretch", hide_index=True)
+            st.dataframe(display_dataframe(solar_fixed.to_table()), use_container_width=True, hide_index=True)
             st.caption(
                 "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
                 "Le volume ballon est fixé à 60 L/m² de capteurs."
@@ -382,7 +379,7 @@ def render_geothermal_form(
         )
 
         with st.expander("Hypothèses géothermie fixées", expanded=False):
-            st.dataframe(display_dataframe(geo_fixed.to_table()), width="stretch", hide_index=True)
+            st.dataframe(display_dataframe(geo_fixed.to_table()), use_container_width=True, hide_index=True)
             st.caption(
                 "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
                 "Le COP horaire reste calculé dynamiquement avec la température du champ."
@@ -482,7 +479,7 @@ def render_economics_form() -> EconomicsInputs:
         backup_p2_eur_kw_year = p2b.number_input("P2 appoint gaz (EUR/kW.an)", min_value=0.0, max_value=100.0, value=10.0, step=1.0)
 
         st.markdown("#### P4 - Investissements")
-        st.dataframe(display_dataframe(economics_fixed.p4_table()), width="stretch", hide_index=True)
+        st.dataframe(display_dataframe(economics_fixed.p4_table()), use_container_width=True, hide_index=True)
         st.caption(
             "CAPEX = S x coût unitaire(S). Aide ADEME solaire plafonnée à 65 % du CAPEX. "
             "Les autres aides publiques sont forcées à 0 EUR."
