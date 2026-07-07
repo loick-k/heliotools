@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from .app_service import CalculationSelection, ParametricRange
+from .app_service import ParametricRange
 from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
@@ -107,6 +107,10 @@ class GeothermalFormResult:
     probe_unit_depth_m: float
     btes_backend: str
     predesign: BorefieldPreDesign
+    savings_search_mode: str
+    run_reduced_borefield: bool
+    recharge_credit: float
+    reduced_borefield_safety_factor: float
 
 
 @dataclass(frozen=True)
@@ -115,22 +119,32 @@ class ParametricFormsResult:
     solar: ParametricRange
 
 
-@dataclass(frozen=True)
-class CalculationSelectionFormResult:
-    selection: CalculationSelection
-
-
 def render_weather_form() -> WeatherFormResult:
     with st.expander("1) Météo", expanded=True):
         c1, c2, c3 = st.columns(3)
-        tilt_deg = c1.number_input("Inclinaison capteurs (°)", min_value=0.0, max_value=90.0, value=35.0, step=1.0)
-        azimuth_deg_south = c2.number_input("Azimut vs sud (°)", min_value=-180.0, max_value=180.0, value=0.0, step=5.0)
+        tilt_deg = c1.number_input(
+            "Inclinaison capteurs (°)",
+            min_value=0.0,
+            max_value=90.0,
+            value=35.0,
+            step=1.0,
+            key="weather_tilt_deg",
+        )
+        azimuth_deg_south = c2.number_input(
+            "Azimut vs sud (°)",
+            min_value=-180.0,
+            max_value=180.0,
+            value=0.0,
+            step=5.0,
+            key="weather_azimuth_deg_south",
+        )
         albedo = c3.number_input(
             "Albédo du sol",
             min_value=0.0,
             max_value=1.0,
             value=0.2,
             step=0.05,
+            key="weather_albedo",
             help=(
                 "Part du rayonnement solaire réfléchie par le sol vers les capteurs. "
                 "0,20 correspond à un sol courant ; une surface claire ou enneigée peut être plus élevée."
@@ -142,10 +156,14 @@ def render_weather_form() -> WeatherFormResult:
         )
         station_col, map_col = st.columns(2)
         region_names = list(DEFAULT_EPW_REGIONS.keys())
+        if st.session_state.get("weather_region") not in region_names:
+            st.session_state["weather_region"] = region_names[0]
         with station_col:
-            region_name = st.selectbox("Région météo", options=region_names, index=0)
+            region_name = st.selectbox("Région météo", options=region_names, index=0, key="weather_region")
             stations_by_label = DEFAULT_EPW_REGIONS[region_name]
-            station_label = st.selectbox("Station météo", options=list(stations_by_label.keys()), index=0)
+            if st.session_state.get("weather_station") not in stations_by_label:
+                st.session_state["weather_station"] = list(stations_by_label.keys())[0]
+            station_label = st.selectbox("Station météo", options=list(stations_by_label.keys()), index=0, key="weather_station")
             station = stations_by_label[station_label]
             st.caption("La station sélectionnée fournit la température extérieure et l'irradiation horaire EPW/TMY.")
         with map_col:
@@ -208,6 +226,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
             max_value=120.0,
             value=25.0,
             step=1.0,
+            key="process_bt_target_c",
             help="Exemple : chauffage ou process basse température.",
         )
         process_ht_target_c = temp_ht_col.number_input(
@@ -216,6 +235,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
             max_value=120.0,
             value=60.0,
             step=1.0,
+            key="process_ht_target_c",
             help="Exemple : ECS ou process haute température.",
         )
         demand_file = st.file_uploader("Fichier Excel de besoins horaires", type=["xlsx", "xls"])
@@ -266,22 +286,24 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
 
 def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
     with st.expander("3) Champ solaire et ballon journalier", expanded=True):
-        collector_name = st.selectbox("Bibliothèque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0)
+        if st.session_state.get("solar_collector_name") not in COLLECTOR_LIBRARY:
+            st.session_state["solar_collector_name"] = list(COLLECTOR_LIBRARY.keys())[0]
+        collector_name = st.selectbox("Bibliothèque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0, key="solar_collector_name")
         collector_ref = COLLECTOR_LIBRARY[collector_name]
         st.caption(
             f"Capteur sélectionné : fabricant {collector_ref['manufacturer']} - modèle {collector_ref['model']}. "
             "Les coefficients restent modifiables ci-dessous."
         )
         c1, c2, c3, c4 = st.columns(4)
-        area_m2 = c1.number_input("Surface capteurs (m²)", min_value=1.0, value=500.0, step=50.0)
-        eta0 = c2.number_input("eta0", min_value=0.0, max_value=1.0, value=float(collector_ref["eta0"]), step=0.001, format="%.3f", key=f"eta0_{collector_name}")
-        a1 = c3.number_input("a1 (W/m2.K)", min_value=0.0, value=float(collector_ref["a1_w_m2_k"]), step=0.001, format="%.3f", key=f"a1_{collector_name}")
-        a2 = c4.number_input("a2 (W/m2.K2)", min_value=0.0, value=float(collector_ref["a2_w_m2_k2"]), step=0.001, format="%.3f", key=f"a2_{collector_name}")
+        area_m2 = c1.number_input("Surface capteurs (m²)", min_value=1.0, value=500.0, step=50.0, key="solar_area_m2")
+        eta0 = c2.number_input("eta0", min_value=0.0, max_value=1.0, value=float(collector_ref["eta0"]), step=0.001, format="%.3f", key="solar_eta0")
+        a1 = c3.number_input("a1 (W/m2.K)", min_value=0.0, value=float(collector_ref["a1_w_m2_k"]), step=0.001, format="%.3f", key="solar_a1")
+        a2 = c4.number_input("a2 (W/m2.K2)", min_value=0.0, value=float(collector_ref["a2_w_m2_k2"]), step=0.001, format="%.3f", key="solar_a2")
 
         solar_fixed = FixedSolarAssumptions()
         c9, c10 = st.columns(2)
-        daily_buffer_ambient_temp_c = c9.number_input("T° ambiance ballon (°C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0)
-        daily_buffer_max_temp_c = c10.number_input("Tmax ballon / bascule BTES (°C)", min_value=30.0, max_value=120.0, value=80.0, step=1.0)
+        daily_buffer_ambient_temp_c = c9.number_input("T° ambiance ballon (°C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0, key="solar_daily_buffer_ambient_temp_c")
+        daily_buffer_max_temp_c = c10.number_input("Tmax ballon / bascule BTES (°C)", min_value=30.0, max_value=120.0, value=80.0, step=1.0, key="solar_daily_buffer_max_temp_c")
         solar_preheat_target_ht_c = float(process_ht_target_c)
 
         with st.expander("Hypothèses solaires fixées", expanded=False):
@@ -331,8 +353,8 @@ def render_geothermal_form(
         geo_fixed = FixedGeoAssumptions(air_target_bt_c=float(process_bt_target_c))
 
         d1, d2 = st.columns(2)
-        pac_power_fraction_pct = d1.number_input("P PAC (% Pmax BT)", min_value=1.0, max_value=150.0, value=100.0, step=5.0)
-        probe_unit_depth_m = d2.number_input("Profondeur unitaire sonde (m)", min_value=10.0, value=100.0, step=10.0)
+        pac_power_fraction_pct = d1.number_input("P PAC (% Pmax BT)", min_value=1.0, max_value=150.0, value=100.0, step=5.0, key="geo_pac_power_fraction_pct")
+        probe_unit_depth_m = d2.number_input("Profondeur unitaire sonde (m)", min_value=10.0, value=100.0, step=10.0, key="geo_probe_unit_depth_m")
         btes_backend = "pygfunction"
         st.caption(
             "Calcul champ de sondes : modèle horaire 8760 h avec température source PAC calculée par pygfunction. "
@@ -382,6 +404,7 @@ def render_geothermal_form(
             max_value=1000,
             value=int(predesign.boreholes),
             step=1,
+            key="geo_boreholes",
             help="Valeur utilisée dans le calcul physique et économique. Le prédimensionnement reste seulement un repère.",
         )
         depth_m = predesign.unit_depth_m
@@ -391,6 +414,34 @@ def render_geothermal_form(
             f"Champ simulé : {int(boreholes)} sondes x {depth_m:.0f} m = {selected_borefield_length_m:.0f} ml "
             f"({delta_boreholes:+d} sondes vs prédimensionnement)."
         )
+
+        savings_options = ["désactivée", "rapide prédimensionnement", "experte détaillée"]
+        if st.session_state.get("geo_savings_method") not in savings_options:
+            st.session_state["geo_savings_method"] = "rapide prédimensionnement"
+        savings_method_label = st.selectbox(
+            "Méthode économie de sondes",
+            options=savings_options,
+            index=1,
+            key="geo_savings_method",
+            help=(
+                "Le mode rapide estime un linéaire réduit puis le vérifie avec quelques simulations pygfunction. "
+                "Le mode expert lance une recherche plus détaillée et donc plus longue."
+            ),
+        )
+        savings_mode_map = {
+            "désactivée": "none",
+            "rapide prédimensionnement": "fast",
+            "experte détaillée": "expert",
+        }
+        savings_search_mode = savings_mode_map[str(savings_method_label)]
+        run_reduced_borefield = savings_search_mode != "none"
+        if savings_search_mode == "fast":
+            st.caption(
+                "Mode rapide : estimation du gain à partir de la recharge solaire, puis validation par un nombre limité "
+                "de simulations pygfunction."
+            )
+        elif savings_search_mode == "expert":
+            st.warning("Mode expert : calcul plus lourd, avec recherche itérative du linéaire de sondes.")
 
         with st.expander("Hypothèses géothermie fixées", expanded=False):
             st.dataframe(display_dataframe(geo_fixed.to_table()), use_container_width=True, hide_index=True)
@@ -447,6 +498,10 @@ def render_geothermal_form(
         probe_unit_depth_m=float(probe_unit_depth_m),
         btes_backend=btes_backend,
         predesign=predesign,
+        savings_search_mode=str(savings_search_mode),
+        run_reduced_borefield=bool(run_reduced_borefield),
+        recharge_credit=0.60,
+        reduced_borefield_safety_factor=float(geo_fixed.reduced_borefield_safety_factor),
     )
 
 
@@ -458,21 +513,21 @@ def render_economics_form() -> EconomicsInputs:
         )
         economics_fixed = FixedEconomicsAssumptions()
         c1, c2 = st.columns(2)
-        eta_appoint_eco = c1.number_input("Rendement appoint gaz", min_value=0.01, max_value=1.50, value=0.82, step=0.01)
-        reference_energy_inflation_pct = c2.number_input("Inflation gaz référence (%/an)", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
+        eta_appoint_eco = c1.number_input("Rendement appoint gaz", min_value=0.01, max_value=1.50, value=0.82, step=0.01, key="eco_eta_appoint")
+        reference_energy_inflation_pct = c2.number_input("Inflation gaz référence (%/an)", min_value=0.0, max_value=20.0, value=3.0, step=0.5, key="eco_reference_energy_inflation_pct")
         st.caption("Durée d'analyse économique par défaut : 20 ans. Aucune autre aide publique déjà acquise n'est appliquée.")
 
         st.markdown("#### P1 - Énergies")
         p1a, p1b, p1c = st.columns(3)
-        reference_energy_cost_eur_mwh = p1a.number_input("P1 gaz référence (EUR/MWh PCI)", min_value=0.0, value=70.0, step=5.0)
-        electricity_cost_eur_mwh = p1b.number_input("P1 électricité auxiliaires/PAC (EUR/MWh)", min_value=0.0, value=200.0, step=10.0)
-        auxiliary_electricity_ratio_pct = p1c.number_input("P1' auxiliaires solaires (% prod.)", min_value=0.0, max_value=20.0, value=3.0, step=0.5)
+        reference_energy_cost_eur_mwh = p1a.number_input("P1 gaz référence (EUR/MWh PCI)", min_value=0.0, value=70.0, step=5.0, key="eco_reference_energy_cost_eur_mwh")
+        electricity_cost_eur_mwh = p1b.number_input("P1 électricité auxiliaires/PAC (EUR/MWh)", min_value=0.0, value=200.0, step=10.0, key="eco_electricity_cost_eur_mwh")
+        auxiliary_electricity_ratio_pct = p1c.number_input("P1' auxiliaires solaires (% prod.)", min_value=0.0, max_value=20.0, value=3.0, step=0.5, key="eco_auxiliary_electricity_ratio_pct")
         st.caption("Le P1' solaire ne couvre pas les pompes de transfert solaire vers BTES.")
 
         st.markdown("#### P2 - Maintenance")
         p2a, p2b = st.columns(2)
         p2a.info("P2 solaire fixe : 1 % du CAPEX solaire brut par an, soit P2 = 0.01 x CAPEX solaire / production solaire totale.")
-        backup_p2_eur_kw_year = p2b.number_input("P2 appoint gaz (EUR/kW.an)", min_value=0.0, max_value=100.0, value=10.0, step=1.0)
+        backup_p2_eur_kw_year = p2b.number_input("P2 appoint gaz (EUR/kW.an)", min_value=0.0, max_value=100.0, value=10.0, step=1.0, key="eco_backup_p2_eur_kw_year")
 
         st.markdown("#### P4 - Investissements")
         st.dataframe(display_dataframe(economics_fixed.p4_table()), use_container_width=True, hide_index=True)
@@ -495,59 +550,6 @@ def render_economics_form() -> EconomicsInputs:
     )
 
 
-def render_calculation_selection_form() -> CalculationSelectionFormResult:
-    with st.expander("6) Calcul final et calculs à lancer", expanded=True):
-        st.info(
-            "Le calcul final lance la simulation technique multiannuelle du champ de sondes et affiche "
-            "par défaut les résultats de l'année finale. Les études paramétriques restent pilotées par leurs cases dédiées."
-        )
-        technical_simulation_years = st.number_input(
-            "Durée simulation technique champ (ans)",
-            min_value=1,
-            max_value=50,
-            value=25,
-            step=1,
-        )
-        savings_method_label = st.selectbox(
-            "Méthode économie de sondes",
-            options=["désactivée", "experte détaillée"],
-            index=1,
-        )
-        savings_mode_map = {
-            "désactivée": "none",
-            "experte détaillée": "expert",
-        }
-        savings_search_mode = savings_mode_map[str(savings_method_label)]
-        run_reduced_borefield = savings_search_mode != "none"
-        recharge_credit = 0.60
-        reduced_borefield_safety_factor = st.number_input(
-            "Marge sécurité sondes réduites",
-            min_value=1.0,
-            max_value=2.0,
-            value=1.10,
-            step=0.05,
-            disabled=savings_search_mode == "none",
-        )
-        st.caption(
-            "Les résultats techniques affichés correspondent automatiquement à l'année finale simulée."
-        )
-    return CalculationSelectionFormResult(
-        selection=CalculationSelection(
-            calculation_profile="calcul_final",
-            quick_preview=False,
-            run_multiyear=True,
-            technical_simulation_years=int(technical_simulation_years),
-            display_year_mode="finale",
-            custom_display_year=int(technical_simulation_years),
-            run_geo_only=True,
-            run_reduced_borefield=bool(run_reduced_borefield),
-            savings_search_mode=str(savings_search_mode),
-            recharge_credit=float(recharge_credit),
-            reduced_borefield_safety_factor=float(reduced_borefield_safety_factor),
-        )
-    )
-
-
 def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> ParametricFormsResult:
     if disabled:
         return ParametricFormsResult(
@@ -556,11 +558,11 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
         )
 
     with st.expander("7) Étude paramétrique PAC", expanded=False):
-        enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False)
+        enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False, key="param_pac_enabled")
         pp1, pp2, pp3 = st.columns(3)
-        param_pac_fraction_min_pct = pp1.number_input("P PAC min (% Pmax BT)", min_value=1.0, max_value=150.0, value=50.0, step=5.0)
-        param_pac_fraction_max_pct = pp2.number_input("P PAC max (% Pmax BT)", min_value=1.0, max_value=150.0, value=100.0, step=5.0)
-        param_pac_fraction_step_pct = pp3.number_input("Pas PAC (% Pmax BT)", min_value=1.0, max_value=50.0, value=10.0, step=5.0)
+        param_pac_fraction_min_pct = pp1.number_input("P PAC min (% Pmax BT)", min_value=1.0, max_value=150.0, value=50.0, step=5.0, key="param_pac_min_pct")
+        param_pac_fraction_max_pct = pp2.number_input("P PAC max (% Pmax BT)", min_value=1.0, max_value=150.0, value=100.0, step=5.0, key="param_pac_max_pct")
+        param_pac_fraction_step_pct = pp3.number_input("Pas PAC (% Pmax BT)", min_value=1.0, max_value=50.0, value=10.0, step=5.0, key="param_pac_step_pct")
         st.caption(
             "Chaque point relance la simulation 8760 h en désactivant le solaire thermique. "
             "L'appoint gaz couvre tout le besoin HT et le complément BT non couvert par PAC. "
@@ -569,11 +571,11 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
         )
 
     with st.expander("8) Étude paramétrique solaire + injection BTES", expanded=False):
-        enable_solar_surface_parametric = st.checkbox("Activer l'étude paramétrique sur la surface solaire", value=False)
+        enable_solar_surface_parametric = st.checkbox("Activer l'étude paramétrique sur la surface solaire", value=False, key="param_solar_enabled")
         p1, p2, p3 = st.columns(3)
-        param_surface_min_m2 = p1.number_input("Surface min étudiée (m²)", min_value=0.0, value=max(0.0, float(area_m2) * 0.5), step=50.0)
-        param_surface_max_m2 = p2.number_input("Surface max étudiée (m²)", min_value=0.0, value=max(50.0, float(area_m2) * 1.5), step=50.0)
-        param_surface_step_m2 = p3.number_input("Pas de surface (m²)", min_value=1.0, value=250.0, step=50.0)
+        param_surface_min_m2 = p1.number_input("Surface min étudiée (m²)", min_value=0.0, value=max(0.0, float(area_m2) * 0.5), step=50.0, key="param_surface_min_m2")
+        param_surface_max_m2 = p2.number_input("Surface max étudiée (m²)", min_value=0.0, value=max(50.0, float(area_m2) * 1.5), step=50.0, key="param_surface_max_m2")
+        param_surface_step_m2 = p3.number_input("Pas de surface (m²)", min_value=1.0, value=250.0, step=50.0, key="param_surface_step_m2")
         st.caption(
             "Chaque point relance la simulation 8760 h et recalcule le coût Mix EnR, "
             "le taux EnR global et la couverture solaire HT. Limite de sécurité : 25 points."

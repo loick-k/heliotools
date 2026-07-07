@@ -41,8 +41,8 @@ class CalculationSelection:
     display_year_mode: str = "finale"
     custom_display_year: int = 25
     run_geo_only: bool = True
-    run_reduced_borefield: bool = False
-    savings_search_mode: str = "expert"
+    run_reduced_borefield: bool = True
+    savings_search_mode: str = "fast"
     recharge_credit: float = 0.6
     reduced_borefield_safety_factor: float = 1.10
 
@@ -188,8 +188,6 @@ def run_hourly_calculation(
     custom_display_year = technical_simulation_years
     run_geo_only = True
     savings_search_mode = str(request.calculation_selection.savings_search_mode or "none")
-    if savings_search_mode == "fast":
-        savings_search_mode = "expert"
     run_reduced_borefield = savings_search_mode != "none" and bool(request.calculation_selection.run_reduced_borefield)
     mark("scenario:start", "Scenario principal : annuel, multiannuel, economie")
     scenario = run_hourly_scenario(

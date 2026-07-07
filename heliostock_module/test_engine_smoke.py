@@ -1011,6 +1011,7 @@ def test_fixed_ui_assumptions_keep_expected_defaults():
     assert geo.probe_power_ratio_w_m == 40.0
     assert geo.max_extraction_kwh_per_m_year == 60.0
     assert geo.safety_factor == 1.20
+    assert geo.reduced_borefield_safety_factor == 1.10
     assert economics.analysis_years == 20
     assert economics.ademe_eur_mwh_year == 63.0
 
@@ -2272,7 +2273,8 @@ def test_default_technical_years_is_25():
     assert selection.calculation_profile == "calcul_final"
     assert selection.technical_simulation_years == 25
     assert selection.custom_display_year == 25
-    assert selection.savings_search_mode == "expert"
+    assert selection.savings_search_mode == "fast"
+    assert selection.run_reduced_borefield is True
 
 
 def test_technical_years_not_economic_years():

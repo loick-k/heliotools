@@ -108,7 +108,8 @@ def render_economics_tab(
         chart_df = economic_comparison_chart_df[economic_comparison_chart_df["Indicateur"] == indicator]
         col.altair_chart(_scenario_comparison_chart(chart_df, title=chart_titles[indicator]), use_container_width=True)
 
-    st.markdown("### Synthèse P1 électrique PAC/géothermie")
+    st.markdown("### Synthèse P1 électrique - géothermie avec recharge solaire")
+    st.caption("Ces indicateurs correspondent au scénario principal avec recharge solaire et linéaire initial.")
     e1, e2, e3, e4 = st.columns(4)
     e1.metric("Electricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an")
     e2.metric("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an")

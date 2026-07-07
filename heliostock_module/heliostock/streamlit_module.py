@@ -6,17 +6,17 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from .app_service import HourlyCalculationRequest, run_hourly_calculation
+from .app_service import CalculationSelection, HourlyCalculationRequest, run_hourly_calculation
 from .ui_formatting import display_dataframe
 from .ui_forms import (
     render_demand_form,
-    render_calculation_selection_form,
     render_economics_form,
     render_geothermal_form,
     render_parametric_forms,
     render_solar_form,
     render_weather_form,
 )
+from .ui_portal import render_project_save_controls
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -55,8 +55,21 @@ def render_heliostock_hourly() -> pd.DataFrame:
         process_bt_target_c=demand_form.process_bt_target_c,
     )
     economics_inputs = render_economics_form()
-    calculation_selection_form = render_calculation_selection_form()
+    calculation_selection = CalculationSelection(
+        calculation_profile="calcul_final",
+        quick_preview=False,
+        run_multiyear=True,
+        technical_simulation_years=25,
+        display_year_mode="finale",
+        custom_display_year=25,
+        run_geo_only=True,
+        run_reduced_borefield=geothermal_form.run_reduced_borefield,
+        savings_search_mode=geothermal_form.savings_search_mode,
+        recharge_credit=geothermal_form.recharge_credit,
+        reduced_borefield_safety_factor=geothermal_form.reduced_borefield_safety_factor,
+    )
     parametric_forms = render_parametric_forms(solar_form.inputs.area_m2)
+    render_project_save_controls()
 
     if not weather_form.hourly_weather:
         return pd.DataFrame()
@@ -84,7 +97,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                     probe_power_ratio_w_m=geothermal_form.probe_power_ratio_w_m,
                     probe_energy_ratio_kwh_m=geothermal_form.probe_energy_ratio_kwh_m,
                     probe_unit_depth_m=geothermal_form.probe_unit_depth_m,
-                    calculation_selection=calculation_selection_form.selection,
+                    calculation_selection=calculation_selection,
                     pac_parametric=parametric_forms.pac,
                     solar_parametric=parametric_forms.solar,
                 ),

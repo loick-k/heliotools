@@ -271,7 +271,6 @@ def render_hourly_results(
         fallback_cop: float,
         fallback_elec_mwh: float,
         fallback_pac_mwh: float,
-        saved_length_m: float,
         available: bool = True,
     ) -> list[tuple[str, str] | tuple[str, str, str | None]]:
         if not available:
@@ -289,10 +288,6 @@ def render_hourly_results(
                 ("Heures hors GMI", "n.d."),
                 ("q extraction max", "n.d."),
                 ("q injection max", "n.d."),
-                ("Delta COP vs géothermie seule", "n.d."),
-                ("Écart électricité vs géothermie seule", "n.d."),
-                ("Gain BT PAC vs géothermie seule", "n.d."),
-                ("Gain linéaire sondes", "non trouvé"),
             ]
 
         cop = _row_float(row, "COP PAC moyen", fallback_cop)
@@ -306,9 +301,6 @@ def render_hourly_results(
         hours_gmi = _row_float(final_row, "Heures sous Tmin GMI", 0.0) + _row_float(final_row, "Heures sur Tmax GMI", 0.0)
         q_extract = _row_float(final_row, "q_extraction_W_m_max", 0.0)
         q_inject = _row_float(final_row, "q_injection_W_m_max", 0.0)
-        delta_cop = cop - no_solar_cop if no_solar_cop > 0.0 and cop > 0.0 else 0.0
-        delta_elec = no_solar_total_elec / 1000.0 - elec_mwh if no_solar_total_elec > 0.0 else 0.0
-        delta_pac = pac_mwh - no_solar_total_pac / 1000.0 if no_solar_total_pac > 0.0 else 0.0
         return [
             ("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW"),
             ("Linéaire sondes", f"{length_m:.0f} ml"),
@@ -323,10 +315,6 @@ def render_hourly_results(
             ("Heures hors GMI", f"{hours_gmi:.0f} h"),
             ("q extraction max", f"{q_extract:.0f} W/m"),
             ("q injection max", f"{q_inject:.0f} W/m"),
-            ("Delta COP vs géothermie seule", f"{delta_cop:+.1f}" if no_solar_cop > 0.0 else "n.d."),
-            ("Écart électricité vs géothermie seule", f"{delta_elec:+.0f} MWh/an" if no_solar_total_elec > 0.0 else "n.d."),
-            ("Gain BT PAC vs géothermie seule", f"{delta_pac:+.0f} MWh" if no_solar_total_pac > 0.0 else "n.d."),
-            ("Gain linéaire sondes", f"{saved_length_m:.0f} ml" if saved_length_m > 0.0 else "0 ml"),
         ]
 
     st.markdown("#### PAC géothermie")
@@ -339,7 +327,6 @@ def render_hourly_results(
             fallback_cop=no_solar_cop,
             fallback_elec_mwh=no_solar_total_elec / 1000.0,
             fallback_pac_mwh=no_solar_total_pac / 1000.0,
-            saved_length_m=0.0,
             available=no_solar_cop > 0.0,
         ),
         tone="pac",
@@ -353,7 +340,6 @@ def render_hourly_results(
             fallback_cop=mean_cop,
             fallback_elec_mwh=total_elec / 1000.0,
             fallback_pac_mwh=total_pac / 1000.0,
-            saved_length_m=0.0,
         ),
         tone="pac",
     )
@@ -366,7 +352,6 @@ def render_hourly_results(
             fallback_cop=reduced_borefield_cop,
             fallback_elec_mwh=reduced_borefield_elec_mwh,
             fallback_pac_mwh=0.0,
-            saved_length_m=float(savings["saved_length_m"]) if bool(savings["found"]) else 0.0,
             available=reduced_borefield_available,
         ),
         tone="pac",
@@ -414,7 +399,7 @@ def render_hourly_results(
         st.warning(str(btes_diag["surface_insulation_warning"]))
 
     _render_kpi_section(
-        "Synthèse P1 électrique PAC/géothermie",
+        "Synthèse P1 électrique - géothermie avec recharge solaire",
         [
             ("Électricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an"),
             ("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an"),
@@ -424,6 +409,7 @@ def render_hourly_results(
             ("SPF PAC complet", f"{spf_pac_total:.1f}"),
             ("SPF système simplifié", f"{spf_system:.1f}"),
         ],
+        caption="Ces indicateurs correspondent au scénario principal affiché : géothermie avec recharge solaire et linéaire initial.",
         tone="pac",
     )
 
@@ -612,25 +598,6 @@ def _render_multiyear_tab(
         else pd.DataFrame(),
         multiyear_btes_df.assign(Scenario="Géothermie et recharge solaire"),
     ]
-    reduced_trajectory = pd.DataFrame()
-    if not scenario.economic_trajectory_df.empty and "Scenario" in scenario.economic_trajectory_df:
-        reduced_trajectory = scenario.economic_trajectory_df[
-            scenario.economic_trajectory_df["Scenario"].astype(str) == "Geothermie + solaire sondes reduites"
-        ].copy()
-    if not reduced_trajectory.empty:
-        reduced_btes_df = pd.DataFrame(
-            {
-                "Annee": reduced_trajectory["Annee"],
-                "Mois index": reduced_trajectory["Annee"],
-                "Mois": "Année " + reduced_trajectory["Annee"].astype(int).astype(str),
-                "T source PAC fin (C)": reduced_trajectory["T_source_PAC_min (C)"],
-                "T source PAC min (C)": reduced_trajectory["T_source_PAC_min (C)"],
-                "T source PAC max (C)": reduced_trajectory["T_source_PAC_min (C)"],
-                "Heures sous Tmin source": reduced_trajectory["Heures limite source"],
-                "Scenario": "Géothermie à sondes réduites et recharge solaire",
-            }
-        )
-        comparison_frames.append(reduced_btes_df)
     comparison_btes_df = pd.concat(
         [frame for frame in comparison_frames if not frame.empty],
         ignore_index=True,

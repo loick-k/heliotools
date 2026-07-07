@@ -144,6 +144,7 @@ class FixedGeoAssumptions:
     max_injection_w_m: float = 40.0
     max_extraction_kwh_per_m_year: float = 60.0
     safety_factor: float = 1.20
+    reduced_borefield_safety_factor: float = 1.10
     aux_pac_ratio: float = 0.15
     standby_power_kw: float = 0.05
 
@@ -172,6 +173,7 @@ class FixedGeoAssumptions:
                 ("Puissance linéique injection max", self.max_injection_w_m, "W/ml"),
                 ("Extraction max annuelle sondes", self.max_extraction_kwh_per_m_year, "kWh/ml.an"),
                 ("Facteur sécurité prédimensionnement", self.safety_factor, "-"),
+                ("Marge sécurité sondes réduites", self.reduced_borefield_safety_factor, "-"),
                 ("Forfait auxiliaires PAC/géothermie", self.aux_pac_ratio, "part élec compresseur"),
                 ("Veille/régulation PAC", self.standby_power_kw, "kW"),
             ],
