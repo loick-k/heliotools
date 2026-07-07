@@ -275,6 +275,8 @@ def _project_label(path: Path) -> str:
         data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return path.stem
+    if not isinstance(data, dict):
+        return path.stem
     return str(data.get("name") or path.stem)
 
 
@@ -312,6 +314,9 @@ def _project_payload(name: str) -> dict[str, Any]:
 
 def _load_project(path: Path) -> None:
     data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        st.warning("Ce fichier projet utilise un ancien format non compatible.")
+        return
     values = data.get("widget_values", {})
     if not isinstance(values, dict):
         values = {}
@@ -417,8 +422,6 @@ def render_portal_sidebar() -> str:
             user = st.session_state.get("user") if isinstance(st.session_state.get("user"), dict) else {}
             st.write(f"Connecté : {user.get('nom') or user.get('email') or st.session_state.get('heliostock_admin_email', 'admin')}")
             st.caption(f"Rôle : {user.get('role', 'admin')}")
-        else:
-            st.caption("HelioStock accessible sans compte.")
         app_name = st.selectbox(
             "Application",
             options=["HelioStock", "Dashboard solaire thermique"],
@@ -426,31 +429,26 @@ def render_portal_sidebar() -> str:
         )
 
         st.markdown("### Projets")
-        if is_admin_authenticated():
-            project_files = _project_files()
-            if project_files:
-                labels = [_project_label(path) for path in project_files]
-                selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
-                selected_index = labels.index(selected_label)
-                selected_path = project_files[selected_index]
-                c1, c2 = st.columns(2)
-                if c1.button("Charger", use_container_width=True):
-                    _load_project(selected_path)
-                    st.success("Projet chargé.")
-                    st.rerun()
-                if c2.button("Supprimer", use_container_width=True):
-                    demand_path, result_path = _project_sidecar_paths(selected_path)
-                    demand_path.unlink(missing_ok=True)
-                    result_path.unlink(missing_ok=True)
-                    selected_path.unlink(missing_ok=True)
-                    st.session_state.pop("heliostock_current_project_name", None)
-                    st.rerun()
-            else:
-                st.info("Aucun projet sauvegardé.")
+        project_files = _project_files()
+        if project_files:
+            labels = [_project_label(path) for path in project_files]
+            selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
+            selected_index = labels.index(selected_label)
+            selected_path = project_files[selected_index]
+            c1, c2 = st.columns(2)
+            if c1.button("Charger", use_container_width=True):
+                _load_project(selected_path)
+                st.success("Projet chargé.")
+                st.rerun()
+            if c2.button("Supprimer", use_container_width=True):
+                demand_path, result_path = _project_sidecar_paths(selected_path)
+                demand_path.unlink(missing_ok=True)
+                result_path.unlink(missing_ok=True)
+                selected_path.unlink(missing_ok=True)
+                st.session_state.pop("heliostock_current_project_name", None)
+                st.rerun()
         else:
-            st.info("Connexion admin requise pour charger ou supprimer des projets.")
-            with st.expander("Connexion admin", expanded=False):
-                render_admin_login(compact=True)
+            st.info("Aucun projet sauvegardé.")
 
         st.caption(
             "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
@@ -469,9 +467,6 @@ def render_project_save_controls() -> None:
 
     with st.sidebar:
         st.markdown("### Enregistrer")
-        if not is_admin_authenticated():
-            st.info("Connexion admin requise pour enregistrer un projet.")
-            return
         default_name = st.session_state.get("heliostock_current_project_name", "")
         project_name = st.text_input("Nom du projet", value=str(default_name), key="portal_project_name")
         if st.button("Enregistrer le projet", type="primary", use_container_width=True):

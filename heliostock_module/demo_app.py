@@ -11,13 +11,14 @@ from heliostock.ui_portal import (
 
 st.set_page_config(page_title="HelioStock", layout="wide")
 
+if not is_admin_authenticated():
+    render_admin_login()
+    st.stop()
+
 selected_app = render_portal_sidebar()
 if selected_app == "HelioStock":
     render_heliostock_hourly()
 elif selected_app == "Dashboard solaire thermique":
-    if not is_admin_authenticated():
-        render_admin_login()
-        st.stop()
     try:
         from heliostock.solar_thermal_dashboard import render_solar_thermal_dashboard
     except ModuleNotFoundError as exc:
