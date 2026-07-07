@@ -4,7 +4,6 @@ from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
 
-import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -156,29 +155,19 @@ def render_weather_form() -> WeatherFormResult:
                 [
                     {
                         "Station": item.label,
-                        "Latitude": float(item.latitude_deg),
-                        "Longitude": float(item.longitude_deg),
+                        "Latitude": round(float(item.latitude_deg), 4),
+                        "Longitude": round(float(item.longitude_deg), 4),
                         "Selection": "Station choisie" if item.label == station.label else "Autres stations",
                     }
                     for item in stations_by_label.values()
                 ]
             )
-            chart = (
-                alt.Chart(region_stations)
-                .mark_circle(size=90)
-                .encode(
-                    x=alt.X("Longitude:Q", scale=alt.Scale(zero=False), title="Longitude"),
-                    y=alt.Y("Latitude:Q", scale=alt.Scale(zero=False), title="Latitude"),
-                    color=alt.Color(
-                        "Selection:N",
-                        scale=alt.Scale(domain=["Station choisie", "Autres stations"], range=["#f6b900", "#7f8c8d"]),
-                        legend=None,
-                    ),
-                    tooltip=["Station:N", "Latitude:Q", "Longitude:Q"],
-                )
-                .properties(height=360)
+            st.dataframe(
+                region_stations.sort_values(["Selection", "Station"], ascending=[False, True]),
+                use_container_width=True,
+                hide_index=True,
+                height=360,
             )
-            st.altair_chart(chart, use_container_width=True)
 
         if station.path.exists():
             _location, hourly_weather = read_epw_hourly_weather_from_zip(

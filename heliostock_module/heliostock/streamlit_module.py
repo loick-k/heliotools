@@ -17,7 +17,6 @@ from .ui_forms import (
     render_solar_form,
     render_weather_form,
 )
-from .ui_results import render_hourly_results
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -133,6 +132,8 @@ def render_heliostock_hourly() -> pd.DataFrame:
     last_result = st.session_state["heliostock_last_result"]
     scenario = last_result["scenario"]
     render_started_at = time.perf_counter()
+    from .ui_results import render_hourly_results
+
     hourly_df = render_hourly_results(
         scenario=scenario,
         parametric_pac_df=last_result["parametric_pac_df"],
