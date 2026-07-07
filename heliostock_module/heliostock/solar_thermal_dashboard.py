@@ -307,19 +307,21 @@ def render_solar_thermal_dashboard() -> None:
     api_key = st.sidebar.text_input(
         "Personal Access Token Airtable",
         type="password",
+        key="airtable_api_key",
         help=(
             "Créez un token sur airtable.com/create/tokens avec les scopes "
             "'data.records:read' et 'schema.bases:read', et donnez-lui accès "
             "à la base 'BDD Atlansun Solaire thermique'."
         ),
     )
-    base_id = st.sidebar.text_input("Base ID", value=DEFAULT_BASE_ID)
-    table_id = st.sidebar.text_input("Table ID (BDD STH)", value=DEFAULT_TABLE_ID)
+    base_id = st.sidebar.text_input("Base ID", value=DEFAULT_BASE_ID, key="airtable_base_id")
+    table_id = st.sidebar.text_input("Table ID (BDD STH)", value=DEFAULT_TABLE_ID, key="airtable_table_id")
 
     st.sidebar.header("🗺️ Google Maps (optionnel)")
     google_api_key = st.sidebar.text_input(
         "Clé API Google Maps",
         type="password",
+        key="dashboard_google_api_key",
         help=(
             "Utilisée seulement pour les installations sans Latitude/Longitude "
             "déjà renseignées dans Airtable. 💡 Astuce gratuite : géocodez vos "

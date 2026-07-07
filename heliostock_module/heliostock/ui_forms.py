@@ -238,6 +238,13 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
             help="Exemple : ECS ou process haute température.",
         )
         demand_file = st.file_uploader("Fichier Excel de besoins horaires", type=["xlsx", "xls"])
+        if demand_file is not None:
+            st.session_state["heliostock_demand_file_bytes"] = demand_file.getvalue()
+            st.session_state["heliostock_demand_file_name"] = getattr(demand_file, "name", "besoins_process.xlsx")
+        elif st.session_state.get("heliostock_demand_file_bytes"):
+            demand_file = BytesIO(bytes(st.session_state["heliostock_demand_file_bytes"]))
+            demand_file.name = str(st.session_state.get("heliostock_demand_file_name", "besoins_process.xlsx"))
+            st.info(f"Fichier besoins chargé depuis le projet : {demand_file.name}")
         hourly_demand_override = None
         hourly_profile_df = pd.DataFrame()
 

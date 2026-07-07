@@ -1,18 +1,23 @@
 import streamlit as st
 
 from heliostock.streamlit_module import render_heliostock_hourly
-from heliostock.ui_portal import render_login_portal, render_portal_sidebar
+from heliostock.ui_portal import (
+    is_admin_authenticated,
+    render_admin_login,
+    render_portal_sidebar,
+    render_project_save_controls,
+)
 
 
 st.set_page_config(page_title="HelioStock", layout="wide")
-
-if not render_login_portal():
-    st.stop()
 
 selected_app = render_portal_sidebar()
 if selected_app == "HelioStock":
     render_heliostock_hourly()
 elif selected_app == "Dashboard solaire thermique":
+    if not is_admin_authenticated():
+        render_admin_login()
+        st.stop()
     try:
         from heliostock.solar_thermal_dashboard import render_solar_thermal_dashboard
     except ModuleNotFoundError as exc:
@@ -23,3 +28,4 @@ elif selected_app == "Dashboard solaire thermique":
         st.caption(str(exc))
     else:
         render_solar_thermal_dashboard()
+        render_project_save_controls()

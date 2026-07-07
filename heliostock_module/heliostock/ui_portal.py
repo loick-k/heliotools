@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 import re
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +17,10 @@ PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
 
 
 SAVEABLE_WIDGET_KEYS = [
+    "airtable_api_key",
+    "airtable_base_id",
+    "airtable_table_id",
+    "dashboard_google_api_key",
     "weather_tilt_deg",
     "weather_azimuth_deg_south",
     "weather_albedo",
@@ -51,11 +56,23 @@ SAVEABLE_WIDGET_KEYS = [
 ]
 
 
-def _configured_password() -> str:
+def _secret_value(name: str) -> str:
     try:
-        return str(st.secrets.get("HELIOSTOCK_PASSWORD", "") or "")
+        return str(st.secrets.get(name, "") or "")
     except Exception:
         return ""
+
+
+def _admin_email() -> str:
+    return _secret_value("HELIOSTOCK_ADMIN_EMAIL")
+
+
+def _admin_password() -> str:
+    return _secret_value("HELIOSTOCK_ADMIN_PASSWORD")
+
+
+def is_admin_authenticated() -> bool:
+    return bool(st.session_state.get("heliostock_admin_authenticated"))
 
 
 def _safe_project_slug(name: str) -> str:
@@ -78,6 +95,14 @@ def _project_label(path: Path) -> str:
     return str(data.get("name") or path.stem)
 
 
+def _project_sidecar_paths(path: Path) -> tuple[Path, Path]:
+    stem = path.with_suffix("")
+    return (
+        stem.with_name(f"{stem.name}_besoins.xlsx"),
+        stem.with_name(f"{stem.name}_resultat.pkl"),
+    )
+
+
 def _jsonable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
@@ -91,12 +116,14 @@ def _project_payload(name: str) -> dict[str, Any]:
         if key in st.session_state
     }
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "name": name.strip() or "Projet HelioStock",
         "saved_at": datetime.now().isoformat(timespec="seconds"),
         "app": "HelioStock",
         "widget_values": widget_values,
-        "note": "Le fichier Excel de besoins horaires n'est pas stocke dans le projet.",
+        "has_demand_excel": bool(st.session_state.get("heliostock_demand_file_bytes")),
+        "has_cached_result": bool(st.session_state.get("heliostock_last_result")),
+        "note": "Le fichier Excel de besoins horaires et le dernier resultat calcule sont stockes avec le projet.",
     }
 
 
@@ -109,41 +136,63 @@ def _load_project(path: Path) -> None:
         if key in SAVEABLE_WIDGET_KEYS:
             st.session_state[key] = value
     st.session_state["heliostock_current_project_name"] = str(data.get("name") or path.stem)
-    st.session_state.pop("heliostock_last_result", None)
+    demand_path, result_path = _project_sidecar_paths(path)
+    if demand_path.exists():
+        st.session_state["heliostock_demand_file_bytes"] = demand_path.read_bytes()
+        st.session_state["heliostock_demand_file_name"] = demand_path.name
+    else:
+        st.session_state.pop("heliostock_demand_file_bytes", None)
+        st.session_state.pop("heliostock_demand_file_name", None)
+    if result_path.exists():
+        with result_path.open("rb") as handle:
+            st.session_state["heliostock_last_result"] = pickle.load(handle)
+    else:
+        st.session_state.pop("heliostock_last_result", None)
 
 
-def render_login_portal() -> bool:
-    """Render the HelioPilot-like access portal and return authentication state."""
+def render_admin_login(*, compact: bool = False) -> bool:
+    """Render admin login and return authentication state."""
 
-    if st.session_state.get("heliostock_authenticated"):
+    if is_admin_authenticated():
         return True
 
-    left, center, right = st.columns([1, 1.2, 1])
-    with center:
+    configured_email = _admin_email()
+    configured_password = _admin_password()
+    if not configured_email or not configured_password:
+        st.warning(
+            "Accès admin non configuré. Ajoute `HELIOSTOCK_ADMIN_EMAIL` et "
+            "`HELIOSTOCK_ADMIN_PASSWORD` dans les secrets Streamlit."
+        )
+        return False
+
+    container = st.container() if compact else st.columns([1, 1.2, 1])[1]
+    with container:
         if HELIOPILOT_LOGO.exists():
             st.image(str(HELIOPILOT_LOGO), use_container_width=True)
-        st.title("Portail HelioTools")
-        st.caption("Accede aux outils de pre-dimensionnement et retrouve tes projets sauvegardes.")
-        user_name = st.text_input("Utilisateur", key="portal_user_name")
-        configured_password = _configured_password()
-        password = ""
-        if configured_password:
-            password = st.text_input("Mot de passe", type="password", key="portal_password")
-        else:
-            st.info("Aucun mot de passe Streamlit n'est configure : acces simplifie active.")
+        if not compact:
+            st.title("Portail HelioTools")
+        st.caption("Connexion admin requise pour le dashboard solaire et les projets sauvegardés.")
+        email = st.text_input("Email admin", key=f"portal_admin_email_{'compact' if compact else 'page'}")
+        password = st.text_input("Mot de passe", type="password", key=f"portal_admin_password_{'compact' if compact else 'page'}")
 
-        if st.button("Se connecter", type="primary", use_container_width=True):
-            if not user_name.strip():
-                st.error("Renseigne un nom d'utilisateur.")
+        if st.button("Se connecter", type="primary", use_container_width=True, key=f"portal_admin_login_{'compact' if compact else 'page'}"):
+            if email.strip().lower() != configured_email.strip().lower():
+                st.error("Email admin non autorisé.")
                 return False
-            if configured_password and password != configured_password:
+            if password != configured_password:
                 st.error("Mot de passe incorrect.")
                 return False
-            st.session_state["heliostock_authenticated"] = True
-            st.session_state["heliostock_user_name"] = user_name.strip()
+            st.session_state["heliostock_admin_authenticated"] = True
+            st.session_state["heliostock_admin_email"] = email.strip()
             st.rerun()
 
     return False
+
+
+def render_login_portal() -> bool:
+    """Backward-compatible admin login entrypoint."""
+
+    return render_admin_login(compact=False)
 
 
 def render_portal_sidebar() -> str:
@@ -152,7 +201,10 @@ def render_portal_sidebar() -> str:
     with st.sidebar:
         if HELIOPILOT_LOGO.exists():
             st.image(str(HELIOPILOT_LOGO), use_container_width=True)
-        st.caption(f"Connecte : {st.session_state.get('heliostock_user_name', 'utilisateur')}")
+        if is_admin_authenticated():
+            st.caption(f"Admin connecté : {st.session_state.get('heliostock_admin_email', 'admin')}")
+        else:
+            st.caption("HelioStock accessible sans compte.")
         app_name = st.selectbox(
             "Application",
             options=["HelioStock", "Dashboard solaire thermique"],
@@ -160,30 +212,38 @@ def render_portal_sidebar() -> str:
         )
 
         st.markdown("### Projets")
-        project_files = _project_files()
-        if project_files:
-            labels = [_project_label(path) for path in project_files]
-            selected_label = st.selectbox("Projet sauvegarde", labels, key="portal_project_to_load")
-            selected_index = labels.index(selected_label)
-            selected_path = project_files[selected_index]
-            c1, c2 = st.columns(2)
-            if c1.button("Charger", use_container_width=True):
-                _load_project(selected_path)
-                st.success("Projet charge.")
-                st.rerun()
-            if c2.button("Supprimer", use_container_width=True):
-                selected_path.unlink(missing_ok=True)
-                st.session_state.pop("heliostock_current_project_name", None)
-                st.rerun()
+        if is_admin_authenticated():
+            project_files = _project_files()
+            if project_files:
+                labels = [_project_label(path) for path in project_files]
+                selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
+                selected_index = labels.index(selected_label)
+                selected_path = project_files[selected_index]
+                c1, c2 = st.columns(2)
+                if c1.button("Charger", use_container_width=True):
+                    _load_project(selected_path)
+                    st.success("Projet chargé.")
+                    st.rerun()
+                if c2.button("Supprimer", use_container_width=True):
+                    demand_path, result_path = _project_sidecar_paths(selected_path)
+                    demand_path.unlink(missing_ok=True)
+                    result_path.unlink(missing_ok=True)
+                    selected_path.unlink(missing_ok=True)
+                    st.session_state.pop("heliostock_current_project_name", None)
+                    st.rerun()
+            else:
+                st.info("Aucun projet sauvegardé.")
         else:
-            st.info("Aucun projet sauvegarde.")
+            st.info("Connexion admin requise pour charger ou supprimer des projets.")
+            with st.expander("Connexion admin", expanded=False):
+                render_admin_login(compact=True)
 
         st.caption(
-            "Les projets sauvegardent les parametres d'interface. "
-            "Le fichier Excel de besoins reste a recharger manuellement."
+            "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
+            "et le dernier résultat calculé."
         )
-        if st.button("Se deconnecter", use_container_width=True):
-            st.session_state["heliostock_authenticated"] = False
+        if is_admin_authenticated() and st.button("Se déconnecter", use_container_width=True):
+            st.session_state["heliostock_admin_authenticated"] = False
             st.session_state.pop("heliostock_last_result", None)
             st.rerun()
 
@@ -195,6 +255,9 @@ def render_project_save_controls() -> None:
 
     with st.sidebar:
         st.markdown("### Enregistrer")
+        if not is_admin_authenticated():
+            st.info("Connexion admin requise pour enregistrer un projet.")
+            return
         default_name = st.session_state.get("heliostock_current_project_name", "")
         project_name = st.text_input("Nom du projet", value=str(default_name), key="portal_project_name")
         if st.button("Enregistrer le projet", type="primary", use_container_width=True):
@@ -202,5 +265,17 @@ def render_project_save_controls() -> None:
             payload = _project_payload(project_name)
             path = PROJECTS_DIR / f"{_safe_project_slug(str(payload['name']))}.json"
             path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            demand_path, result_path = _project_sidecar_paths(path)
+            demand_bytes = st.session_state.get("heliostock_demand_file_bytes")
+            if demand_bytes:
+                demand_path.write_bytes(bytes(demand_bytes))
+            else:
+                demand_path.unlink(missing_ok=True)
+            cached_result = st.session_state.get("heliostock_last_result")
+            if cached_result is not None:
+                with result_path.open("wb") as handle:
+                    pickle.dump(cached_result, handle, protocol=pickle.HIGHEST_PROTOCOL)
+            else:
+                result_path.unlink(missing_ok=True)
             st.session_state["heliostock_current_project_name"] = str(payload["name"])
-            st.success(f"Projet enregistre : {payload['name']}")
+            st.success(f"Projet enregistré : {payload['name']}")
