@@ -1005,6 +1005,9 @@ def test_fixed_ui_assumptions_keep_expected_defaults():
     assert solar.daily_buffer_insulation_lambda_w_m_k == 0.035
     assert geo.spacing_m == 10.0
     assert geo.carnot_efficiency == 0.54
+    assert geo.t_min_c == -3.0
+    assert geo.gmi_t_min_c == -3.0
+    assert geo.gmi_t_max_c == 40.0
     assert geo.probe_power_ratio_w_m == 40.0
     assert geo.max_extraction_kwh_per_m_year == 60.0
     assert geo.safety_factor == 1.20

@@ -398,24 +398,6 @@ def render_geothermal_form(
                 "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
                 "Le COP horaire reste calculé dynamiquement avec la température du champ."
             )
-        with st.expander("Seuils source PAC et critère GMI", expanded=True):
-            s1, s2, s3 = st.columns(3)
-            t_min_operation_c = s1.number_input(
-                "Tmin source PAC opérationnelle (°C)",
-                min_value=-10.0,
-                max_value=20.0,
-                value=geo_fixed.t_min_c,
-                step=1.0,
-                help=(
-                    "Seuil de pilotage utilisé pour brider la PAC. "
-                    "0 °C est une valeur de prédimensionnement courante ; -3 °C correspond au plancher GMI affiché séparément."
-                ),
-            )
-            gmi_t_min_c = s2.number_input("Tmin GMI (°C)", min_value=-10.0, max_value=10.0, value=geo_fixed.gmi_t_min_c, step=1.0)
-            gmi_t_max_c = s3.number_input("Tmax GMI (°C)", min_value=20.0, max_value=60.0, value=geo_fixed.gmi_t_max_c, step=1.0)
-            gmi_check_enabled = st.checkbox("Afficher la conformité GMI", value=geo_fixed.gmi_check_enabled)
-            if t_min_operation_c > gmi_t_min_c:
-                st.warning("La Tmin opérationnelle PAC est plus restrictive que le critère GMI bas.")
         with st.expander("Hypothèses avancées P1 électrique", expanded=False):
             st.markdown(
                 f"""
@@ -432,11 +414,11 @@ def render_geothermal_form(
             depth_m=depth_m,
             spacing_m=geo_fixed.spacing_m,
             t_initial_c=geo_fixed.t_initial_c,
-            t_min_c=t_min_operation_c,
+            t_min_c=geo_fixed.t_min_c,
             t_max_c=geo_fixed.t_max_c,
-            gmi_t_min_c=gmi_t_min_c,
-            gmi_t_max_c=gmi_t_max_c,
-            gmi_check_enabled=bool(gmi_check_enabled),
+            gmi_t_min_c=geo_fixed.gmi_t_min_c,
+            gmi_t_max_c=geo_fixed.gmi_t_max_c,
+            gmi_check_enabled=bool(geo_fixed.gmi_check_enabled),
             ground_conductivity_w_m_k=geo_fixed.ground_conductivity_w_m_k,
             ground_diffusivity_m2_s=geo_fixed.ground_diffusivity_m2_s,
             borehole_radius_m=geo_fixed.borehole_radius_m,
