@@ -2367,3 +2367,62 @@ def test_no_energy_creation_in_btes_metrics():
     assert diagnostics["injected_btes_kwh"] == 10.0
     assert diagnostics["ratio_injection_extraction"] == 0.5
     assert diagnostics["eta_btes"] == 2.0
+
+
+def test_run_hourly_scenario_builds_btes_diagnostics_without_multiyear_dataframe(monkeypatch):
+    weather = [
+        HourlyWeather(hour_index=hour, month=1, day=1, hour=hour + 1, tair_c=8.0, g_tilt_kwh_m2=0.0)
+        for hour in range(2)
+    ]
+
+    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+        results = []
+        for year in range(1, int(simulation_years) + 1):
+            for item in weather:
+                results.append(
+                    _fake_hourly_result(
+                        simulation_year=year,
+                        hour_index=item.hour_index,
+                        demand_ht_kwh=0.0,
+                        demand_bt_kwh=20.0,
+                        heat_bt_from_pac_kwh=20.0,
+                        btes_extracted_by_pac_kwh=15.0,
+                        solar_to_btes_kwh=5.0,
+                        electricity_compressor_kwh=5.0,
+                        electricity_pac_total_kwh=6.0,
+                        q_net_w_m=10.0 if item.hour_index == 0 else -5.0,
+                    )
+                )
+        return results
+
+    monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
+    result = scenarios_module.run_hourly_scenario(
+        weather=weather,
+        demands=[MonthlyDemand(month=1, process_ht_kwh=0.0, process_bt_kwh=40.0)],
+        config=SimulationConfig(
+            collector=CollectorConfig(area_m2=100.0),
+            btes=BtesConfig(boreholes=10, depth_m=100.0, spacing_m=6.0),
+            heat_pump=HeatPumpConfig(max_thermal_power_kw=50.0),
+        ),
+        economics=ScenarioEconomicsConfig(
+            reference_energy_cost_eur_mwh=70.0,
+            reference_energy_inflation_pct=2.0,
+            eta_appoint_eco=0.9,
+            analysis_years=25,
+            auxiliary_electricity_ratio_pct=3.0,
+            electricity_cost_eur_mwh=180.0,
+            maintenance_cost_eur_m2_year=0.0,
+            ademe_eur_mwh_year=0.0,
+            other_public_aid_eur=0.0,
+            backup_p2_eur_kw_year=10.0,
+        ),
+        hourly_demand_override=_hourly_override(weather, ht_kwh=0.0, bt_kwh=20.0),
+        run_multiyear=True,
+        technical_simulation_years=2,
+        run_geo_only=False,
+        run_reduced_borefield=False,
+    )
+
+    assert result.btes_diagnostics["hours_total"] == 4
+    assert result.btes_diagnostics["sign_changes"] >= 1
+    assert float(result.btes_diagnostics["injected_btes_kwh"]) > 0.0

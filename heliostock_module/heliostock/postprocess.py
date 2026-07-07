@@ -174,6 +174,53 @@ def btes_load_diagnostics_from_dataframe(
     return diagnostics
 
 
+def btes_load_diagnostics_from_results(
+    results,
+    *,
+    simulation_years: int,
+    depth_m: float,
+    spacing_m: float,
+    surface_insulation_considered: bool,
+) -> dict[str, float | int | str | bool | None]:
+    rows = list(results)
+    if not rows:
+        return {
+            "hours_total": 0,
+            "simulation_years": int(simulation_years),
+            "extracted_ground_kwh": 0.0,
+            "injected_btes_kwh": 0.0,
+            "ratio_injection_extraction": 0.0,
+            "eta_btes": None,
+            "geo_field_mode": "GSHP_dominant",
+            "geo_field_mode_comment": geo_field_mode_comment("GSHP_dominant"),
+            "surface_insulation_warning": "",
+        }
+    extracted = sum(float(row.btes_extracted_by_pac_kwh) for row in rows)
+    injected = sum(float(row.solar_to_btes_kwh) for row in rows)
+    ratio = injected / max(1e-9, extracted)
+    mode = classify_geo_field_mode(ratio)
+    diagnostics = dict(sign_change_diagnostics(row.q_net_w_m for row in rows))
+    diagnostics.update(
+        {
+            "simulation_years": int(simulation_years),
+            "extracted_ground_kwh": extracted,
+            "injected_btes_kwh": injected,
+            "ratio_injection_extraction": ratio,
+            "eta_btes": btes_efficiency_indicator(extracted, injected),
+            "geo_field_mode": mode,
+            "geo_field_mode_comment": geo_field_mode_comment(mode),
+            "surface_insulation_warning": surface_insulation_warning(
+                depth_m=depth_m,
+                spacing_m=spacing_m,
+                injected_kwh=injected,
+                extracted_kwh=extracted,
+                surface_insulation_considered=surface_insulation_considered,
+            ),
+        }
+    )
+    return diagnostics
+
+
 def _hourly_results_to_dataframe(results) -> pd.DataFrame:
     df = pd.DataFrame([asdict(r) for r in results])
     if df.empty:

@@ -29,7 +29,7 @@ from .postprocess import (
     _hourly_results_to_dataframe,
     _multiyear_btes_summary,
     btes_efficiency_indicator,
-    btes_load_diagnostics_from_dataframe,
+    btes_load_diagnostics_from_results,
     sign_change_diagnostics,
 )
 from .simulation_cache import SimulationCache
@@ -2152,8 +2152,8 @@ def run_hourly_scenario(
         "full_case_metrics": dict(full_case_metrics),
         "trajectory_df": same_trajectory_df.copy(),
     }
-    btes_diagnostics = btes_load_diagnostics_from_dataframe(
-        multiyear_df,
+    btes_diagnostics = btes_load_diagnostics_from_results(
+        multiyear_results,
         simulation_years=multiyear_years,
         depth_m=float(config.btes.depth_m),
         spacing_m=float(config.btes.spacing_m),
