@@ -508,16 +508,16 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             "Profil de calcul",
             options=[
                 "Prévisualisation rapide - 1 an, scénario principal uniquement",
-                "Dimensionnement technique - 20 ans, sans paramétriques",
-                "Calcul final complet - 20 ans, économie sondes et paramétriques",
+                "Dimensionnement technique - 25 ans, sans paramétriques",
+                "Calcul final complet - 25 ans, économie sondes et paramétriques",
             ],
             index=1,
             horizontal=True,
         )
         profile_map = {
             "Prévisualisation rapide - 1 an, scénario principal uniquement": "previsualisation_rapide",
-            "Dimensionnement technique - 20 ans, sans paramétriques": "dimensionnement_25_ans",
-            "Calcul final complet - 20 ans, économie sondes et paramétriques": "calcul_final",
+            "Dimensionnement technique - 25 ans, sans paramétriques": "dimensionnement_25_ans",
+            "Calcul final complet - 25 ans, économie sondes et paramétriques": "calcul_final",
         }
         calculation_profile = profile_map[str(profile_label)]
         quick_preview = calculation_profile == "previsualisation_rapide"
@@ -529,12 +529,12 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             )
         elif calculation_profile == "dimensionnement_25_ans":
             st.info(
-                "Profil dimensionnement : simulation technique 20 ans avec comparaison géothermie seule. "
+                "Profil dimensionnement : simulation technique 25 ans avec comparaison géothermie seule. "
                 "Les études paramétriques et l'économie de sondes restent désactivées."
             )
         else:
             st.info(
-                "Profil final complet : simulation 20 ans avec options avancées. "
+                "Profil final complet : simulation 25 ans avec options avancées. "
                 "Les études paramétriques PAC/solaire et l'économie de sondes sont disponibles ci-dessous."
             )
         run_multiyear = st.checkbox("Projection technique multiannuelle", value=not quick_preview, disabled=quick_preview)
@@ -542,7 +542,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             "Durée simulation technique champ (ans)",
             min_value=1,
             max_value=50,
-            value=1 if quick_preview else 20,
+            value=1 if quick_preview else 25,
             step=1,
             disabled=quick_preview or not run_multiyear,
         )
@@ -604,7 +604,7 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             savings_search_mode = "none"
         st.caption(
             "Important : les études paramétriques ne sont affichées et lancées que dans le profil "
-            "`Calcul final complet - 20 ans, économie sondes et paramétriques`."
+            "`Calcul final complet - 25 ans, économie sondes et paramétriques`."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(

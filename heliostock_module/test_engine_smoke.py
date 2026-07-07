@@ -1,4 +1,5 @@
 from dataclasses import replace
+import importlib.util
 from pathlib import Path
 import tempfile
 
@@ -29,6 +30,13 @@ from heliostock.geothermal_design import predimension_borefield
 from heliostock.inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, ScenarioInputs, SolarInputs
 from heliostock.load_profiles import _hourly_demands_from_process_file
 from heliostock.postprocess import _hourly_results_to_dataframe, _multiyear_btes_summary
+from heliostock.postprocess import (
+    btes_efficiency_indicator,
+    btes_load_diagnostics_from_dataframe,
+    classify_geo_field_mode,
+    sign_change_diagnostics,
+    surface_insulation_warning,
+)
 from heliostock.scenarios import (
     ScenarioEconomicsConfig,
     _multiyear_heat_cost,
@@ -39,6 +47,7 @@ from heliostock.scenarios import (
 from heliostock.simulation_cache import SimulationCache
 from heliostock.ui_formatting import display_dataframe, round_display_df
 from heliostock.ui_inputs import (
+    DEFAULT_EPW_REGIONS,
     DEFAULT_EPW_STATIONS,
     FixedEconomicsAssumptions,
     FixedGeoAssumptions,
@@ -985,14 +994,21 @@ def test_fixed_ui_assumptions_keep_expected_defaults():
     geo = FixedGeoAssumptions()
     economics = FixedEconomicsAssumptions()
 
-    assert list(DEFAULT_EPW_STATIONS.keys())[0] == "Nantes"
+    assert "Bretagne" in DEFAULT_EPW_REGIONS
+    assert "Pays de la Loire" in DEFAULT_EPW_REGIONS
+    assert "Rennes - St Jacques" in DEFAULT_EPW_REGIONS["Bretagne"]
+    assert "Nantes Atlantique" in DEFAULT_EPW_REGIONS["Pays de la Loire"]
+    assert "Pays de la Loire - Nantes Atlantique" in DEFAULT_EPW_STATIONS
     assert solar.daily_buffer_l_per_m2 == 60.0
+    assert solar.daily_buffer_tank_count == 1
+    assert solar.daily_buffer_insulation_thickness_cm == 10.0
+    assert solar.daily_buffer_insulation_lambda_w_m_k == 0.035
     assert geo.spacing_m == 10.0
     assert geo.carnot_efficiency == 0.54
     assert geo.probe_power_ratio_w_m == 40.0
     assert geo.max_extraction_kwh_per_m_year == 60.0
     assert geo.safety_factor == 1.20
-    assert economics.analysis_years == 25
+    assert economics.analysis_years == 20
     assert economics.ademe_eur_mwh_year == 63.0
 
 
@@ -1085,9 +1101,9 @@ def test_run_hourly_scenario_returns_summaries_and_economics():
 
     assert len(result.hourly_df) == 24 * 3
     assert len(result.no_solar_hourly_df) == 24 * 3
-    assert set(result.hourly_df["simulation_year"].unique()) == {20}
-    assert set(result.no_solar_hourly_df["simulation_year"].unique()) == {20}
-    assert int(result.no_solar_hourly_df["simulation_year_displayed"].iloc[0]) == 20
+    assert set(result.hourly_df["simulation_year"].unique()) == {25}
+    assert set(result.no_solar_hourly_df["simulation_year"].unique()) == {25}
+    assert int(result.no_solar_hourly_df["simulation_year_displayed"].iloc[0]) == 25
     assert len(result.multiyear_btes_df) == len(result.no_solar_multiyear_btes_df)
     assert not result.no_solar_multiyear_btes_df.empty
     assert not result.annual_df.empty
@@ -2225,3 +2241,129 @@ def test_solar_energy_allocation_prorata_sums_to_one():
     assert abs(float(allocation["part_ht"]) + float(allocation["part_recharge"]) - 1.0) <= 1e-12
     assert float(allocation["capex_solar_ht_eur"]) == 25_000.0
     assert float(allocation["capex_solar_recharge_eur"]) == 75_000.0
+
+
+def test_import_package_minimal():
+    import heliostock
+
+    assert heliostock.__all__ == []
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock.streamlit_module import render_heliostock_hourly
+
+    assert callable(render_heliostock_hourly)
+
+
+def test_no_nested_project_folder():
+    root = Path(__file__).resolve().parents[1]
+    assert not (root / "heliostock_module" / "heliostock_module").exists()
+
+
+def test_default_technical_years_is_25():
+    selection = CalculationSelection()
+    assert selection.technical_simulation_years == 25
+    assert selection.custom_display_year == 25
+
+
+def test_technical_years_not_economic_years():
+    import inspect
+
+    app_source = inspect.getsource(run_hourly_calculation)
+    scenario_source = inspect.getsource(run_hourly_scenario)
+    assert "technical_simulation_years=int(technical_simulation_years)" in app_source
+    assert "technical_simulation_years or 25" in scenario_source
+    assert "technical_simulation_years or economics.analysis_years" not in scenario_source
+
+
+def test_found_false_when_no_real_savings():
+    result = borefield_savings_module._base_return(
+        found=True,
+        base_length_m=1000.0,
+        boreholes=10,
+        equivalent_cop=4.0,
+        equivalent_bt_pac_kwh=1000.0,
+        final_metrics={"depth_m": 100.0, "final_cop": 4.0},
+        estimated_length_m=1000.0,
+        simulations_count=0,
+    )
+
+    assert result["found"] is False
+    assert float(result["saved_length_m"]) == 0.0
+    assert float(result["saved_fraction"]) == 0.0
+    assert result["message"] == "Aucune réduction de sondes validée"
+
+
+def test_no_pygfunction_parallel():
+    root = Path(__file__).resolve().parent / "heliostock"
+    source = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
+    assert "ThreadPoolExecutor" not in source
+    assert "ProcessPoolExecutor" not in source
+
+
+def test_btes_efficiency_indicator():
+    assert btes_efficiency_indicator(800.0, 1000.0) == 0.8
+    assert btes_efficiency_indicator(800.0, 0.0) is None
+
+
+def test_sign_change_diagnostics():
+    diagnostics = sign_change_diagnostics([10.0, 8.0, -4.0, -3.0, 2.0, 0.0, -1.0])
+    assert diagnostics["sign_changes"] == 3
+    assert diagnostics["extraction_to_injection_changes"] == 2
+    assert diagnostics["injection_to_extraction_changes"] == 1
+    assert diagnostics["extraction_sequences"] == 2
+    assert diagnostics["injection_sequences"] == 2
+
+
+def test_geo_field_mode_classification():
+    assert classify_geo_field_mode(0.05) == "GSHP_dominant"
+    assert classify_geo_field_mode(0.25) == "solar_recharged_borefield"
+    assert classify_geo_field_mode(0.75) == "BTES_like"
+
+
+def test_surface_insulation_warning():
+    message = surface_insulation_warning(
+        depth_m=30.0,
+        spacing_m=5.0,
+        injected_kwh=1000.0,
+        extracted_kwh=2000.0,
+        surface_insulation_considered=False,
+    )
+    assert "HelioStock ne les modélise pas explicitement" in message
+    assert (
+        surface_insulation_warning(
+            depth_m=30.0,
+            spacing_m=5.0,
+            injected_kwh=1000.0,
+            extracted_kwh=2000.0,
+            surface_insulation_considered=True,
+        )
+        == ""
+    )
+
+
+def test_load_aggregation_mode_default():
+    config = BtesConfig()
+    assert config.load_aggregation_mode == "pygfunction_default"
+    assert config.surface_insulation_considered is False
+
+
+def test_no_energy_creation_in_btes_metrics():
+    df = pd.DataFrame(
+        {
+            "q_net_W_m": [20.0, -10.0, 0.0],
+            "btes_extracted_by_pac_kwh": [20.0, 0.0, 0.0],
+            "solar_to_btes_kwh": [0.0, 10.0, 0.0],
+        }
+    )
+    diagnostics = btes_load_diagnostics_from_dataframe(
+        df,
+        simulation_years=1,
+        depth_m=100.0,
+        spacing_m=8.0,
+        surface_insulation_considered=False,
+    )
+
+    assert diagnostics["extracted_ground_kwh"] == 20.0
+    assert diagnostics["injected_btes_kwh"] == 10.0
+    assert diagnostics["ratio_injection_extraction"] == 0.5
+    assert diagnostics["eta_btes"] == 2.0

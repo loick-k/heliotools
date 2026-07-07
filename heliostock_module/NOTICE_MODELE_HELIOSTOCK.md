@@ -2,6 +2,10 @@
 
 Cette notice décrit les équations et hypothèses effectivement codées dans la version actuelle du module.
 
+Environnement numérique recommandé : Python 3.11 ou 3.12 avec les dépendances bornées dans `requirements.txt`.
+Les versions plus récentes non qualifiées, notamment Python 3.14, peuvent provoquer des comportements différents dans
+Streamlit, pandas, scipy ou pygfunction.
+
 Le modèle actif dans l’interface Streamlit est le modèle horaire `simulate_hourly(...)`. L’ancien moteur de résolution mensuelle a été supprimé : les tableaux mensuels affichés sont uniquement des agrégations des résultats horaires.
 
 Le calcul principal reste une année 8760 h. Une projection physique multiannuelle répète ensuite la même année météo et
@@ -1512,6 +1516,27 @@ Limites actuelles :
 - modele economique multi-energies simplifie, avec CAPEX/P1/P2/P4 solaire, geothermie PAC et appoint gaz.
 
 ## 26. Points à améliorer en V1+
+
+### Enseignements issus de Miceli et al. 2026 sur les BTES solaires
+
+Miceli et al. 2026 montrent qu'une approche g-function peut rester pertinente pour simuler rapidement des BTES sur de
+longues durees, mais que la gestion de l'historique des charges devient un sujet numerique majeur. Dans un couplage
+solaire + champ de sondes, l'injection estivale et l'extraction hivernale creent de nombreuses transitions de signe.
+Une agregation naive des charges peut alors creer des erreurs au moment des transitions charge/decharge.
+
+HelioStock conserve le backend `pygfunction` et son aggregation Claesson-Javed pour le calcul de production. Le parametre
+`load_aggregation_mode = "pygfunction_default"` documente ce choix. Le mode `error_control_placeholder` est reserve a une
+future implementation inspiree d'un controle d'erreur, mais il ne modifie pas encore les resultats.
+
+Les sorties ajoutent des diagnostics de charge : energie extraite, energie injectee, ratio injection/extraction, nombre
+de transitions, indice d'alternance saisonniere, classification du fonctionnement du champ et indicateur `eta_BTES`.
+`eta_BTES = energie extraite du sol / energie injectee dans le BTES` est un indicateur de restitution du stockage ; ce
+n'est ni un COP PAC ni un rendement global du systeme.
+
+`pygfunction` ne modelise pas explicitement l'isolation superieure d'un vrai BTES, les conditions aux limites complexes,
+l'heterogeneite verticale fine, l'hydraulique MIFT serie/parallele detaillee ni l'inertie court terme tube/coulis. Pour un
+stockage intersaisonnier peu profond et fortement recharge, HelioStock affiche donc un avertissement de prudence plutot
+que d'ajouter une correction thermique arbitraire.
 
 Priorités techniques :
 

@@ -28,6 +28,9 @@ from .postprocess import (
     _hourly_by_month_summary,
     _hourly_results_to_dataframe,
     _multiyear_btes_summary,
+    btes_efficiency_indicator,
+    btes_load_diagnostics_from_dataframe,
+    sign_change_diagnostics,
 )
 from .simulation_cache import SimulationCache
 
@@ -101,6 +104,7 @@ class ScenarioResult:
     simulation_years_total: int
     economic_years_used: int
     gmi_check_enabled: bool
+    btes_diagnostics: dict[str, float | int | str | bool | None]
 
 
 def _notify(progress: ProgressCallback | None, value: int, text: str) -> None:
@@ -301,6 +305,9 @@ def _multiyear_btes_summary_from_results(
         elec_compressor = _sum_attr(group, "electricity_compressor_kwh")
         elec_total = _sum_attr(group, "electricity_pac_total_kwh")
         heat_pac = _sum_attr(group, "heat_bt_from_pac_kwh")
+        extracted = _sum_attr(group, "btes_extracted_by_pac_kwh")
+        injected = _sum_attr(group, "solar_to_btes_kwh")
+        sign_diag = sign_change_diagnostics(row.q_net_w_m for row in group)
         rows.append(
             {
                 "Annee": int(year),
@@ -318,9 +325,14 @@ def _multiyear_btes_summary_from_results(
                 "T paroi forage min (C)": _min_attr(group, "t_borehole_wall_c"),
                 "T paroi forage max (C)": _max_attr(group, "t_borehole_wall_c"),
                 "T evaporateur PAC min (C)": _min_attr(group, "t_evaporator_pac_c"),
-                "Q net sol (MWh)": (_sum_attr(group, "btes_extracted_by_pac_kwh") - _sum_attr(group, "solar_to_btes_kwh")) / 1000.0,
-                "Injection BTES (MWh)": _sum_attr(group, "solar_to_btes_kwh") / 1000.0,
-                "Extraction PAC (MWh)": _sum_attr(group, "btes_extracted_by_pac_kwh") / 1000.0,
+                "Q net sol (MWh)": (extracted - injected) / 1000.0,
+                "Injection BTES (MWh)": injected / 1000.0,
+                "Extraction PAC (MWh)": extracted / 1000.0,
+                "Ratio injection/extraction": injected / max(1e-9, extracted),
+                "eta_BTES": btes_efficiency_indicator(extracted, injected),
+                "Transitions injection/extraction": int(sign_diag["sign_changes"]),
+                "Indice alternance charge": float(sign_diag["seasonal_load_variability_index"]),
+                "Niveau alternance": str(sign_diag["alternance_level"]),
                 "q extraction max (W/m)": _max_attr(group, "q_extraction_w_m"),
                 "q injection max (W/m)": _max_attr(group, "q_injection_w_m"),
                 "q net moyen (W/m)": _mean_attr(group, "q_net_w_m"),
@@ -718,6 +730,7 @@ def solar_surface_parametric_study(
     reference_gas_power_kw: float,
     reference_heat_mwh: float,
     analysis_years: int,
+    technical_simulation_years: int | None = None,
     reference_energy_cost_eur_mwh: float,
     reference_energy_inflation_pct: float,
     eta_appoint_eco: float,
@@ -736,7 +749,7 @@ def solar_surface_parametric_study(
 ) -> pd.DataFrame:
     rows = []
     total_points = max(1, len(surfaces_m2))
-    simulation_years = max(1, int(analysis_years))
+    simulation_years = max(1, int(technical_simulation_years or analysis_years))
     economics_config = ScenarioEconomicsConfig(
         reference_energy_cost_eur_mwh=reference_energy_cost_eur_mwh,
         reference_energy_inflation_pct=reference_energy_inflation_pct,
@@ -838,6 +851,30 @@ def solar_surface_parametric_study(
             if bool(savings_variant["found"])
             else full_borefield_length_m
         )
+        reduced_economic_metrics_variant = dict(economic_metrics_variant)
+        if bool(savings_variant["found"]):
+            reduced_economic_metrics_variant["pac_heat_mwh"] = (
+                float(savings_variant.get("equivalent_bt_pac_kwh", economic_metrics_variant["pac_heat_mwh"] * 1000.0))
+                / 1000.0
+            )
+            reduced_economic_metrics_variant["pac_electricity_mwh"] = (
+                float(
+                    savings_variant.get(
+                        "equivalent_mean_pac_electricity_kwh",
+                        economic_metrics_variant["pac_electricity_mwh"] * 1000.0,
+                    )
+                )
+                / 1000.0
+            )
+            reduced_economic_metrics_variant["backup_total_mwh"] = (
+                float(
+                    savings_variant.get(
+                        "equivalent_mean_backup_total_kwh",
+                        economic_metrics_variant["backup_total_mwh"] * 1000.0,
+                    )
+                )
+                / 1000.0
+            )
 
         solar_direct_ht_mwh_variant = economic_metrics_variant["solar_ht_mwh"]
         solar_total_mwh_variant = economic_metrics_variant["solar_ht_mwh"] + economic_metrics_variant["solar_btes_mwh"]
@@ -877,12 +914,12 @@ def solar_surface_parametric_study(
         heat_costs_variant = compute_heat_costs(
             solar_economics=solar_economics_variant,
             annual_solar_mwh=solar_direct_ht_mwh_variant,
-            annual_pac_heat_mwh=economic_metrics_variant["pac_heat_mwh"],
-            annual_pac_electricity_mwh=economic_metrics_variant["pac_electricity_mwh"],
+            annual_pac_heat_mwh=reduced_economic_metrics_variant["pac_heat_mwh"],
+            annual_pac_electricity_mwh=reduced_economic_metrics_variant["pac_electricity_mwh"],
             pac_power_kw=pac_nominal_power_kw,
             borefield_length_m=economic_borefield_length_m_variant,
             full_borefield_length_m=full_borefield_length_m,
-            annual_backup_heat_mwh=economic_metrics_variant["backup_total_mwh"],
+            annual_backup_heat_mwh=reduced_economic_metrics_variant["backup_total_mwh"],
             backup_power_kw=economic_metrics_variant["backup_power_kw"],
             reference_heat_mwh=reference_heat_mwh,
             reference_power_kw=reference_gas_power_kw,
@@ -900,9 +937,34 @@ def solar_surface_parametric_study(
             economics=economics_config,
             capex_net_eur=same_capex_variant,
         )
+        reduced_trajectory_variant = variant_trajectory_df.copy()
+        if bool(savings_variant["found"]) and not reduced_trajectory_variant.empty:
+            reduced_trajectory_variant["Chaleur PAC BT (MWh)"] = reduced_economic_metrics_variant["pac_heat_mwh"]
+            reduced_trajectory_variant["Electricite PAC (MWh)"] = reduced_economic_metrics_variant[
+                "pac_electricity_mwh"
+            ]
+            original_backup_total = (
+                reduced_trajectory_variant["Appoint gaz total (MWh)"].replace(0.0, pd.NA)
+                if "Appoint gaz total (MWh)" in reduced_trajectory_variant
+                else pd.Series(dtype=float)
+            )
+            if not original_backup_total.empty and "Appoint gaz HT (MWh)" in reduced_trajectory_variant:
+                ht_share = (
+                    reduced_trajectory_variant["Appoint gaz HT (MWh)"].astype(float)
+                    / original_backup_total.astype(float)
+                ).fillna(0.0)
+                reduced_trajectory_variant["Appoint gaz HT (MWh)"] = (
+                    reduced_economic_metrics_variant["backup_total_mwh"] * ht_share
+                )
+                reduced_trajectory_variant["Appoint gaz BT (MWh)"] = (
+                    reduced_economic_metrics_variant["backup_total_mwh"] * (1.0 - ht_share)
+                )
+            reduced_trajectory_variant["Appoint gaz total (MWh)"] = reduced_economic_metrics_variant[
+                "backup_total_mwh"
+            ]
         capex_variant = _capex_net_total(heat_costs_variant, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
         multiyear_cost_variant = _multiyear_heat_cost(
-            trajectory_df=variant_trajectory_df,
+            trajectory_df=reduced_trajectory_variant,
             heat_costs=heat_costs_variant,
             economics=economics_config,
             capex_net_eur=capex_variant,
@@ -944,6 +1006,7 @@ def solar_surface_parametric_study(
                 reason=f"Nettoyage memoire apres surface solaire {index}/{total_points}"
             )
         del variant_trajectory_df
+        del reduced_trajectory_variant
         gc.collect()
 
     return pd.DataFrame(rows)
@@ -965,6 +1028,7 @@ def pac_power_parametric_study(
     reference_gas_power_kw: float,
     reference_heat_mwh: float,
     analysis_years: int,
+    technical_simulation_years: int | None = None,
     reference_energy_cost_eur_mwh: float,
     reference_energy_inflation_pct: float,
     eta_appoint_eco: float,
@@ -979,7 +1043,7 @@ def pac_power_parametric_study(
 ) -> pd.DataFrame:
     rows = []
     total_points = max(1, len(pac_power_fractions_pct))
-    simulation_years = max(1, int(analysis_years))
+    simulation_years = max(1, int(technical_simulation_years or analysis_years))
     economics_config = ScenarioEconomicsConfig(
         reference_energy_cost_eur_mwh=reference_energy_cost_eur_mwh,
         reference_energy_inflation_pct=reference_energy_inflation_pct,
@@ -1560,7 +1624,7 @@ def run_hourly_scenario(
     simulation_cache: SimulationCache | None = None,
     progress: ProgressCallback | None = None,
 ) -> ScenarioResult:
-    multiyear_years = max(1, int(technical_simulation_years or economics.analysis_years)) if run_multiyear else 1
+    multiyear_years = max(1, int(technical_simulation_years or 25)) if run_multiyear else 1
     _notify(
         progress,
         15,
@@ -2088,6 +2152,13 @@ def run_hourly_scenario(
         "full_case_metrics": dict(full_case_metrics),
         "trajectory_df": same_trajectory_df.copy(),
     }
+    btes_diagnostics = btes_load_diagnostics_from_dataframe(
+        multiyear_df,
+        simulation_years=multiyear_years,
+        depth_m=float(config.btes.depth_m),
+        spacing_m=float(config.btes.spacing_m),
+        surface_insulation_considered=bool(config.btes.surface_insulation_considered),
+    )
 
     result = ScenarioResult(
         config=config,
@@ -2139,6 +2210,7 @@ def run_hourly_scenario(
         simulation_years_total=multiyear_years,
         economic_years_used=int(economics.analysis_years),
         gmi_check_enabled=bool(config.btes.gmi_check_enabled),
+        btes_diagnostics=btes_diagnostics,
     )
     if simulation_cache is not None:
         simulation_cache.clear_entries(reason="Nettoyage memoire apres scenario principal")

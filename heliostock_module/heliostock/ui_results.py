@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from html import escape
-
 import pandas as pd
 import streamlit as st
 
@@ -26,87 +24,8 @@ from .ui_economics import render_economics_tab
 from .ui_formatting import display_dataframe, round_display_df
 
 
-KPI_SECTION_TONES = {
-    "inputs": "#f8fafc",
-    "energy": "#fff7ed",
-    "solar": "#fffbeb",
-    "pac": "#ecfdf5",
-    "gas": "#f3f4f6",
-}
-
-
 def _render_kpi_styles() -> None:
-    st.markdown(
-        """
-        <style>
-        .heliostock-kpi-section {
-            border: 1px solid #e5e7eb;
-            border-radius: 10px;
-            padding: 0.85rem 1rem 1rem 1rem;
-            margin: 0.85rem 0 1rem 0;
-        }
-        .heliostock-kpi-section h4 {
-            margin: 0 0 0.35rem 0;
-            font-size: 1.02rem;
-            line-height: 1.25;
-        }
-        .heliostock-kpi-caption {
-            margin: 0 0 0.8rem 0;
-            color: #6b7280;
-            font-size: 0.78rem;
-            line-height: 1.35;
-        }
-        .heliostock-kpi-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            gap: 0.75rem;
-            align-items: stretch;
-            justify-items: start;
-        }
-        .heliostock-kpi-card {
-            width: 100%;
-            min-height: 74px;
-            padding: 0.45rem 0.55rem;
-            border-left: 3px solid #cbd5e1;
-            background: rgba(255,255,255,0.68);
-            border-radius: 7px;
-        }
-        .heliostock-kpi-label {
-            color: #374151;
-            font-size: 0.72rem;
-            line-height: 1.2;
-            margin-bottom: 0.28rem;
-        }
-        .heliostock-kpi-value {
-            color: #111827;
-            font-size: 1.38rem;
-            line-height: 1.12;
-            font-weight: 500;
-        }
-        .heliostock-kpi-delta {
-            display: inline-block;
-            margin-top: 0.32rem;
-            padding: 0.08rem 0.35rem;
-            border-radius: 999px;
-            background: #dcfce7;
-            color: #166534;
-            font-size: 0.68rem;
-            line-height: 1.2;
-        }
-        .heliostock-kpi-delta-negative {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-        @media (max-width: 1100px) {
-            .heliostock-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-        @media (max-width: 640px) {
-            .heliostock-kpi-grid { grid-template-columns: 1fr; }
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
+    return None
 
 
 def _render_kpi_section(
@@ -116,40 +35,16 @@ def _render_kpi_section(
     caption: str | None = None,
     tone: str = "inputs",
 ) -> None:
-    background = KPI_SECTION_TONES.get(tone, KPI_SECTION_TONES["inputs"])
-    metric_cards: list[str] = []
-    for metric in metrics:
-        label = str(metric[0])
-        value = str(metric[1])
-        delta = str(metric[2]) if len(metric) > 2 and metric[2] else ""
-        delta_class = " heliostock-kpi-delta-negative" if delta.startswith("-") else ""
-        delta_html = (
-            f'<div class="heliostock-kpi-delta{delta_class}">{escape(delta)}</div>'
-            if delta
-            else ""
-        )
-        metric_cards.append(
-            """
-            <div class="heliostock-kpi-card">
-                <div class="heliostock-kpi-label">{label}</div>
-                <div class="heliostock-kpi-value">{value}</div>
-                {delta}
-            </div>
-            """.format(label=escape(label), value=escape(value), delta=delta_html)
-        )
-    caption_html = f'<p class="heliostock-kpi-caption">{escape(caption)}</p>' if caption else ""
-    st.markdown(
-        f"""
-        <section class="heliostock-kpi-section" style="background:{background};">
-            <h4>{escape(title)}</h4>
-            {caption_html}
-            <div class="heliostock-kpi-grid">
-                {''.join(metric_cards)}
-            </div>
-        </section>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.markdown(f"#### {title}")
+    if caption:
+        st.caption(caption)
+    for start in range(0, len(metrics), 4):
+        cols = st.columns(4)
+        for col, metric in zip(cols, metrics[start : start + 4]):
+            label = str(metric[0])
+            value = str(metric[1])
+            delta = str(metric[2]) if len(metric) > 2 and metric[2] else None
+            col.metric(label, value, delta=delta)
 
 
 def _scenario_economic_row(economic_comparison_df: pd.DataFrame, scenario_name: str) -> pd.Series | None:
@@ -263,6 +158,24 @@ def render_hourly_results(
         if not final_year_rows.empty:
             final_year_end_source_c = float(final_year_rows["T source PAC fin (C)"].iloc[-1])
         period_min_source_c = float(multiyear_btes_df["T source PAC min (C)"].min())
+    final_btes_injection_mwh = 0.0
+    final_btes_extraction_mwh = 0.0
+    eta_btes_final = None
+    if not multiyear_btes_df.empty and "Annee" in multiyear_btes_df:
+        final_year_rows = multiyear_btes_df[multiyear_btes_df["Annee"] == int(multiyear_btes_df["Annee"].max())]
+        final_btes_injection_mwh = float(final_year_rows.get("Injection BTES (MWh)", pd.Series(dtype=float)).sum())
+        final_btes_extraction_mwh = float(final_year_rows.get("Extraction PAC (MWh)", pd.Series(dtype=float)).sum())
+        if final_btes_injection_mwh > 1e-9:
+            eta_btes_final = final_btes_extraction_mwh / final_btes_injection_mwh
+    btes_diag = scenario.btes_diagnostics
+    eta_btes_multi = btes_diag.get("eta_btes")
+    ratio_injection_extraction = float(btes_diag.get("ratio_injection_extraction") or 0.0)
+    geo_field_mode = str(btes_diag.get("geo_field_mode") or "GSHP_dominant")
+    geo_field_mode_label = {
+        "GSHP_dominant": "PAC dominante",
+        "solar_recharged_borefield": "Champ recharge solaire",
+        "BTES_like": "Fonctionnement proche BTES",
+    }.get(geo_field_mode, geo_field_mode)
     solar_storage_volume_m3 = (
         float(scenario.config.collector.area_m2)
         * float(scenario.config.collector.daily_buffer_l_per_m2)
@@ -383,7 +296,37 @@ def render_hourly_results(
             ("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C"),
         ]
     )
+    pac_metrics.extend(
+        [
+            ("Injection BTES annee finale", f"{final_btes_injection_mwh:.0f} MWh"),
+            ("Extraction sol annee finale", f"{final_btes_extraction_mwh:.0f} MWh"),
+            ("eta_BTES annee finale", f"{eta_btes_final:.2f}" if eta_btes_final is not None else "non applicable"),
+            ("eta_BTES multiannuel", f"{float(eta_btes_multi):.2f}" if eta_btes_multi is not None else "non applicable"),
+            ("Type fonctionnement champ", geo_field_mode_label),
+            ("Ratio injection/extraction", f"{ratio_injection_extraction:.2f}"),
+        ]
+    )
     _render_kpi_section("PAC géothermie", pac_metrics, tone="pac")
+    if btes_diag.get("geo_field_mode_comment"):
+        st.caption(str(btes_diag["geo_field_mode_comment"]))
+    if btes_diag.get("warning"):
+        st.warning(str(btes_diag["warning"]))
+    if btes_diag.get("surface_insulation_warning"):
+        st.warning(str(btes_diag["surface_insulation_warning"]))
+
+    _render_kpi_section(
+        "Synthèse P1 électrique PAC/géothermie",
+        [
+            ("Électricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an"),
+            ("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an"),
+            ("Veille/régulation", f"{total_standby / 1000.0:.1f} MWh/an"),
+            ("Électricité totale PAC", f"{total_elec / 1000.0:.1f} MWh/an"),
+            ("COP machine", f"{mean_cop:.1f}"),
+            ("SPF PAC complet", f"{spf_pac_total:.1f}"),
+            ("SPF système simplifié", f"{spf_system:.1f}"),
+        ],
+        tone="pac",
+    )
 
     _render_kpi_section(
         "Appoint gaz",

@@ -1,8 +1,178 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Iterable
 
 import pandas as pd
+
+
+def btes_efficiency_indicator(extracted_kwh: float, injected_kwh: float) -> float | None:
+    """Return eta_BTES = useful ground extraction / solar injection.
+
+    This is a storage restitution indicator only. It is not a system efficiency
+    and is not comparable to the heat-pump COP.
+    """
+
+    injected = max(0.0, float(injected_kwh))
+    if injected <= 1e-9:
+        return None
+    return max(0.0, float(extracted_kwh)) / injected
+
+
+def sign_change_diagnostics(q_net_w_m: Iterable[float]) -> dict[str, float | int | str | bool]:
+    """Diagnose extraction/injection alternance from signed ground loads.
+
+    Sign convention:
+    - q_net_W_m > 0 means heat extraction from ground by the heat pump;
+    - q_net_W_m < 0 means solar injection into the ground.
+    """
+
+    signs: list[int] = []
+    for value in q_net_w_m:
+        q = float(value)
+        if q > 1e-9:
+            signs.append(1)
+        elif q < -1e-9:
+            signs.append(-1)
+        else:
+            signs.append(0)
+
+    non_zero = [sign for sign in signs if sign != 0]
+    sign_changes = 0
+    extraction_to_injection = 0
+    injection_to_extraction = 0
+    previous = 0
+    extraction_sequences = 0
+    injection_sequences = 0
+    for sign in non_zero:
+        if previous == 0:
+            if sign > 0:
+                extraction_sequences += 1
+            else:
+                injection_sequences += 1
+        elif sign != previous:
+            sign_changes += 1
+            if previous > 0 and sign < 0:
+                extraction_to_injection += 1
+                injection_sequences += 1
+            elif previous < 0 and sign > 0:
+                injection_to_extraction += 1
+                extraction_sequences += 1
+        previous = sign
+
+    variability = sign_changes / max(1, len(non_zero))
+    if variability >= 0.10:
+        level = "forte"
+    elif variability >= 0.02:
+        level = "moderee"
+    else:
+        level = "faible"
+    warning = (
+        "Le profil thermique présente de fortes alternances injection/extraction. "
+        "Les résultats long terme dépendent fortement de la méthode d'agrégation des charges thermiques."
+        if level == "forte"
+        else ""
+    )
+    return {
+        "hours_total": len(signs),
+        "hours_non_zero": len(non_zero),
+        "sign_changes": sign_changes,
+        "extraction_to_injection_changes": extraction_to_injection,
+        "injection_to_extraction_changes": injection_to_extraction,
+        "extraction_sequences": extraction_sequences,
+        "injection_sequences": injection_sequences,
+        "seasonal_load_variability_index": variability,
+        "alternance_level": level,
+        "strong_alternance": level == "forte",
+        "warning": warning,
+    }
+
+
+def classify_geo_field_mode(ratio_injection_extraction: float) -> str:
+    ratio = max(0.0, float(ratio_injection_extraction))
+    if ratio < 0.10:
+        return "GSHP_dominant"
+    if ratio <= 0.50:
+        return "solar_recharged_borefield"
+    return "BTES_like"
+
+
+def geo_field_mode_comment(mode: str) -> str:
+    comments = {
+        "GSHP_dominant": "Le champ fonctionne surtout comme une source géothermique de PAC, avec peu de recharge solaire.",
+        "solar_recharged_borefield": "Le champ fonctionne plutôt comme un champ géothermique rechargé par solaire.",
+        "BTES_like": "Le champ se rapproche d'un fonctionnement BTES intersaisonnier, avec injection et extraction du même ordre de grandeur.",
+    }
+    return comments.get(str(mode), "")
+
+
+def surface_insulation_warning(
+    *,
+    depth_m: float,
+    spacing_m: float,
+    injected_kwh: float,
+    extracted_kwh: float,
+    surface_insulation_considered: bool,
+) -> str:
+    if surface_insulation_considered:
+        return ""
+    ratio = max(0.0, float(injected_kwh)) / max(1e-9, max(0.0, float(extracted_kwh)))
+    dense_field = float(spacing_m) > 0.0 and float(spacing_m) <= 6.0
+    if float(depth_m) < 50.0 and dense_field and float(injected_kwh) > 1e-6 and ratio >= 0.10:
+        return (
+            "Pour un vrai BTES peu profond avec stockage intersaisonnier, les pertes vers la surface et "
+            "l'isolation supérieure peuvent influencer fortement la température du stockage. "
+            "HelioStock ne les modélise pas explicitement."
+        )
+    return ""
+
+
+def btes_load_diagnostics_from_dataframe(
+    results_df: pd.DataFrame,
+    *,
+    simulation_years: int,
+    depth_m: float,
+    spacing_m: float,
+    surface_insulation_considered: bool,
+) -> dict[str, float | int | str | bool | None]:
+    if results_df.empty:
+        return {
+            "hours_total": 0,
+            "simulation_years": int(simulation_years),
+            "extracted_ground_kwh": 0.0,
+            "injected_btes_kwh": 0.0,
+            "ratio_injection_extraction": 0.0,
+            "eta_btes": None,
+            "geo_field_mode": "GSHP_dominant",
+            "geo_field_mode_comment": geo_field_mode_comment("GSHP_dominant"),
+            "surface_insulation_warning": "",
+        }
+    extracted = float(results_df.get("btes_extracted_by_pac_kwh", pd.Series(dtype=float)).sum())
+    injected = float(results_df.get("solar_to_btes_kwh", pd.Series(dtype=float)).sum())
+    ratio = injected / max(1e-9, extracted)
+    mode = classify_geo_field_mode(ratio)
+    q_net = results_df["q_net_W_m"] if "q_net_W_m" in results_df else results_df.get("q_net_w_m", pd.Series(dtype=float))
+    diagnostics = dict(sign_change_diagnostics(q_net))
+    diagnostics.update(
+        {
+            "simulation_years": int(simulation_years),
+            "extracted_ground_kwh": extracted,
+            "injected_btes_kwh": injected,
+            "ratio_injection_extraction": ratio,
+            "eta_btes": btes_efficiency_indicator(extracted, injected),
+            "geo_field_mode": mode,
+            "geo_field_mode_comment": geo_field_mode_comment(mode),
+            "surface_insulation_warning": surface_insulation_warning(
+                depth_m=depth_m,
+                spacing_m=spacing_m,
+                injected_kwh=injected,
+                extracted_kwh=extracted,
+                surface_insulation_considered=surface_insulation_considered,
+            ),
+        }
+    )
+    return diagnostics
+
 
 def _hourly_results_to_dataframe(results) -> pd.DataFrame:
     df = pd.DataFrame([asdict(r) for r in results])
@@ -56,6 +226,9 @@ def _multiyear_btes_summary(
         elec_compressor = float(group["electricity_compressor_kwh"].sum())
         elec_total = float(group["electricity_pac_total_kwh"].sum())
         heat_pac = float(group["heat_bt_from_pac_kwh"].sum())
+        extracted = float(group["btes_extracted_by_pac_kwh"].sum())
+        injected = float(group["solar_to_btes_kwh"].sum())
+        sign_diag = sign_change_diagnostics(group["q_net_W_m"])
         rows.append(
             {
                 "Annee": int(year),
@@ -73,12 +246,14 @@ def _multiyear_btes_summary(
                 "T paroi forage min (C)": float(group["T_paroi_forage_C"].min()),
                 "T paroi forage max (C)": float(group["T_paroi_forage_C"].max()),
                 "T evaporateur PAC min (C)": float(group["T_evaporateur_PAC_C"].min()),
-                "Q net sol (MWh)": (
-                    float(group["btes_extracted_by_pac_kwh"].sum())
-                    - float(group["solar_to_btes_kwh"].sum())
-                ) / 1000.0,
-                "Injection BTES (MWh)": float(group["solar_to_btes_kwh"].sum()) / 1000.0,
-                "Extraction PAC (MWh)": float(group["btes_extracted_by_pac_kwh"].sum()) / 1000.0,
+                "Q net sol (MWh)": (extracted - injected) / 1000.0,
+                "Injection BTES (MWh)": injected / 1000.0,
+                "Extraction PAC (MWh)": extracted / 1000.0,
+                "Ratio injection/extraction": injected / max(1e-9, extracted),
+                "eta_BTES": btes_efficiency_indicator(extracted, injected),
+                "Transitions injection/extraction": int(sign_diag["sign_changes"]),
+                "Indice alternance charge": float(sign_diag["seasonal_load_variability_index"]),
+                "Niveau alternance": str(sign_diag["alternance_level"]),
                 "q extraction max (W/m)": float(group["q_extraction_W_m"].max()),
                 "q injection max (W/m)": float(group["q_injection_W_m"].max()),
                 "q net moyen (W/m)": float(group["q_net_W_m"].mean()),

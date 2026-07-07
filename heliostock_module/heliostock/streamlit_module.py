@@ -39,7 +39,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
     st.markdown(
         "HelioStock est un outil de pré-dimensionnement pour comparer des scénarios de chaleur renouvelable "
         "couplant solaire thermique, géothermie et stockage intersaisonnier par champ de sondes. "
-        "Le calcul exploite un profil de besoins au pas de temps horaire, réalise par défaut une simulation 20 ans du champ "
+        "Le calcul exploite un profil de besoins au pas de temps horaire, réalise par défaut une simulation 25 ans du champ "
         "de sondes avec pygfunction, puis propose une comparaison technico-économique des différents scénarios."
     )
 
@@ -63,7 +63,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
     else:
         st.info(
             "Les etudes parametriques PAC et solaire sont masquees pour ce profil. "
-            "Selectionne `Calcul final complet - 20 ans, economie sondes et parametriques` pour les afficher et les lancer."
+            "Sélectionne `Calcul final complet - 25 ans, économie sondes et paramétriques` pour les afficher et les lancer."
         )
         parametric_forms = render_parametric_forms(solar_form.inputs.area_m2, disabled=True)
 

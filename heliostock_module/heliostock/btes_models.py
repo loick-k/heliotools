@@ -22,6 +22,13 @@ class PygfunctionExpertBtesModel:
     - solar injection into ground is negative;
     - loads passed to pygfunction are linear loads in W/m.
 
+    Aggregation convention:
+    - production mode uses pygfunction's Claesson-Javed load aggregation;
+    - HelioStock does not average injection and extraction blocks itself;
+    - ``load_aggregation_mode="error_control_placeholder"`` is reserved for a
+      future Miceli-inspired error-controlled scheme and currently keeps the
+      same pygfunction behavior.
+
     Coupling is explicit hourly in this V1: the PAC COP is computed from the
     borehole wall temperature at the beginning of the hour, then the net hourly
     load is committed to pygfunction at the end of the hour.
@@ -48,6 +55,16 @@ class PygfunctionExpertBtesModel:
         self._last_q_extraction_w_m = 0.0
         self._last_q_injection_w_m = 0.0
         self._load_agg = None
+        self._load_aggregation_mode = str(config.load_aggregation_mode or "pygfunction_default")
+        if self._load_aggregation_mode not in {
+            "pygfunction_default",
+            "error_control_placeholder",
+            "no_aggregation_debug",
+        }:
+            raise ValueError(
+                "load_aggregation_mode doit valoir 'pygfunction_default', "
+                "'error_control_placeholder' ou 'no_aggregation_debug'."
+            )
         self._total_borehole_length_m = max(
             1e-9,
             float(config.boreholes) * max(1.0, float(config.depth_m)),
@@ -65,6 +82,11 @@ class PygfunctionExpertBtesModel:
         n_side = max(1, int(math.ceil(math.sqrt(n_boreholes))))
         dt = 3600.0
         tmax = float(self._simulation_hours) * dt
+        # Miceli et al. 2026 remind that long BTES simulations are sensitive to
+        # load-history aggregation, especially around injection/extraction
+        # transitions. HelioStock currently delegates aggregation to
+        # pygfunction's Claesson-Javed algorithm. The diagnostic layer reports
+        # sign alternance; it does not alter the validated pygfunction backend.
         load_agg = gt.load_aggregation.ClaessonJaved(dt, tmax)
         time_req = load_agg.get_times_for_simulation()
         borefield = gt.boreholes.rectangle_field(

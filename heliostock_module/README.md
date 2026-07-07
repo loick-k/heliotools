@@ -16,6 +16,12 @@ Le surplus solaire valorisable est injecte dans le champ de sondes, borne a `Tma
 
 ## Lancer la demo
 
+Environnement recommande pour le deploiement :
+
+- Python 3.11 ou 3.12 ;
+- dependances installees depuis `requirements.txt` ;
+- eviter Python 3.14 tant que la combinaison Streamlit/pandas/pygfunction n'est pas qualifiee.
+
 ```bash
 cd heliostock_module
 python -m streamlit run demo_app.py
@@ -38,6 +44,12 @@ Le profil de besoins doit etre charge par fichier Excel process 8760 h via l'int
 besoin process n'est embarque dans le depot public. Sans upload 8760 h valide, le calcul n'est pas lance.
 
 Les vrais profils industriels doivent rester locaux et ne doivent pas etre versionnes dans le depot public.
+
+## Packaging
+
+Avant de livrer une archive, verifier qu'elle ne contient pas `__pycache__/`, `.pytest_cache/` ni ancien projet imbrique
+`heliostock_module/heliostock_module/`. Le depot doit contenir un seul package `heliostock/` actif afin d'eviter les
+conflits d'import et de tests.
 
 Pour le fichier Excel process actuellement supporte, le mapping est :
 
@@ -451,6 +463,27 @@ temperature de stockage pour l'injection BTES.
 
 `pygfunction` calcule la derive thermique du champ a partir de l'historique horaire net. Les limites PAC viennent de la
 puissance PAC installee, des puissances lineiques admissibles, de `Tmin source` et du COP minimum.
+
+## Enseignements issus de Miceli et al. 2026 sur les BTES solaires
+
+L'article de Miceli et al. 2026, "Modelling of borehole thermal energy storages: A g-function approach with a novel load
+aggregation scheme", confirme l'interet des g-functions pour simuler rapidement des champs de sondes et BTES sur de
+longues periodes. Il rappelle aussi que le point critique n'est pas uniquement le temps de calcul pygfunction : la gestion
+de l'historique des charges thermiques devient centrale.
+
+Pour les systemes solaires + BTES, les alternances entre injection estivale et extraction hivernale sont fortes. Une
+agregation trop brutale peut moyenner des periodes de signes opposes et deplacer les temperatures lors des transitions
+charge/decharge. Un controle d'erreur sur l'agregation est donc preferable a une agregation geometrique fixe.
+
+HelioStock conserve pour l'instant le comportement robuste de production : `pygfunction` avec agregation Claesson-Javed.
+Le code ajoute toutefois un diagnostic des signes de charge, du nombre de transitions injection/extraction, du ratio
+injection/extraction et du type de fonctionnement du champ. Le mode `error_control_placeholder` reserve une architecture
+pour une future agregation controlee par erreur ; il ne change pas encore le calcul physique.
+
+Limites a garder en tete : `pygfunction` ne represente pas directement l'isolation superieure du stockage, les conditions
+aux limites complexes, l'heterogeneite verticale detaillee, l'hydraulique serie/parallele fine de type MIFT ni l'inertie
+detaillee tube/coulis a court terme. HelioStock reste donc un outil de predimensionnement d'opportunite, pas un jumeau
+numerique detaille.
 
 ## Bibliotheque capteurs
 

@@ -89,6 +89,8 @@ class BtesInputs:
     max_extraction_w_m: float = 40.0
     max_injection_w_m: float = 40.0
     backend: str = "pygfunction"
+    load_aggregation_mode: str = "pygfunction_default"
+    surface_insulation_considered: bool = False
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
@@ -123,6 +125,8 @@ class BtesInputs:
             borehole_thermal_resistance_m_k_w=self.borehole_thermal_resistance_m_k_w,
             max_extraction_w_m=self.max_extraction_w_m,
             max_injection_w_m=self.max_injection_w_m,
+            load_aggregation_mode=self.load_aggregation_mode,
+            surface_insulation_considered=self.surface_insulation_considered,
         )
 
 

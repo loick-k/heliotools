@@ -53,6 +53,12 @@ def _final_year_screening_metrics(
         "final_injected_btes_kwh": float(final_df["solar_to_btes_kwh"].sum())
         if "solar_to_btes_kwh" in final_df
         else 0.0,
+        "mean_pac_electricity_kwh": float(df["electricity_pac_total_kwh"].sum()) / max(1, int(final_year))
+        if "electricity_pac_total_kwh" in df
+        else 0.0,
+        "mean_backup_total_kwh": float((df["unmet_ht_kwh"] + df["unmet_bt_kwh"]).sum()) / max(1, int(final_year))
+        if {"unmet_ht_kwh", "unmet_bt_kwh"}.issubset(df.columns)
+        else 0.0,
     }
 
 
@@ -83,6 +89,8 @@ def _final_year_screening_metrics_from_results(
             "final_q_injection_max_w_m": 0.0,
             "final_extracted_ground_kwh": 0.0,
             "final_injected_btes_kwh": 0.0,
+            "mean_pac_electricity_kwh": 0.0,
+            "mean_backup_total_kwh": 0.0,
         }
 
     final_year = max(int(result.simulation_year) for result in results)
@@ -115,6 +123,10 @@ def _final_year_screening_metrics_from_results(
         "final_q_injection_max_w_m": max(float(result.q_injection_w_m) for result in final_results),
         "final_extracted_ground_kwh": sum(float(result.btes_extracted_by_pac_kwh) for result in final_results),
         "final_injected_btes_kwh": sum(float(result.solar_to_btes_kwh) for result in final_results),
+        "mean_pac_electricity_kwh": sum(float(result.electricity_pac_total_kwh) for result in results)
+        / max(1, int(final_year)),
+        "mean_backup_total_kwh": sum(float(result.unmet_ht_kwh) + float(result.unmet_bt_kwh) for result in results)
+        / max(1, int(final_year)),
     }
 
 
@@ -127,6 +139,102 @@ def _mean_metrics_from_results(
     return (
         total_heat / total_compressor if total_compressor > 0.0 else 0.0,
         total_heat / max(1, int(years)),
+    )
+
+
+def _empty_compact_candidate_stats() -> dict[str, float | dict[int, dict[str, float]]]:
+    return {"total_heat": 0.0, "total_compressor": 0.0, "total_pac_electricity": 0.0, "total_backup": 0.0, "years": {}}
+
+
+def _update_compact_candidate_stats(
+    stats: dict[str, float | dict[int, dict[str, float]]],
+    result: HourlyResult,
+    *,
+    t_min_c: float,
+    gmi_t_min_c: float,
+    gmi_t_max_c: float,
+) -> None:
+    stats["total_heat"] = float(stats["total_heat"]) + float(result.heat_bt_from_pac_kwh)
+    stats["total_compressor"] = float(stats["total_compressor"]) + float(result.electricity_compressor_kwh)
+    stats["total_pac_electricity"] = float(stats["total_pac_electricity"]) + float(result.electricity_pac_total_kwh)
+    stats["total_backup"] = float(stats["total_backup"]) + float(result.unmet_ht_kwh) + float(result.unmet_bt_kwh)
+    years = stats["years"]
+    assert isinstance(years, dict)
+    year_stats = years.setdefault(
+        int(result.simulation_year),
+        {
+            "heat_pac_kwh": 0.0,
+            "compressor_kwh": 0.0,
+            "demand_bt_kwh": 0.0,
+            "t_source_min_c": math.inf,
+            "hours_under_tmin": 0.0,
+            "hours_under_gmi_tmin": 0.0,
+            "hours_over_gmi_tmax": 0.0,
+            "source_limited_hours": 0.0,
+            "q_extraction_max_w_m": 0.0,
+            "q_injection_max_w_m": 0.0,
+            "extracted_ground_kwh": 0.0,
+            "injected_btes_kwh": 0.0,
+        },
+    )
+    year_stats["heat_pac_kwh"] += float(result.heat_bt_from_pac_kwh)
+    year_stats["compressor_kwh"] += float(result.electricity_compressor_kwh)
+    year_stats["demand_bt_kwh"] += float(result.demand_bt_kwh)
+    year_stats["t_source_min_c"] = min(float(year_stats["t_source_min_c"]), float(result.t_source_pac_c))
+    year_stats["hours_under_tmin"] += 1.0 if float(result.t_source_pac_c) < t_min_c - 1e-6 else 0.0
+    year_stats["hours_under_gmi_tmin"] += (
+        1.0 if float(result.t_fluide_entree_echangeur_geo_c) < gmi_t_min_c - 1e-6 else 0.0
+    )
+    year_stats["hours_over_gmi_tmax"] += 1.0 if float(result.t_fluide_injection_c) > gmi_t_max_c + 1e-6 else 0.0
+    year_stats["source_limited_hours"] += 1.0 if result.source_temp_limited else 0.0
+    year_stats["q_extraction_max_w_m"] = max(float(year_stats["q_extraction_max_w_m"]), float(result.q_extraction_w_m))
+    year_stats["q_injection_max_w_m"] = max(float(year_stats["q_injection_max_w_m"]), float(result.q_injection_w_m))
+    year_stats["extracted_ground_kwh"] += float(result.btes_extracted_by_pac_kwh)
+    year_stats["injected_btes_kwh"] += float(result.solar_to_btes_kwh)
+
+
+def _compact_candidate_metrics(
+    stats: dict[str, float | dict[int, dict[str, float]]],
+    *,
+    years_count: int,
+    t_min_c: float,
+    gmi_t_min_c: float,
+    gmi_t_max_c: float,
+    depth_m: float,
+) -> tuple[float, float, dict[str, float]]:
+    total_heat = float(stats["total_heat"])
+    total_compressor = float(stats["total_compressor"])
+    years = stats["years"]
+    assert isinstance(years, dict)
+    final_year = max(years.keys(), default=1)
+    final = years.get(final_year, {})
+    final_t_source_min = float(final.get("t_source_min_c", 0.0))
+    if math.isinf(final_t_source_min):
+        final_t_source_min = 0.0
+    final_metrics = {
+        "final_year": float(final_year),
+        "final_cop": float(final.get("heat_pac_kwh", 0.0)) / float(final.get("compressor_kwh", 1e-9))
+        if float(final.get("compressor_kwh", 0.0)) > 0.0
+        else 0.0,
+        "final_bt_pac_kwh": float(final.get("heat_pac_kwh", 0.0)),
+        "final_bt_coverage": float(final.get("heat_pac_kwh", 0.0)) / max(1e-9, float(final.get("demand_bt_kwh", 0.0))),
+        "final_t_source_min_c": final_t_source_min,
+        "final_hours_under_tmin": float(final.get("hours_under_tmin", 0.0)),
+        "final_hours_under_gmi_tmin": float(final.get("hours_under_gmi_tmin", 0.0)),
+        "final_hours_over_gmi_tmax": float(final.get("hours_over_gmi_tmax", 0.0)),
+        "final_source_limited_hours": float(final.get("source_limited_hours", 0.0)),
+        "final_q_extraction_max_w_m": float(final.get("q_extraction_max_w_m", 0.0)),
+        "final_q_injection_max_w_m": float(final.get("q_injection_max_w_m", 0.0)),
+        "final_extracted_ground_kwh": float(final.get("extracted_ground_kwh", 0.0)),
+        "final_injected_btes_kwh": float(final.get("injected_btes_kwh", 0.0)),
+        "mean_pac_electricity_kwh": float(stats.get("total_pac_electricity", 0.0)) / max(1, int(years_count)),
+        "mean_backup_total_kwh": float(stats.get("total_backup", 0.0)) / max(1, int(years_count)),
+        "depth_m": float(depth_m),
+    }
+    return (
+        total_heat / total_compressor if total_compressor > 0.0 else 0.0,
+        total_heat / max(1, int(years_count)),
+        final_metrics,
     )
 
 
@@ -174,8 +282,13 @@ def _base_return(
     if equivalent_length <= 0.0:
         equivalent_length = base_length_m if not found else 0.0
     saved_length = max(0.0, base_length_m - equivalent_length) if found else 0.0
+    real_savings = bool(found) and saved_length > 1e-6 and equivalent_length < base_length_m - 1e-6
+    if not real_savings:
+        saved_length = 0.0
+        equivalent_length = base_length_m
+        boreholes = int(round(base_length_m / max(1e-9, float(final_metrics.get("depth_m", 0.0))))) if base_length_m > 0.0 else boreholes
     result: dict[str, float | bool | str | pd.DataFrame] = {
-        "found": bool(found),
+        "found": real_savings,
         "scale": equivalent_length / max(1e-9, base_length_m),
         "reference_length_m": base_length_m,
         "estimated_length_m": float(estimated_length_m if estimated_length_m is not None else equivalent_length),
@@ -184,6 +297,7 @@ def _base_return(
         "equivalent_boreholes": int(boreholes),
         "saved_length_m": saved_length,
         "saved_fraction": saved_length / max(1e-9, base_length_m),
+        "message": "Reduction de sondes validee" if real_savings else "Aucune réduction de sondes validée",
         "equivalent_cop": equivalent_cop,
         "equivalent_bt_pac_kwh": equivalent_bt_pac_kwh,
         "savings_simulations_count": int(simulations_count),
@@ -228,38 +342,81 @@ def borefield_equivalent_savings(
     simulations_count = 0
     mode = str(search_mode or "expert").lower()
 
-    def run(scale: float) -> tuple[list[HourlyResult], float, float, int, dict[str, float]]:
+    def run(scale: float) -> tuple[list[HourlyResult] | None, float, float, int, dict[str, float]]:
         nonlocal simulations_count
         boreholes = max(1, int(round(config.btes.boreholes * scale)))
         scaled_btes = replace(config.btes, boreholes=boreholes)
         scaled_config = replace(config, btes=scaled_btes)
         simulations_count += 1
-        results = (
-            simulation_cache.simulate(
+        if include_hourly_df:
+            results = (
+                simulation_cache.simulate(
+                    weather,
+                    demands,
+                    scaled_config,
+                    hourly_demand_override=hourly_demand_override,
+                    simulation_years=years,
+                    mode="pygfunction",
+                )
+                if simulation_cache is not None
+                else simulate_hourly(
+                    weather,
+                    demands,
+                    scaled_config,
+                    hourly_demand_override=hourly_demand_override,
+                    simulation_years=years,
+                )
+            )
+            cop, bt_pac = _mean_metrics_from_results(results, years)
+            final_metrics = _final_year_screening_metrics_from_results(
+                results,
+                t_min_c=config.btes.t_min_c,
+                gmi_t_min_c=config.btes.gmi_t_min_c,
+                gmi_t_max_c=config.btes.gmi_t_max_c,
+                demand_bt_kwh=sum(max(0.0, bt) for _, bt in (hourly_demand_override or {}).values()),
+            )
+        else:
+            stats = _empty_compact_candidate_stats()
+
+            def collect(result: HourlyResult) -> None:
+                _update_compact_candidate_stats(
+                    stats,
+                    result,
+                    t_min_c=config.btes.t_min_c,
+                    gmi_t_min_c=config.btes.gmi_t_min_c,
+                    gmi_t_max_c=config.btes.gmi_t_max_c,
+                )
+
+            simulate_hourly(
                 weather,
                 demands,
                 scaled_config,
                 hourly_demand_override=hourly_demand_override,
                 simulation_years=years,
-                mode="pygfunction",
+                result_sink=collect,
+                store_results=False,
             )
-            if simulation_cache is not None
-            else simulate_hourly(
-                weather,
-                demands,
-                scaled_config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=years,
+            if simulation_cache is not None:
+                simulation_cache.record_event(
+                    "simulate:compact",
+                    "Simulation compacte economie sondes",
+                    {
+                        "Mode simulation": "borefield_savings_compact",
+                        "Annees simulees": int(years),
+                        "Pas meteo": int(len(weather)),
+                        "Heures simulees": int(len(weather) * years),
+                        "Sondes": int(boreholes),
+                    },
+                )
+            results = None
+            cop, bt_pac, final_metrics = _compact_candidate_metrics(
+                stats,
+                years_count=years,
+                t_min_c=config.btes.t_min_c,
+                gmi_t_min_c=config.btes.gmi_t_min_c,
+                gmi_t_max_c=config.btes.gmi_t_max_c,
+                depth_m=float(config.btes.depth_m),
             )
-        )
-        cop, bt_pac = _mean_metrics_from_results(results, years)
-        final_metrics = _final_year_screening_metrics_from_results(
-            results,
-            t_min_c=config.btes.t_min_c,
-            gmi_t_min_c=config.btes.gmi_t_min_c,
-            gmi_t_max_c=config.btes.gmi_t_max_c,
-            demand_bt_kwh=sum(max(0.0, bt) for _, bt in (hourly_demand_override or {}).values()),
-        )
         final_metrics["depth_m"] = float(config.btes.depth_m)
         return results, cop, bt_pac, boreholes, final_metrics
 
@@ -395,7 +552,7 @@ def borefield_equivalent_savings(
                     )
                 )
             return _base_return(
-                found=True,
+            found=True,
                 base_length_m=base_length_m,
                 boreholes=best_boreholes,
                 equivalent_cop=best_cop,
@@ -422,7 +579,7 @@ def borefield_equivalent_savings(
                     )
                 )
             return _base_return(
-                found=True,
+            found=True,
                 base_length_m=base_length_m,
                 boreholes=boreholes3,
                 equivalent_cop=cop3,
@@ -471,14 +628,25 @@ def borefield_equivalent_savings(
 
     equivalent_length = max(0.0, best_boreholes * config.btes.depth_m)
     saved_length = max(0.0, base_length_m - equivalent_length)
+    real_savings = saved_length > 1e-6 and best_boreholes < int(config.btes.boreholes)
+    if not real_savings:
+        best_boreholes = full_boreholes
+        equivalent_length = base_length_m
+        saved_length = 0.0
+        best_cop = full_cop
+        best_bt = full_bt
+        best_final = full_final
+        best_results = None
+        best_uses_full_case_df = "full_df" in locals() and isinstance(full_df, pd.DataFrame)
     result: dict[str, float | bool | str | pd.DataFrame] = {
-        "found": True,
+        "found": real_savings,
         "scale": equivalent_length / max(1e-9, base_length_m),
         "reference_length_m": base_length_m,
         "equivalent_length_m": equivalent_length,
         "equivalent_boreholes": best_boreholes,
         "saved_length_m": saved_length,
         "saved_fraction": saved_length / max(1e-9, base_length_m),
+        "message": "Reduction de sondes validee" if real_savings else "Aucune réduction de sondes validée",
         "equivalent_cop": best_cop,
         "equivalent_bt_pac_kwh": best_bt,
         "estimated_length_m": equivalent_length,

@@ -37,9 +37,9 @@ class CalculationSelection:
     calculation_profile: str = "dimensionnement_25_ans"
     quick_preview: bool = False
     run_multiyear: bool = True
-    technical_simulation_years: int = 20
+    technical_simulation_years: int = 25
     display_year_mode: str = "finale"
-    custom_display_year: int = 20
+    custom_display_year: int = 25
     run_geo_only: bool = True
     run_reduced_borefield: bool = False
     savings_search_mode: str = "fast"
@@ -195,13 +195,13 @@ def run_hourly_calculation(
     savings_search_mode = "none" if quick_preview else request.calculation_selection.savings_search_mode
     if profile == "dimensionnement_25_ans":
         run_multiyear = True
-        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 20)
+        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
         run_geo_only = True
         run_reduced_borefield = False
         savings_search_mode = "none"
     elif profile == "calcul_final":
         run_multiyear = True
-        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 20)
+        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
     if quick_preview:
         warnings.append(
             "Mode previsualisation rapide actif : simulation 1 an, economie de sondes et etudes parametriques desactivees."
@@ -257,6 +257,7 @@ def run_hourly_calculation(
             maintenance_cost_eur_m2_year=request.economics.maintenance_cost_eur_m2_year,
             ademe_eur_mwh_year=request.economics.ademe_eur_mwh_year,
             other_public_aid_eur=request.economics.other_public_aid_eur,
+            technical_simulation_years=int(technical_simulation_years),
             simulation_cache=simulation_cache,
             progress=progress_with_log,
         )
@@ -301,6 +302,7 @@ def run_hourly_calculation(
             maintenance_cost_eur_m2_year=request.economics.maintenance_cost_eur_m2_year,
             ademe_eur_mwh_year=request.economics.ademe_eur_mwh_year,
             other_public_aid_eur=request.economics.other_public_aid_eur,
+            technical_simulation_years=int(technical_simulation_years),
             savings_search_mode=request.calculation_selection.savings_search_mode,
             recharge_credit=request.calculation_selection.recharge_credit,
             reduced_borefield_safety_factor=request.calculation_selection.reduced_borefield_safety_factor,
