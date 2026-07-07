@@ -1,0 +1,14 @@
+[project]
+name = "heliostock-module"
+version = "0.1.0"
+requires-python = ">=3.12,<3.15"
+dependencies = [
+    "streamlit>=1.49,<2",
+    "pandas>=2.3,<3",
+    "numpy>=2.2,<3",
+    "scipy>=1.16,<2",
+    "altair>=5.5,<6",
+    "openpyxl>=3.1,<4",
+    "pygfunction>=2.3,<3",
+]
+
