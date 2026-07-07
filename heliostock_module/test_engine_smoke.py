@@ -2263,6 +2263,24 @@ def test_import_package_minimal():
     assert callable(render_heliostock_hourly)
 
 
+def test_heliotools_portal_password_hashing_helpers():
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    password_hash = ui_portal._hash_password("motdepasse-solide")
+    assert password_hash != "motdepasse-solide"
+    assert ui_portal._verify_password("motdepasse-solide", password_hash)
+    assert not ui_portal._verify_password("mauvais", password_hash)
+    assert ui_portal._safe_project_slug("Projet test / 01") == "Projet_test_01"
+    try:
+        ui_portal._validate_password("court")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("password length validation should fail")
+
+
 def test_no_nested_project_folder():
     root = Path(__file__).resolve().parents[1]
     assert not (root / "heliostock_module" / "heliostock_module").exists()
