@@ -54,7 +54,7 @@ class BtesConfig:
     depth_m: float = 100.0
     spacing_m: float = 5.0
     t_initial_c: float = 12.0
-    t_min_c: float = 5.0
+    t_min_c: float = -3.0
     t_max_c: float = 40.0
     gmi_t_min_c: float = -3.0
     gmi_t_max_c: float = 40.0

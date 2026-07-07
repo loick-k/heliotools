@@ -1380,7 +1380,9 @@ def test_app_service_runs_calculation_without_streamlit():
     assert (result.performance_log_df["Etape"] == "postprocess:dataframe").any()
 
 
-def test_quick_preview_forces_one_year_without_heavy_options():
+def test_legacy_quick_preview_flag_is_ignored_by_final_calculation():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=hour,
@@ -1443,25 +1445,27 @@ def test_quick_preview_forces_one_year_without_heavy_options():
         calculation_selection=CalculationSelection(
             quick_preview=True,
             run_multiyear=True,
-            technical_simulation_years=25,
-            run_reduced_borefield=True,
-            savings_search_mode="expert",
+            technical_simulation_years=2,
+            run_reduced_borefield=False,
+            savings_search_mode="none",
         ),
-        pac_parametric=ParametricRange(True, 50.0, 100.0, 50.0),
-        solar_parametric=ParametricRange(True, 0.0, 100.0, 100.0),
+        pac_parametric=ParametricRange(False, 50.0, 100.0, 50.0),
+        solar_parametric=ParametricRange(False, 0.0, 100.0, 100.0),
     )
 
     result = run_hourly_calculation(request)
 
-    assert result.scenario.simulation_years_total == 1
-    assert set(result.scenario.hourly_df["simulation_year"].unique()) == {1}
+    assert result.scenario.simulation_years_total == 2
+    assert result.scenario.simulation_year_displayed == 2
     assert not result.scenario.savings["found"]
     assert result.parametric_pac_df.empty
     assert result.parametric_surface_df.empty
-    assert any("previsualisation rapide" in warning for warning in result.warnings)
+    assert not any("previsualisation rapide" in warning for warning in result.warnings)
 
 
-def test_dimensioning_profile_disables_parametrics_even_if_requested():
+def test_legacy_dimensioning_profile_is_ignored_by_final_calculation():
+    if not pygfunction_available():
+        return
     weather = [
         HourlyWeather(
             hour_index=hour,
@@ -1524,16 +1528,17 @@ def test_dimensioning_profile_disables_parametrics_even_if_requested():
         calculation_selection=CalculationSelection(
             calculation_profile="dimensionnement_25_ans",
             technical_simulation_years=2,
-            run_reduced_borefield=True,
-            savings_search_mode="expert",
+            run_reduced_borefield=False,
+            savings_search_mode="none",
         ),
-        pac_parametric=ParametricRange(True, 50.0, 100.0, 50.0),
-        solar_parametric=ParametricRange(True, 0.0, 100.0, 100.0),
+        pac_parametric=ParametricRange(False, 50.0, 100.0, 50.0),
+        solar_parametric=ParametricRange(False, 0.0, 100.0, 100.0),
     )
 
     result = run_hourly_calculation(request)
 
     assert result.scenario.simulation_years_total == 2
+    assert result.scenario.simulation_year_displayed == 2
     assert result.scenario.no_solar_hourly_df.empty is False
     assert not result.scenario.savings["found"]
     assert result.parametric_pac_df.empty
@@ -2261,6 +2266,7 @@ def test_no_nested_project_folder():
 
 def test_default_technical_years_is_25():
     selection = CalculationSelection()
+    assert selection.calculation_profile == "calcul_final"
     assert selection.technical_simulation_years == 25
     assert selection.custom_display_year == 25
 

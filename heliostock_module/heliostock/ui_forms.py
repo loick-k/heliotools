@@ -149,25 +149,29 @@ def render_weather_form() -> WeatherFormResult:
             station = stations_by_label[station_label]
             st.caption("La station sélectionnée fournit la température extérieure et l'irradiation horaire EPW/TMY.")
         with map_col:
-            lat = float(station.latitude_deg)
-            lon = float(station.longitude_deg)
             region_stations = pd.DataFrame(
                 [
                     {
-                        "Station": item.label,
-                        "Latitude": round(float(item.latitude_deg), 4),
-                        "Longitude": round(float(item.longitude_deg), 4),
-                        "Selection": "Station choisie" if item.label == station.label else "Autres stations",
+                        "station": item.label,
+                        "latitude": float(item.latitude_deg),
+                        "longitude": float(item.longitude_deg),
+                        "taille": 140 if item.label == station.label else 55,
+                        "couleur": "#f59e0b" if item.label == station.label else "#64748b",
                     }
                     for item in stations_by_label.values()
                 ]
             )
-            st.dataframe(
-                region_stations.sort_values(["Selection", "Station"], ascending=[False, True]),
+            st.map(
+                region_stations,
+                latitude="latitude",
+                longitude="longitude",
+                size="taille",
+                color="couleur",
+                zoom=6,
                 use_container_width=True,
-                hide_index=True,
                 height=360,
             )
+            st.caption(f"Station affichée : {station.label}.")
 
         if station.path.exists():
             _location, hourly_weather = read_epw_hourly_weather_from_zip(
@@ -510,74 +514,24 @@ def render_economics_form() -> EconomicsInputs:
 
 
 def render_calculation_selection_form() -> CalculationSelectionFormResult:
-    with st.expander("6) Profil de calcul et calculs à lancer", expanded=True):
-        profile_label = st.radio(
-            "Profil de calcul",
-            options=[
-                "Prévisualisation rapide - 1 an, scénario principal uniquement",
-                "Dimensionnement technique - 25 ans, sans paramétriques",
-                "Calcul final complet - 25 ans, économie sondes et paramétriques",
-            ],
-            index=1,
-            horizontal=True,
+    with st.expander("6) Calcul final et calculs à lancer", expanded=True):
+        st.info(
+            "Le calcul final lance la simulation technique multiannuelle du champ de sondes et affiche "
+            "par défaut les résultats de l'année finale. Les études paramétriques restent pilotées par leurs cases dédiées."
         )
-        profile_map = {
-            "Prévisualisation rapide - 1 an, scénario principal uniquement": "previsualisation_rapide",
-            "Dimensionnement technique - 25 ans, sans paramétriques": "dimensionnement_25_ans",
-            "Calcul final complet - 25 ans, économie sondes et paramétriques": "calcul_final",
-        }
-        calculation_profile = profile_map[str(profile_label)]
-        quick_preview = calculation_profile == "previsualisation_rapide"
-        final_profile = calculation_profile == "calcul_final"
-        if quick_preview:
-            st.info(
-                "Profil rapide : simulation 1 an du scénario principal uniquement. "
-                "Géothermie seule, économie de sondes et études paramétriques sont masquées/désactivées."
-            )
-        elif calculation_profile == "dimensionnement_25_ans":
-            st.info(
-                "Profil dimensionnement : simulation technique 25 ans avec comparaison géothermie seule. "
-                "Les études paramétriques et l'économie de sondes restent désactivées."
-            )
-        else:
-            st.info(
-                "Profil final complet : simulation 25 ans avec options avancées. "
-                "Les études paramétriques PAC/solaire et l'économie de sondes sont disponibles ci-dessous."
-            )
-        run_multiyear = st.checkbox("Projection technique multiannuelle", value=not quick_preview, disabled=quick_preview)
         technical_simulation_years = st.number_input(
             "Durée simulation technique champ (ans)",
             min_value=1,
             max_value=50,
-            value=1 if quick_preview else 25,
+            value=25,
             step=1,
-            disabled=quick_preview or not run_multiyear,
         )
-        display_year_mode = st.radio(
-            "Année technique affichée",
-            options=["finale", "année 1", "personnalisée"],
-            index=0,
-            horizontal=True,
-            disabled=quick_preview,
-        )
-        custom_display_year = st.number_input(
-            "Année personnalisée",
-            min_value=1,
-            max_value=int(technical_simulation_years),
-            value=int(technical_simulation_years),
-            step=1,
-            disabled=quick_preview or display_year_mode != "personnalisée",
-        )
-        run_geo_only = st.checkbox(
-            "Scénario géothermie seule",
-            value=not quick_preview,
-            disabled=calculation_profile == "dimensionnement_25_ans",
-        )
+        run_geo_only = st.checkbox("Scénario géothermie seule", value=True)
         savings_method_label = st.selectbox(
             "Méthode économie de sondes",
             options=["désactivée", "rapide prédimensionnement", "experte détaillée"],
-            index=1 if final_profile else 0,
-            disabled=not final_profile or not run_geo_only,
+            index=1,
+            disabled=not run_geo_only,
         )
         savings_mode_map = {
             "désactivée": "none",
@@ -585,17 +539,6 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             "experte détaillée": "expert",
         }
         savings_search_mode = savings_mode_map[str(savings_method_label)]
-        if quick_preview:
-            run_multiyear = False
-            technical_simulation_years = 1
-            display_year_mode = "finale"
-            custom_display_year = 1
-            run_geo_only = False
-            savings_search_mode = "none"
-        elif calculation_profile == "dimensionnement_25_ans":
-            run_multiyear = True
-            run_geo_only = True
-            savings_search_mode = "none"
         run_reduced_borefield = savings_search_mode != "none" and bool(run_geo_only)
         recharge_credit = st.number_input("Crédit recharge solaire", min_value=0.0, max_value=1.0, value=0.60, step=0.05)
         reduced_borefield_safety_factor = st.number_input(
@@ -604,23 +547,22 @@ def render_calculation_selection_form() -> CalculationSelectionFormResult:
             max_value=2.0,
             value=1.10,
             step=0.05,
-            disabled=not final_profile or savings_search_mode == "none",
+            disabled=savings_search_mode == "none",
         )
         if not run_geo_only and run_reduced_borefield:
             run_reduced_borefield = False
             savings_search_mode = "none"
         st.caption(
-            "Important : les études paramétriques ne sont affichées et lancées que dans le profil "
-            "`Calcul final complet - 25 ans, économie sondes et paramétriques`."
+            "Les résultats techniques affichés correspondent automatiquement à l'année finale simulée."
         )
     return CalculationSelectionFormResult(
         selection=CalculationSelection(
-            calculation_profile=str(calculation_profile),
-            quick_preview=bool(quick_preview),
-            run_multiyear=bool(run_multiyear),
-            technical_simulation_years=int(technical_simulation_years) if run_multiyear else 1,
-            display_year_mode=str(display_year_mode),
-            custom_display_year=int(custom_display_year),
+            calculation_profile="calcul_final",
+            quick_preview=False,
+            run_multiyear=True,
+            technical_simulation_years=int(technical_simulation_years),
+            display_year_mode="finale",
+            custom_display_year=int(technical_simulation_years),
             run_geo_only=bool(run_geo_only),
             run_reduced_borefield=bool(run_reduced_borefield),
             savings_search_mode=str(savings_search_mode),
@@ -637,7 +579,7 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             solar=ParametricRange(False, max(0.0, float(area_m2) * 0.5), max(50.0, float(area_m2) * 1.5), 250.0),
         )
 
-    with st.expander("7) Etude parametrique PAC - Calcul final uniquement", expanded=False):
+    with st.expander("7) Étude paramétrique PAC", expanded=False):
         enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False)
         pp1, pp2, pp3 = st.columns(3)
         param_pac_fraction_min_pct = pp1.number_input("P PAC min (% Pmax BT)", min_value=1.0, max_value=150.0, value=50.0, step=5.0)
@@ -650,7 +592,7 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             "Limite de sécurité : 25 points."
         )
 
-    with st.expander("8) Etude parametrique solaire + injection BTES - Calcul final uniquement", expanded=False):
+    with st.expander("8) Étude paramétrique solaire + injection BTES", expanded=False):
         enable_solar_surface_parametric = st.checkbox("Activer l'étude paramétrique sur la surface solaire", value=False)
         p1, p2, p3 = st.columns(3)
         param_surface_min_m2 = p1.number_input("Surface min étudiée (m²)", min_value=0.0, value=max(0.0, float(area_m2) * 0.5), step=50.0)

@@ -34,7 +34,7 @@ class ParametricRange:
 
 @dataclass(frozen=True)
 class CalculationSelection:
-    calculation_profile: str = "dimensionnement_25_ans"
+    calculation_profile: str = "calcul_final"
     quick_preview: bool = False
     run_multiyear: bool = True
     technical_simulation_years: int = 25
@@ -182,30 +182,13 @@ def run_hourly_calculation(
     economics = scenario_inputs.to_economics_config()
     mark("inputs:end", "Configurations physique et economique pretes")
     simulation_cache = SimulationCache(event_callback=record_simulation_event, max_entries=2)
-    profile = str(request.calculation_selection.calculation_profile or "dimensionnement_25_ans")
-    if request.calculation_selection.quick_preview:
-        profile = "previsualisation_rapide"
-    quick_preview = profile == "previsualisation_rapide"
-    run_multiyear = False if quick_preview else request.calculation_selection.run_multiyear
-    technical_simulation_years = 1 if quick_preview else request.calculation_selection.technical_simulation_years
-    display_year_mode = "finale" if quick_preview else request.calculation_selection.display_year_mode
-    custom_display_year = 1 if quick_preview else request.calculation_selection.custom_display_year
-    run_geo_only = False if quick_preview else request.calculation_selection.run_geo_only
-    run_reduced_borefield = False if quick_preview else request.calculation_selection.run_reduced_borefield
-    savings_search_mode = "none" if quick_preview else request.calculation_selection.savings_search_mode
-    if profile == "dimensionnement_25_ans":
-        run_multiyear = True
-        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
-        run_geo_only = True
-        run_reduced_borefield = False
-        savings_search_mode = "none"
-    elif profile == "calcul_final":
-        run_multiyear = True
-        technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
-    if quick_preview:
-        warnings.append(
-            "Mode previsualisation rapide actif : simulation 1 an, economie de sondes et etudes parametriques desactivees."
-        )
+    run_multiyear = True
+    technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
+    display_year_mode = "finale"
+    custom_display_year = technical_simulation_years
+    run_geo_only = bool(request.calculation_selection.run_geo_only)
+    run_reduced_borefield = bool(request.calculation_selection.run_reduced_borefield)
+    savings_search_mode = str(request.calculation_selection.savings_search_mode or "none")
     mark("scenario:start", "Scenario principal : annuel, multiannuel, economie")
     scenario = run_hourly_scenario(
         weather=request.weather,
@@ -227,9 +210,7 @@ def run_hourly_calculation(
 
     parametric_pac_df = pd.DataFrame()
     mark("param_pac:prepare", "Preparation de l'etude parametrique PAC")
-    pac_fractions_pct, pac_warnings = (
-        ([], []) if quick_preview or profile != "calcul_final" else _range_points(request.pac_parametric, "Etude PAC")
-    )
+    pac_fractions_pct, pac_warnings = _range_points(request.pac_parametric, "Etude PAC")
     warnings.extend(pac_warnings)
     if pac_fractions_pct:
         mark("param_pac:start", f"Etude parametrique PAC : {len(pac_fractions_pct)} points")
@@ -267,9 +248,7 @@ def run_hourly_calculation(
 
     parametric_surface_df = pd.DataFrame()
     mark("param_solar:prepare", "Preparation de l'etude parametrique solaire")
-    surfaces_m2, surface_warnings = (
-        ([], []) if quick_preview or profile != "calcul_final" else _range_points(request.solar_parametric, "Etude parametrique solaire")
-    )
+    surfaces_m2, surface_warnings = _range_points(request.solar_parametric, "Etude parametrique solaire")
     warnings.extend(surface_warnings)
     if surfaces_m2:
         mark("param_solar:start", f"Etude parametrique solaire : {len(surfaces_m2)} points")
