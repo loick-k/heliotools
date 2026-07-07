@@ -12,3 +12,14 @@ if not render_login_portal():
 selected_app = render_portal_sidebar()
 if selected_app == "HelioStock":
     render_heliostock_hourly()
+elif selected_app == "Dashboard solaire thermique":
+    try:
+        from heliostock.solar_thermal_dashboard import render_solar_thermal_dashboard
+    except ModuleNotFoundError as exc:
+        st.error(
+            "Le dashboard solaire thermique nécessite des dépendances optionnelles. "
+            "Installe `pyairtable`, `plotly`, `folium` et `streamlit-folium`, puis relance l'application."
+        )
+        st.caption(str(exc))
+    else:
+        render_solar_thermal_dashboard()

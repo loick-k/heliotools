@@ -153,7 +153,11 @@ def render_portal_sidebar() -> str:
         if HELIOPILOT_LOGO.exists():
             st.image(str(HELIOPILOT_LOGO), use_container_width=True)
         st.caption(f"Connecte : {st.session_state.get('heliostock_user_name', 'utilisateur')}")
-        app_name = st.selectbox("Application", options=["HelioStock"], key="portal_app")
+        app_name = st.selectbox(
+            "Application",
+            options=["HelioStock", "Dashboard solaire thermique"],
+            key="portal_app",
+        )
 
         st.markdown("### Projets")
         project_files = _project_files()

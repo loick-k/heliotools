@@ -210,8 +210,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
         st.caption(
             "Importe un fichier Excel au pas de temps horaire pour charger le profil de besoin du site. "
             "Le fichier doit contenir 8760 lignes, soit une année complète, avec une colonne pour le besoin haute "
-            "température et une colonne pour le besoin basse température. Le fichier reste local : aucun profil "
-            "industriel n'est embarqué dans le dépôt public."
+            "température et une colonne pour le besoin basse température."
         )
         st.download_button(
             "Télécharger un modèle Excel vierge",
@@ -557,7 +556,7 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             solar=ParametricRange(False, max(0.0, float(area_m2) * 0.5), max(50.0, float(area_m2) * 1.5), 250.0),
         )
 
-    with st.expander("7) Étude paramétrique PAC", expanded=False):
+    with st.expander("6) Étude paramétrique PAC", expanded=False):
         enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False, key="param_pac_enabled")
         pp1, pp2, pp3 = st.columns(3)
         param_pac_fraction_min_pct = pp1.number_input("P PAC min (% Pmax BT)", min_value=1.0, max_value=150.0, value=50.0, step=5.0, key="param_pac_min_pct")
@@ -570,7 +569,7 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             "Limite de sécurité : 25 points."
         )
 
-    with st.expander("8) Étude paramétrique solaire + injection BTES", expanded=False):
+    with st.expander("7) Étude paramétrique solaire + injection BTES", expanded=False):
         enable_solar_surface_parametric = st.checkbox("Activer l'étude paramétrique sur la surface solaire", value=False, key="param_solar_enabled")
         p1, p2, p3 = st.columns(3)
         param_surface_min_m2 = p1.number_input("Surface min étudiée (m²)", min_value=0.0, value=max(0.0, float(area_m2) * 0.5), step=50.0, key="param_surface_min_m2")
