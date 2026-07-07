@@ -41,6 +41,14 @@ LINKED_TABLES = {
     "Etat": "tblJj36Gj0YaanZNJ",
 }
 
+
+def _dashboard_secret(name: str, default: str = "") -> str:
+    try:
+        return str(st.secrets.get(name, default) or default)
+    except Exception:
+        return default
+
+
 # ---------------------------------------------------------------------------
 # Fonctions utilitaires de nettoyage
 # ---------------------------------------------------------------------------
@@ -192,53 +200,14 @@ def geocode_city(nom_ville: str):
     return None
 
 
-def build_search_query(row: pd.Series) -> str:
-    """Construit une requête 'nom de l'application, ville, département,
-    France' pour géocoder précisément une installation."""
-    parts = [row.get("Application"), row.get("Ville"), row.get("Département")]
-    parts = [str(p).strip() for p in parts if p]
-    parts.append("France")
-    return ", ".join(parts)
-
-
-@st.cache_data(ttl=60 * 60 * 24 * 7, show_spinner=False)
-def geocode_google(query: str, api_key: str):
-    """Géocode précisément une installation via l'API Google Maps Geocoding.
-    Renvoie (lat, lon, adresse_formatée, lien_google_maps) ou None."""
-    if not query or not api_key:
-        return None
-    try:
-        resp = requests.get(
-            "https://maps.googleapis.com/maps/api/geocode/json",
-            params={"address": query, "key": api_key, "region": "fr"},
-            timeout=5,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("status") != "OK" or not data.get("results"):
-            return None
-        result = data["results"][0]
-        loc = result["geometry"]["location"]
-        place_id = result.get("place_id")
-        maps_url = (
-            f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-            if place_id
-            else f"https://www.google.com/maps/search/?api=1&query={loc['lat']},{loc['lng']}"
-        )
-        return loc["lat"], loc["lng"], result.get("formatted_address"), maps_url
-    except (requests.RequestException, KeyError, IndexError, ValueError):
-        return None
-
-
 @st.cache_data(show_spinner=False)
-def build_map_points(map_df: pd.DataFrame, google_api_key: str) -> list:
+def build_map_points(map_df: pd.DataFrame) -> list:
     """Construit la liste des points à afficher sur la carte.
 
     Le résultat est mis en cache dans son ensemble (tant que le sous-jeu de
-    données filtré et la clé API ne changent pas), et les géocodages
-    nécessaires sont lancés en parallèle plutôt qu'un par un : c'est ce qui
-    évite à la carte d'être lente à charger, en particulier au premier
-    affichage ou lorsqu'aucune coordonnée n'est encore stockée dans Airtable.
+    données filtré ne change pas), et les géocodages ville nécessaires sont
+    lancés en parallèle plutôt qu'un par un. Les coordonnées Airtable restent
+    prioritaires pour une localisation précise.
     """
     rows = map_df.to_dict("records")
 
@@ -246,24 +215,16 @@ def build_map_points(map_df: pd.DataFrame, google_api_key: str) -> list:
     # installations ayant déjà Latitude/Longitude n'en ont pas besoin), en
     # dédupliquant les requêtes identiques (ex. plusieurs installations dans
     # la même ville).
-    google_queries, city_queries = set(), set()
+    city_queries = set()
     for row in rows:
         if pd.notna(row.get("Latitude")) and pd.notna(row.get("Longitude")):
             continue
-        if google_api_key:
-            google_queries.add(build_search_query(row))
-        elif row.get("Ville"):
+        if row.get("Ville"):
             city_queries.add(row["Ville"])
 
-    google_cache, city_cache = {}, {}
+    city_cache = {}
     with ThreadPoolExecutor(max_workers=10) as executor:
-        google_futures = {
-            executor.submit(geocode_google, q, google_api_key): q
-            for q in google_queries
-        }
         city_futures = {executor.submit(geocode_city, v): v for v in city_queries}
-        for future, q in google_futures.items():
-            google_cache[q] = future.result()
         for future, v in city_futures.items():
             city_cache[v] = future.result()
 
@@ -275,10 +236,6 @@ def build_map_points(map_df: pd.DataFrame, google_api_key: str) -> list:
             lat, lon = float(row["Latitude"]), float(row["Longitude"])
             adresse = row.get("Ville")
             maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
-        elif google_api_key:
-            result = google_cache.get(build_search_query(row))
-            if result:
-                lat, lon, adresse, maps_url = result
 
         if lat is None:
             ville = row.get("Ville")
@@ -304,9 +261,13 @@ def render_solar_thermal_dashboard() -> None:
     # Barre latérale - connexion & filtres
     # ---------------------------------------------------------------------------
     st.sidebar.header("🔌 Connexion Airtable")
+    default_api_key = _dashboard_secret("AIRTABLE_TOKEN")
+    default_base_id = _dashboard_secret("AIRTABLE_BASE_ID", DEFAULT_BASE_ID)
+    default_table_id = _dashboard_secret("AIRTABLE_TABLE_ID", DEFAULT_TABLE_ID)
     api_key = st.sidebar.text_input(
         "Personal Access Token Airtable",
         type="password",
+        value=default_api_key,
         key="airtable_api_key",
         help=(
             "Créez un token sur airtable.com/create/tokens avec les scopes "
@@ -314,23 +275,8 @@ def render_solar_thermal_dashboard() -> None:
             "à la base 'BDD Atlansun Solaire thermique'."
         ),
     )
-    base_id = st.sidebar.text_input("Base ID", value=DEFAULT_BASE_ID, key="airtable_base_id")
-    table_id = st.sidebar.text_input("Table ID (BDD STH)", value=DEFAULT_TABLE_ID, key="airtable_table_id")
-
-    st.sidebar.header("🗺️ Google Maps (optionnel)")
-    google_api_key = st.sidebar.text_input(
-        "Clé API Google Maps",
-        type="password",
-        key="dashboard_google_api_key",
-        help=(
-            "Utilisée seulement pour les installations sans Latitude/Longitude "
-            "déjà renseignées dans Airtable. 💡 Astuce gratuite : géocodez vos "
-            "installations une fois pour toutes avec le script Apps Script "
-            "fourni (geocoder_airtable.gs), qui écrit Latitude/Longitude dans "
-            "Airtable sans frais Google. Cette clé (payante au-delà d'un "
-            "quota gratuit) n'est alors plus nécessaire."
-        ),
-    )
+    base_id = st.sidebar.text_input("Base ID", value=default_base_id, key="airtable_base_id")
+    table_id = st.sidebar.text_input("Table ID (BDD STH)", value=default_table_id, key="airtable_table_id")
 
     if st.sidebar.button("🔄 Rafraîchir les données"):
         st.cache_data.clear()
@@ -592,18 +538,13 @@ def render_solar_thermal_dashboard() -> None:
                 "via les coordonnées stockées dans Airtable (géocodage gratuit "
                 "Apps Script)."
             )
-        elif google_api_key:
-            st.caption(
-                "🎯 Localisation précise via Google Maps (application, ville, "
-                "département)."
-            )
         else:
             st.caption(
                 "📍 Localisation approximative au niveau de la ville "
                 "(geo.api.gouv.fr, gratuit). Pour une localisation précise et "
                 "gratuite, utilisez le script Apps Script fourni "
                 "(geocoder_airtable.gs) pour écrire Latitude/Longitude dans "
-                "Airtable — ou renseignez une clé API Google Maps ci-contre."
+                "Airtable."
             )
 
         recherche = st.text_input(
@@ -633,7 +574,7 @@ def render_solar_thermal_dashboard() -> None:
 
         if not map_df.empty:
             with st.spinner("Localisation des installations..."):
-                points = build_map_points(map_df, google_api_key)
+                points = build_map_points(map_df)
 
             if points:
                 centre_lat = sum(p["lat"] for p in points) / len(points)
@@ -695,7 +636,7 @@ def render_solar_thermal_dashboard() -> None:
                     f"{len(points)} installation(s) localisée(s) sur "
                     f"{len(map_df)} affichée(s)."
                 )
-                if nb_avec_coords == 0 and not google_api_key:
+                if nb_avec_coords == 0:
                     st.caption(
                         "ℹ️ Localisation approximative : plusieurs installations "
                         "d'une même ville apparaissent au même point (centre-ville)."

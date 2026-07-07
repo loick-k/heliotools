@@ -30,7 +30,6 @@ SAVEABLE_WIDGET_KEYS = [
     "airtable_api_key",
     "airtable_base_id",
     "airtable_table_id",
-    "dashboard_google_api_key",
     "weather_tilt_deg",
     "weather_azimuth_deg_south",
     "weather_albedo",
@@ -422,42 +421,44 @@ def render_portal_sidebar() -> str:
             user = st.session_state.get("user") if isinstance(st.session_state.get("user"), dict) else {}
             st.write(f"Connecté : {user.get('nom') or user.get('email') or st.session_state.get('heliostock_admin_email', 'admin')}")
             st.caption(f"Rôle : {user.get('role', 'admin')}")
+            if st.button("Se déconnecter", use_container_width=True):
+                _disconnect_user()
+                st.session_state.pop("heliostock_last_result", None)
+                st.rerun()
+            st.divider()
         app_name = st.selectbox(
             "Application",
             options=["HelioStock", "Dashboard solaire thermique"],
             key="portal_app",
         )
 
-        st.markdown("### Projets")
-        project_files = _project_files()
-        if project_files:
-            labels = [_project_label(path) for path in project_files]
-            selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
-            selected_index = labels.index(selected_label)
-            selected_path = project_files[selected_index]
-            c1, c2 = st.columns(2)
-            if c1.button("Charger", use_container_width=True):
-                _load_project(selected_path)
-                st.success("Projet chargé.")
-                st.rerun()
-            if c2.button("Supprimer", use_container_width=True):
-                demand_path, result_path = _project_sidecar_paths(selected_path)
-                demand_path.unlink(missing_ok=True)
-                result_path.unlink(missing_ok=True)
-                selected_path.unlink(missing_ok=True)
-                st.session_state.pop("heliostock_current_project_name", None)
-                st.rerun()
-        else:
-            st.info("Aucun projet sauvegardé.")
+        if app_name == "HelioStock":
+            st.markdown("### Projets")
+            project_files = _project_files()
+            if project_files:
+                labels = [_project_label(path) for path in project_files]
+                selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
+                selected_index = labels.index(selected_label)
+                selected_path = project_files[selected_index]
+                c1, c2 = st.columns(2)
+                if c1.button("Charger", use_container_width=True):
+                    _load_project(selected_path)
+                    st.success("Projet chargé.")
+                    st.rerun()
+                if c2.button("Supprimer", use_container_width=True):
+                    demand_path, result_path = _project_sidecar_paths(selected_path)
+                    demand_path.unlink(missing_ok=True)
+                    result_path.unlink(missing_ok=True)
+                    selected_path.unlink(missing_ok=True)
+                    st.session_state.pop("heliostock_current_project_name", None)
+                    st.rerun()
+            else:
+                st.info("Aucun projet sauvegardé.")
 
-        st.caption(
-            "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
-            "et le dernier résultat calculé."
-        )
-        if is_admin_authenticated() and st.button("Se déconnecter", use_container_width=True):
-            _disconnect_user()
-            st.session_state.pop("heliostock_last_result", None)
-            st.rerun()
+            st.caption(
+                "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
+                "et le dernier résultat calculé."
+            )
 
     return app_name
 

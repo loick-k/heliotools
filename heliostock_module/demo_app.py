@@ -5,7 +5,6 @@ from heliostock.ui_portal import (
     is_admin_authenticated,
     render_admin_login,
     render_portal_sidebar,
-    render_project_save_controls,
 )
 
 
@@ -29,4 +28,3 @@ elif selected_app == "Dashboard solaire thermique":
         st.caption(str(exc))
     else:
         render_solar_thermal_dashboard()
-        render_project_save_controls()
