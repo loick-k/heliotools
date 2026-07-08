@@ -733,7 +733,7 @@ def render_brand_header(*, subtitle: str = "Portail des outils solaires Atlansun
         logo_col, _ = st.columns([9, 11])
         if HELIOPILOT_LOGO.exists():
             with logo_col:
-                st.image(str(HELIOPILOT_LOGO), use_container_width=True, output_format="PNG")
+                st.image(str(HELIOPILOT_LOGO), width="stretch", output_format="PNG")
         else:
             st.title("HelioTools")
         st.markdown(f"##### {subtitle}")
@@ -741,7 +741,7 @@ def render_brand_header(*, subtitle: str = "Portail des outils solaires Atlansun
         logo_left, _ = st.columns(2)
         with logo_left:
             if ATLANSUN_LOGO.exists():
-                st.image(str(ATLANSUN_LOGO), use_container_width=True)
+                st.image(str(ATLANSUN_LOGO), width="stretch")
 
 
 def render_admin_login(*, compact: bool = False) -> bool:
@@ -818,12 +818,12 @@ def render_portal_sidebar() -> str:
 
     with st.sidebar:
         if HELIOPILOT_LOGO.exists():
-            st.image(str(HELIOPILOT_LOGO), use_container_width=True)
+            st.image(str(HELIOPILOT_LOGO), width="stretch")
         if is_user_authenticated():
             user = st.session_state.get("user") if isinstance(st.session_state.get("user"), dict) else {}
             st.write(f"Connecté : {user.get('nom') or user.get('email') or st.session_state.get('heliostock_admin_email', 'admin')}")
             st.caption(f"Rôle : {user.get('role', 'admin')}")
-            if st.button("Se déconnecter", use_container_width=True):
+            if st.button("Se déconnecter", width="stretch"):
                 _disconnect_user()
                 st.session_state.pop("heliostock_last_result", None)
                 st.rerun()
@@ -849,11 +849,11 @@ def render_portal_sidebar() -> str:
                 selected_index = labels.index(selected_label)
                 selected_path = project_files[selected_index]
                 c1, c2 = st.columns(2)
-                if c1.button("Charger", use_container_width=True):
+                if c1.button("Charger", width="stretch"):
                     _load_project(selected_path)
                     st.success("Projet chargé.")
                     st.rerun()
-                if c2.button("Supprimer", use_container_width=True):
+                if c2.button("Supprimer", width="stretch"):
                     demand_path, result_path = _project_sidecar_paths(selected_path)
                     demand_path.unlink(missing_ok=True)
                     result_path.unlink(missing_ok=True)
@@ -878,7 +878,7 @@ def render_project_save_controls() -> None:
         st.markdown("### Enregistrer")
         default_name = st.session_state.get("heliostock_current_project_name", "")
         project_name = st.text_input("Nom du projet", value=str(default_name), key="portal_project_name")
-        if st.button("Enregistrer le projet", type="primary", use_container_width=True):
+        if st.button("Enregistrer le projet", type="primary", width="stretch"):
             PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
             payload = _project_payload(project_name)
             path = PROJECTS_DIR / f"{_owned_project_slug(str(payload['name']))}.json"
@@ -896,3 +896,4 @@ def render_project_save_controls() -> None:
                 result_path.unlink(missing_ok=True)
             st.session_state["heliostock_current_project_name"] = str(payload["name"])
             st.success(f"Projet enregistré : {payload['name']}")
+

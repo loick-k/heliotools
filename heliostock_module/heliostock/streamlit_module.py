@@ -122,7 +122,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
     if not weather_form.hourly_weather:
         return pd.DataFrame()
 
-    run_clicked = st.button("Lancer le calcul final", type="primary", use_container_width=True)
+    run_clicked = st.button("Lancer le calcul final", type="primary", width="stretch")
     if not run_clicked and "heliostock_last_result" not in st.session_state:
         st.info("Paramètres prêts. Clique sur **Lancer le calcul** pour exécuter la simulation horaire.")
         return pd.DataFrame()
@@ -229,24 +229,20 @@ def render_heliostock_hourly() -> pd.DataFrame:
     performance_log_df = last_result.get("performance_log_df", pd.DataFrame()).copy()
     if not performance_log_df.empty:
         previous_total = float(performance_log_df["Duree cumulee (s)"].iloc[-1])
-        performance_log_df = pd.concat(
-            [
-                performance_log_df,
-                pd.DataFrame(
-                    [
-                        {
-                            "Etape": "render:results",
-                            "Message": "Affichage Streamlit des resultats et graphiques",
-                            "Progression (%)": None,
-                            "Duree depuis etape precedente (s)": render_elapsed,
-                            "Duree cumulee (s)": previous_total + render_elapsed,
-                            "Duree rendu Streamlit (s)": render_elapsed,
-                        }
-                    ]
-                ),
-            ],
-            ignore_index=True,
-        )
+        render_row = {
+            "Etape": "render:results",
+            "Message": "Affichage Streamlit des resultats et graphiques",
+            "Progression (%)": pd.NA,
+            "Duree depuis etape precedente (s)": render_elapsed,
+            "Duree cumulee (s)": previous_total + render_elapsed,
+            "Duree rendu Streamlit (s)": render_elapsed,
+        }
+        for column in render_row:
+            if column not in performance_log_df.columns:
+                performance_log_df[column] = pd.NA
+        performance_log_df.loc[len(performance_log_df)] = {
+            column: render_row.get(column, pd.NA) for column in performance_log_df.columns
+        }
     with st.expander("Journal performance du dernier calcul", expanded=False):
         if performance_log_df.empty:
             st.info("Aucun journal de performance disponible.")
@@ -260,7 +256,8 @@ def render_heliostock_hourly() -> pd.DataFrame:
             ).astype("Float64")
             for column in ["Duree depuis etape precedente (s)", "Duree cumulee (s)"]:
                 display_log[column] = display_log[column].astype(float).round(2)
-            st.dataframe(display_dataframe(display_log), use_container_width=True, hide_index=True)
+            st.dataframe(display_dataframe(display_log), width="stretch", hide_index=True)
     return hourly_df
+
 
 

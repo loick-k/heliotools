@@ -1,4 +1,4 @@
-﻿"""
+"""
 Dashboard Streamlit - Installations Solaire Thermique (Atlansun)
 ==================================================================
 Connecte l'app à votre base Airtable "BDD Atlansun Solaire thermique"
@@ -336,7 +336,7 @@ def render_solar_thermal_dashboard() -> None:
                 title="Installations par département",
                 color_discrete_sequence=["#f4a300"],
             )
-            st.plotly_chart(fig_dep, use_container_width=True)
+            st.plotly_chart(fig_dep, width="stretch")
 
         with col_b:
             secteur_counts = (
@@ -354,7 +354,7 @@ def render_solar_thermal_dashboard() -> None:
                 hole=0.4,
             )
             fig_secteur.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_secteur, use_container_width=True)
+            st.plotly_chart(fig_secteur, width="stretch")
 
         col_e, col_f = st.columns(2)
 
@@ -374,7 +374,7 @@ def render_solar_thermal_dashboard() -> None:
                 hole=0.4,
             )
             fig_etat.update_traces(textposition="inside", textinfo="percent+label")
-            st.plotly_chart(fig_etat, use_container_width=True)
+            st.plotly_chart(fig_etat, width="stretch")
 
         with col_f:
             evol = (
@@ -393,7 +393,7 @@ def render_solar_thermal_dashboard() -> None:
                     markers=True,
                     title="Évolution cumulée du nombre d'installations",
                 )
-                st.plotly_chart(fig_evol, use_container_width=True)
+                st.plotly_chart(fig_evol, width="stretch")
             else:
                 st.info("Pas assez de données d'année pour tracer l'évolution.")
 
@@ -415,7 +415,7 @@ def render_solar_thermal_dashboard() -> None:
                     title="Nouvelles installations par année",
                     color_discrete_sequence=["#2E86AB"],
                 )
-                st.plotly_chart(fig_annee, use_container_width=True)
+                st.plotly_chart(fig_annee, width="stretch")
             else:
                 st.info("Pas assez de données d'année pour ce graphique.")
 
@@ -443,7 +443,7 @@ def render_solar_thermal_dashboard() -> None:
                 fig_superficie_secteur.update_traces(
                     textposition="inside", textinfo="percent+label"
                 )
-                st.plotly_chart(fig_superficie_secteur, use_container_width=True)
+                st.plotly_chart(fig_superficie_secteur, width="stretch")
             else:
                 st.info("Pas assez de données de superficie pour ce graphique.")
 
@@ -458,7 +458,7 @@ def render_solar_thermal_dashboard() -> None:
                 hover_name="Ville",
                 hover_data=["Application", "Année de mise en service"],
             )
-            st.plotly_chart(fig_scatter, use_container_width=True)
+            st.plotly_chart(fig_scatter, width="stretch")
         else:
             st.info("Pas assez de données pour ce graphique.")
 
@@ -560,7 +560,7 @@ def render_solar_thermal_dashboard() -> None:
 
                 st_folium(
                     carte,
-                    use_container_width=True,
+                    width="stretch",
                     height=550,
                     key="carte_installations",
                     returned_objects=[],
@@ -583,7 +583,7 @@ def render_solar_thermal_dashboard() -> None:
     else:
         st.dataframe(
             df_f,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Lien internet": st.column_config.LinkColumn("Lien internet"),
             },
@@ -595,4 +595,5 @@ def render_solar_thermal_dashboard() -> None:
             file_name="installations_solaire_thermique.csv",
             mime="text/csv",
         )
+
 

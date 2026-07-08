@@ -1,4 +1,4 @@
-﻿"""Outil d'aide à la note d'opportunité solaire thermique.
+"""Outil d'aide à la note d'opportunité solaire thermique.
 
 Lancement local :
     python -m streamlit run streamlit_opportunity_demo.py
@@ -177,7 +177,7 @@ def add_excel_paste_box(df: pd.DataFrame, value_column: str, key: str, label: st
         height=90,
         placeholder="Janvier\t1234\nFévrier\t1250\n...",
     )
-    if st.button("Appliquer le collage", key=f"{key}_paste_button", use_container_width=True):
+    if st.button("Appliquer le collage", key=f"{key}_paste_button", width="stretch"):
         values = parse_pasted_numeric_values(pasted)
         if not values:
             st.warning("Aucune valeur numérique reconnue dans le collage.")
@@ -538,11 +538,11 @@ def render_opportunity_notes_app() -> None:
         selected_project_label = st.selectbox("Projet enregistré", options=["—"] + project_labels, index=0)
         col_load, col_new = st.columns(2)
         with col_load:
-            if st.button("Charger", use_container_width=True, disabled=selected_project_label == "—"):
+            if st.button("Charger", width="stretch", disabled=selected_project_label == "—"):
                 st.session_state.project_payload = load_project(project_by_label[selected_project_label])
                 st.rerun()
         with col_new:
-            if st.button("Nouveau", use_container_width=True):
+            if st.button("Nouveau", width="stretch"):
                 st.session_state.project_payload = empty_project_payload()
                 st.rerun()
     
@@ -649,7 +649,7 @@ def render_opportunity_notes_app() -> None:
             edited_measured = st.data_editor(
                 measured_rows,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 disabled=["Mois"],
                 key=f"{project_ui_key}_measured_daily_editor",
             )
@@ -673,7 +673,7 @@ def render_opportunity_notes_app() -> None:
                 edited_housing_units = st.data_editor(
                     housing_unit_rows,
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     disabled=["Typologie"],
                     key=f"{project_ui_key}_measured_housing_units_editor",
                 )
@@ -702,7 +702,7 @@ def render_opportunity_notes_app() -> None:
                 edited_occupancy = st.data_editor(
                     occupancy_rows,
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     disabled=["Mois"],
                     key=f"{project_ui_key}_measured_hotel_occupancy_editor",
                 )
@@ -723,7 +723,7 @@ def render_opportunity_notes_app() -> None:
                 edited_occupancy = st.data_editor(
                     occupancy_rows,
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     disabled=["Mois"],
                     key=f"{project_ui_key}_measured_camping_occupancy_editor",
                 )
@@ -746,7 +746,7 @@ def render_opportunity_notes_app() -> None:
             edited_housing = st.data_editor(
                 housing_rows,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 disabled=["Typologie"],
                 key=f"{project_ui_key}_housing_editor",
             )
@@ -807,7 +807,7 @@ def render_opportunity_notes_app() -> None:
             edited_occupancy = st.data_editor(
                 occupancy_rows,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 disabled=["Mois"],
                 key=f"{project_ui_key}_hotel_occupancy_editor",
             )
@@ -835,7 +835,7 @@ def render_opportunity_notes_app() -> None:
             edited_occupancy = st.data_editor(
                 occupancy_rows,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 disabled=["Mois"],
                 key=f"{project_ui_key}_camping_occupancy_editor",
             )
@@ -860,7 +860,7 @@ def render_opportunity_notes_app() -> None:
                 edited_coeff = st.data_editor(
                     coeff_rows,
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     disabled=["Mois"],
                     key=f"{project_ui_key}_monthly_coeff_editor",
                 )
@@ -904,7 +904,7 @@ def render_opportunity_notes_app() -> None:
         edited_tef = st.data_editor(
             tef_rows,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             disabled=["Mois"],
             key=f"{project_ui_key}_cold_water_editor",
         )
@@ -973,7 +973,7 @@ def render_opportunity_notes_app() -> None:
             edited_gas = st.data_editor(
                 gas_rows,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 disabled=["Mois"],
                 key=f"{project_ui_key}_gas_invoices_editor",
             )
@@ -1038,7 +1038,7 @@ def render_opportunity_notes_app() -> None:
                     edited_losses = st.data_editor(
                         losses_rows,
                         hide_index=True,
-                        use_container_width=True,
+                        width="stretch",
                         disabled=["Mois"],
                         key=f"{project_ui_key}_loop_losses_editor",
                     )
@@ -1161,7 +1161,7 @@ def render_opportunity_notes_app() -> None:
                 edited_loop_temp = st.data_editor(
                     loop_temp_rows,
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     disabled=["Mois"],
                     key=f"{project_ui_key}_loop_temps_editor",
                 )
@@ -1267,12 +1267,12 @@ def render_opportunity_notes_app() -> None:
                 )
         fig_pie = render_ecs_loop_pie_chart(opportunity_results)
         if fig_pie is not None:
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
     
         fig_loop = render_loop_chart(opportunity_results)
         if fig_loop is not None:
-            st.plotly_chart(fig_loop, use_container_width=True)
-        st.dataframe(loop_dataframe(opportunity_results), hide_index=True, use_container_width=True)
+            st.plotly_chart(fig_loop, width="stretch")
+        st.dataframe(loop_dataframe(opportunity_results), hide_index=True, width="stretch")
     
     with tab_sizing:
         st.markdown("### Proposition centrale")
@@ -1415,12 +1415,12 @@ def render_opportunity_notes_app() -> None:
     
         fig_breakdown = render_heat_cost_breakdown_plotly(economic_results)
         if fig_breakdown is not None:
-            st.plotly_chart(fig_breakdown, use_container_width=True)
+            st.plotly_chart(fig_breakdown, width="stretch")
     
         cashflow_rows = list(build_yearly_cashflow_projection(economic_inputs, economic_results))
         fig_cashflow = render_cumulative_cashflow_plotly(cashflow_rows)
         if fig_cashflow is not None:
-            st.plotly_chart(fig_cashflow, use_container_width=True)
+            st.plotly_chart(fig_cashflow, width="stretch")
     
     # ---------------------------------------------------------------------------
     # Synthèse et export.
@@ -1492,8 +1492,9 @@ def render_opportunity_notes_app() -> None:
     
     with st.sidebar:
         st.divider()
-        if st.button("Enregistrer le projet", use_container_width=True):
+        if st.button("Enregistrer le projet", width="stretch"):
             saved_path = save_project(current_payload)
             st.session_state.project_payload = current_payload
             st.session_state.save_notice = f"Projet enregistré : {saved_path.name}"
             st.rerun()
+

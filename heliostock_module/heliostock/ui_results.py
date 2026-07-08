@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
@@ -453,7 +453,7 @@ def render_hourly_results(
             "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
             "vue par la PAC. La température de paroi forage est affichée séparément."
         )
-        st.altair_chart(_temperature_chart(hourly_df), use_container_width=True)
+        st.altair_chart(_temperature_chart(hourly_df), width="stretch")
 
     elif result_section == "Multiannuel BTES":
         _render_multiyear_tab(scenario, multiyear_btes_df, no_solar_multiyear_btes_df)
@@ -608,18 +608,18 @@ def _render_multiyear_tab(
     if not comparison_btes_df.empty:
         with chart_col_1:
             st.markdown("### Comparaison")
-            st.altair_chart(_multiyear_btes_temperature_comparison_chart(comparison_btes_df), use_container_width=True)
+            st.altair_chart(_multiyear_btes_temperature_comparison_chart(comparison_btes_df), width="stretch")
     else:
         with chart_col_1:
             st.markdown("### Comparaison")
             st.info("Comparaison géothermie seule indisponible.")
     with chart_col_2:
         st.markdown("### Température - géothermie et recharge solaire")
-        st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), use_container_width=True)
+        st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), width="stretch")
     with chart_col_3:
         st.markdown("### Flux mensuels - géothermie et recharge solaire")
-        st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), use_container_width=True)
-    st.dataframe(display_dataframe(multiyear_btes_df), use_container_width=True, hide_index=True)
+        st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), width="stretch")
+    st.dataframe(display_dataframe(multiyear_btes_df), width="stretch", hide_index=True)
 
 
 def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
@@ -636,7 +636,7 @@ def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
             global_stack_df,
             title="Besoin total = solaire thermique + geothermie PAC + appoint gaz",
         ),
-        use_container_width=True,
+        width="stretch",
     )
 
     c_ht, c_bt = st.columns(2)
@@ -645,14 +645,14 @@ def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
         ht_stack_df = _stacked_coverage_duration_dataframe(hourly_df, mode="HT")
         st.altair_chart(
             _stacked_coverage_duration_chart(ht_stack_df, title="Besoin HT = solaire thermique + appoint"),
-            use_container_width=True,
+            width="stretch",
         )
     with c_bt:
         st.markdown("### Mix BT trie par besoin BT")
         bt_stack_df = _stacked_coverage_duration_dataframe(hourly_df, mode="BT")
         st.altair_chart(
             _stacked_coverage_duration_chart(bt_stack_df, title="Besoin BT = géothermie PAC + appoint"),
-            use_container_width=True,
+            width="stretch",
         )
 
 
@@ -662,7 +662,7 @@ def _render_monthly_tab(
     hourly_by_month_df: pd.DataFrame,
 ) -> None:
     st.markdown("### Bilan annuel, calculé depuis les 8760 heures")
-    st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), use_container_width=True, hide_index=True)
+    st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
 
     coverage_rate_df = hourly_by_month_df[["Mois", "Taux couverture solaire HT (%)"]].rename(
         columns={"Taux couverture solaire HT (%)": "Valeur"}
@@ -680,14 +680,14 @@ def _render_monthly_tab(
     chart_a, chart_b = st.columns(2)
     with chart_a:
         st.markdown("### Couverture solaire HT")
-        st.altair_chart(_percent_bar_chart(coverage_rate_df, y_title="Couverture solaire HT (%)"), use_container_width=True)
+        st.altair_chart(_percent_bar_chart(coverage_rate_df, y_title="Couverture solaire HT (%)"), width="stretch")
         st.caption(
             "La priorité HT est appliquée au pas horaire via le ballon solaire journalier. "
             "Une injection BTES mensuelle peut donc coexister avec un taux HT inférieur à 100 %."
         )
     with chart_b:
         st.markdown("### Flux sous-sol")
-        st.altair_chart(_bar_chart(ground_flux_df), use_container_width=True)
+        st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
         st.caption(
             "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire."
         )
@@ -697,19 +697,19 @@ def _render_monthly_tab(
         st.markdown("### Production solaire ECS et injection BTES")
         st.altair_chart(
             _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Injection BTES (MWh)"])),
-            use_container_width=True,
+            width="stretch",
         )
     with chart_d:
         st.markdown("### Couverture besoin HT")
         st.altair_chart(
             _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Appoint HT (MWh)"])),
-            use_container_width=True,
+            width="stretch",
         )
 
     chart_e, _chart_empty = st.columns(2)
     with chart_e:
         st.markdown("### Couverture besoin BT")
-        st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), use_container_width=True)
+        st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
 
 
 def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_id: str) -> None:
@@ -729,10 +729,10 @@ def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_i
     g1, g2 = st.columns(2)
     g1.metric("Besoin HT gaz", f"{best_row['Besoin HT gaz (MWh/an)']:.0f} MWh/an")
     g2.metric("Complément BT gaz", f"{best_row['Complément BT gaz (MWh/an)']:.0f} MWh/an")
-    st.altair_chart(_parametric_pac_chart(parametric_pac_df), use_container_width=True, key=f"parametric_pac_chart_{calculation_id}")
+    st.altair_chart(_parametric_pac_chart(parametric_pac_df), width="stretch", key=f"parametric_pac_chart_{calculation_id}")
     st.dataframe(
         display_dataframe(parametric_pac_df),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         key=f"parametric_pac_table_{calculation_id}",
     )
@@ -758,12 +758,12 @@ def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame, *, calcula
         s3.metric("Simulations économie sondes", f"{int(best_row.get('Simulations economie sondes', 0))}")
     st.altair_chart(
         _parametric_surface_chart(parametric_surface_df),
-        use_container_width=True,
+        width="stretch",
         key=f"parametric_solar_chart_{calculation_id}",
     )
     st.dataframe(
         display_dataframe(parametric_surface_df),
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
         key=f"parametric_solar_table_{calculation_id}",
     )
@@ -771,12 +771,12 @@ def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame, *, calcula
 
 def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.DataFrame, hourly_df: pd.DataFrame) -> None:
     st.markdown("### Agregation par mois des resultats horaires")
-    st.dataframe(display_dataframe(hourly_by_month_df), use_container_width=True, hide_index=True)
+    st.dataframe(display_dataframe(hourly_by_month_df), width="stretch", hide_index=True)
 
     if not hourly_profile_df.empty and st.checkbox("Afficher le profil besoin horaire importe", value=False):
         st.dataframe(
             display_dataframe(hourly_profile_df[["hour_index", "month", "day", "hour", "demand_ht_kwh", "demand_bt_kwh"]]),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -815,7 +815,7 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
                     ]
                 ]
             ),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -832,4 +832,5 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
             - Le champ de sondes utilise pygfunction pour calculer la température source PAC.
             """
         )
+
 
