@@ -1,6 +1,5 @@
 import streamlit as st
 
-from heliostock.streamlit_module import render_heliostock_hourly
 from heliostock import ui_portal
 
 
@@ -21,6 +20,8 @@ if not _is_user_authenticated():
 
 selected_app = ui_portal.render_portal_sidebar()
 if selected_app == "HelioStock":
+    from heliostock.streamlit_module import render_heliostock_hourly
+
     render_heliostock_hourly()
 elif selected_app == "Dashboard solaire thermique":
     try:

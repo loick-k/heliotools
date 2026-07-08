@@ -32,6 +32,8 @@ LOGIN_MAX_FAILURES = 5
 LOGIN_LOCK_SECONDS = 60
 LOGIN_FAILURE_STATE_KEY = "heliotools_login_failures"
 LOGIN_LOCK_STATE_KEY = "heliotools_login_locked_until"
+USERS_SESSION_CACHE_KEY = "heliotools_users_cache"
+GITHUB_BACKUP_TIMEOUT_SECONDS = 3
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -200,7 +202,7 @@ def _github_read_json_list(path: str) -> list[dict[str, Any]]:
     url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
     req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
     try:
-        with urlrequest.urlopen(req, timeout=10) as response:
+        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception:
         return []
@@ -219,7 +221,7 @@ def _github_file_sha(path: str) -> str | None:
     url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
     req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
     try:
-        with urlrequest.urlopen(req, timeout=10) as response:
+        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urlerror.HTTPError as exc:
         if exc.code == 404:
@@ -250,7 +252,7 @@ def _github_write_json_list(path: str, rows: list[dict[str, Any]], *, message: s
         method="PUT",
     )
     try:
-        with urlrequest.urlopen(req, timeout=10):
+        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS):
             return True
     except Exception:
         return False
@@ -284,15 +286,23 @@ def _email_normalise(email: str) -> str:
 
 
 def _load_users() -> list[dict[str, Any]]:
+    cached = st.session_state.get(USERS_SESSION_CACHE_KEY)
+    if isinstance(cached, list):
+        return [dict(user) for user in cached if isinstance(user, dict)]
     if USERS_FILE.exists():
         users = _read_users_file(USERS_FILE)
         if users:
+            st.session_state[USERS_SESSION_CACHE_KEY] = users
             return users
-    return _restore_users_from_backup()
+    users = _restore_users_from_backup()
+    if users:
+        st.session_state[USERS_SESSION_CACHE_KEY] = users
+    return users
 
 
 def _save_users(users: list[dict[str, Any]]) -> None:
     _write_users_file(USERS_FILE, users)
+    st.session_state[USERS_SESSION_CACHE_KEY] = [dict(user) for user in users if isinstance(user, dict)]
     _write_users_file(_resolve_backup_users_path(), users)
     _github_write_json_list(
         _backup_users_path_setting(),

@@ -2655,7 +2655,7 @@ def test_users_are_restored_from_configured_backup_path():
     assert 'GITHUB_BACKUP_TOKEN' in source
     assert "def _restore_users_from_backup" in source
     assert "_github_read_json_list(_backup_users_path_setting())" in source
-    assert "return _restore_users_from_backup()" in source
+    assert "users = _restore_users_from_backup()" in source
     assert "_write_users_file(_resolve_backup_users_path(), users)" in source
     assert "_github_write_json_list(" in source
 
@@ -2732,6 +2732,21 @@ def test_app_gate_accepts_non_admin_authenticated_users():
     assert "getattr(ui_portal, \"is_user_authenticated\", None)" in source
     assert "if not _is_user_authenticated():" in source
     assert "if not is_admin_authenticated():" not in source
+
+
+def test_app_lazily_imports_heavy_dashboards_after_login():
+    source = (Path(__file__).resolve().parent / "demo_app.py").read_text(encoding="utf-8")
+    before_auth_gate = source.split("if not _is_user_authenticated():", 1)[0]
+    assert "from heliostock.streamlit_module import render_heliostock_hourly" not in before_auth_gate
+    assert "from heliostock.streamlit_module import render_heliostock_hourly" in source
+
+
+def test_portal_uses_short_github_timeout_and_session_user_cache():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    assert "GITHUB_BACKUP_TIMEOUT_SECONDS = 3" in source
+    assert "USERS_SESSION_CACHE_KEY" in source
+    assert "st.session_state[USERS_SESSION_CACHE_KEY]" in source
+    assert "timeout=GITHUB_BACKUP_TIMEOUT_SECONDS" in source
 
 
 def test_calculation_snapshot_hash_is_stable_and_sensitive():
