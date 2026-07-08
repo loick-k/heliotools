@@ -26,5 +26,12 @@
     "success": true,
     "reason": "login",
     "role": "admin"
+  },
+  {
+    "timestamp": "2026-07-08T14:25:51",
+    "email": "klara@atlansun.fr",
+    "success": true,
+    "reason": "login",
+    "role": "user"
   }
 ]
