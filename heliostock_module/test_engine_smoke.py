@@ -2606,6 +2606,24 @@ def test_solar_dashboard_is_admin_only_and_airtable_inputs_are_hidden():
     assert '_dashboard_secret("AIRTABLE_TOKEN")' in dashboard_source
 
 
+def test_opportunity_notes_app_is_admin_only_and_callable():
+    portal_source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    demo_source = (Path(__file__).resolve().parent / "demo_app.py").read_text(encoding="utf-8")
+    app_source = (
+        Path(__file__).resolve().parent
+        / "heliostock"
+        / "opportunity_notes"
+        / "streamlit_opportunity_app.py"
+    ).read_text(encoding="utf-8")
+
+    assert "Note d'opportunité solaire thermique" in portal_source
+    assert "Note d'opportunité solaire thermique" in demo_source
+    assert "from heliostock.opportunity_notes import render_opportunity_notes_app" in demo_source
+    assert "def render_opportunity_notes_app() -> None:" in app_source
+    assert "st.set_page_config" not in app_source
+    assert 'PROJECTS_DIR = Path.home() / ".heliotools" / "opportunity_notes" / "projects"' in app_source
+
+
 def test_projects_are_scoped_to_owner_for_non_admin_users():
     source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
     assert '"owner_email": _current_user_email()' in source

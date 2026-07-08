@@ -33,3 +33,14 @@ elif selected_app == "Dashboard solaire thermique":
         st.caption(str(exc))
     else:
         render_solar_thermal_dashboard()
+elif selected_app == "Note d'opportunité solaire thermique":
+    try:
+        from heliostock.opportunity_notes import render_opportunity_notes_app
+    except ModuleNotFoundError as exc:
+        st.error(
+            "La note d'opportunité solaire thermique nécessite des dépendances optionnelles. "
+            "Vérifie que `plotly` et `pandas` sont installés, puis relance l'application."
+        )
+        st.caption(str(exc))
+    else:
+        render_opportunity_notes_app()

@@ -809,6 +809,7 @@ def render_portal_sidebar() -> str:
         app_options = ["HelioStock"]
         if is_admin_authenticated():
             app_options.append("Dashboard solaire thermique")
+            app_options.append("Note d'opportunité solaire thermique")
         app_name = st.selectbox(
             "Application",
             options=app_options,
