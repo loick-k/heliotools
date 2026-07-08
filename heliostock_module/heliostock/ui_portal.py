@@ -19,6 +19,7 @@ HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
 USERS_FILE = PROJECTS_DIR / "users.json"
+RESULT_SIDECAR_SUFFIX = "_resultat.pkl"
 PASSWORD_MIN_LENGTH = 10
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCK_SECONDS = 60
@@ -27,7 +28,6 @@ LOGIN_LOCK_STATE_KEY = "heliotools_login_locked_until"
 
 
 SAVEABLE_WIDGET_KEYS = [
-    "airtable_api_key",
     "airtable_base_id",
     "airtable_table_id",
     "weather_tilt_deg",
@@ -269,6 +269,14 @@ def _project_files() -> list[Path]:
     return sorted(PROJECTS_DIR.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
 
 
+def _assert_local_project_path(path: Path) -> Path:
+    project_root = PROJECTS_DIR.resolve()
+    resolved = path.resolve()
+    if project_root != resolved and project_root not in resolved.parents:
+        raise ValueError("Le fichier projet doit se trouver dans le dossier local HelioStock.")
+    return resolved
+
+
 def _project_label(path: Path) -> str:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -280,11 +288,35 @@ def _project_label(path: Path) -> str:
 
 
 def _project_sidecar_paths(path: Path) -> tuple[Path, Path]:
+    _assert_local_project_path(path)
     stem = path.with_suffix("")
     return (
         stem.with_name(f"{stem.name}_besoins.xlsx"),
-        stem.with_name(f"{stem.name}_resultat.pkl"),
+        stem.with_name(f"{stem.name}{RESULT_SIDECAR_SUFFIX}"),
     )
+
+
+def _load_local_result_pickle(path: Path) -> Any:
+    """Charge un résultat généré localement par HelioStock.
+
+    Le format pickle est conservé provisoirement parce que les résultats
+    contiennent des objets Python complexes. Ne jamais brancher cette fonction
+    sur un upload utilisateur ou un fichier externe non maîtrisé.
+    """
+    resolved = _assert_local_project_path(path)
+    if not resolved.name.endswith(RESULT_SIDECAR_SUFFIX):
+        raise ValueError("Cache résultat HelioStock non reconnu.")
+    with resolved.open("rb") as handle:
+        return pickle.load(handle)
+
+
+def _save_local_result_pickle(path: Path, result: Any) -> None:
+    """Sauvegarde locale du dernier résultat calculé par HelioStock."""
+    resolved = _assert_local_project_path(path)
+    if not resolved.name.endswith(RESULT_SIDECAR_SUFFIX):
+        raise ValueError("Chemin de cache résultat HelioStock invalide.")
+    with resolved.open("wb") as handle:
+        pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 
 def _jsonable(value: Any) -> Any:
@@ -312,6 +344,7 @@ def _project_payload(name: str) -> dict[str, Any]:
 
 
 def _load_project(path: Path) -> None:
+    path = _assert_local_project_path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         st.warning("Ce fichier projet utilise un ancien format non compatible.")
@@ -331,8 +364,13 @@ def _load_project(path: Path) -> None:
         st.session_state.pop("heliostock_demand_file_bytes", None)
         st.session_state.pop("heliostock_demand_file_name", None)
     if result_path.exists():
-        with result_path.open("rb") as handle:
-            st.session_state["heliostock_last_result"] = pickle.load(handle)
+        try:
+            st.session_state["heliostock_last_result"] = _load_local_result_pickle(result_path)
+        except Exception:
+            st.session_state.pop("heliostock_last_result", None)
+            st.warning(
+                "Le cache résultat local n'a pas pu être chargé. Relance un calcul pour régénérer les résultats."
+            )
     else:
         st.session_state.pop("heliostock_last_result", None)
 
@@ -483,8 +521,7 @@ def render_project_save_controls() -> None:
                 demand_path.unlink(missing_ok=True)
             cached_result = st.session_state.get("heliostock_last_result")
             if cached_result is not None:
-                with result_path.open("wb") as handle:
-                    pickle.dump(cached_result, handle, protocol=pickle.HIGHEST_PROTOCOL)
+                _save_local_result_pickle(result_path, cached_result)
             else:
                 result_path.unlink(missing_ok=True)
             st.session_state["heliostock_current_project_name"] = str(payload["name"])

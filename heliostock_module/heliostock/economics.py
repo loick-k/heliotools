@@ -221,6 +221,7 @@ def compute_solar_thermal_economics(
         ]
     )
     return {
+        "annual_solar_ht_from_buffer_mwh": production,
         "annual_solar_direct_ht_mwh": production,
         "annual_solar_total_mwh": p2_production,
         "capex_unit_eur_m2": capex_unit,

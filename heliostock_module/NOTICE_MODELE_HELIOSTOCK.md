@@ -394,39 +394,44 @@ Ancienne logique supprimée : il n’y a plus de seuil séparé à 65 °C.
 
 ## 10. Pertes du ballon solaire
 
-Les pertes ballon sont une fraction journalière appliquée à l’énergie stockée.
+Les pertes du ballon solaire ne sont plus calculées avec une fraction fixe de l'énergie stockée par jour.
+Le code utilise une constante de refroidissement de type SOLO2018, calculée à partir du volume de ballon, du
+nombre de ballons, de l'épaisseur d'isolant, du lambda isolant et de la surface équivalente du ballon.
 
-Entrée :
-
-```text
-loss_day = daily_buffer_loss_fraction_per_day
-```
-
-Par défaut :
+La constante obtenue est :
 
 ```text
-loss_day = 0,02 = 2 %/jour
+CRStockSolaire [Wh/L/K/jour]
 ```
 
-Conversion en fraction horaire :
+La perte journalière SOLO2018 est :
 
 ```text
-loss_hour = 1 - (1 - loss_day)^(1/24)
+Q_pertes_ballon_jour =
+    (T_ballon - T_ambiance_ballon)
+    * V_ballon_litres
+    * CRStockSolaire
+    / 1000
 ```
 
-Perte horaire :
+Comme HelioStock fonctionne au pas horaire, le code applique :
 
 ```text
-Q_pertes_ballon_h = E_buffer * loss_hour
+Q_pertes_ballon_h =
+    (T_ballon - T_ambiance_ballon)
+    * V_ballon_litres
+    * CRStockSolaire
+    / 1000
+    / 24
 ```
 
-Le code borne la perte pour ne pas extraire plus que l’énergie disponible :
+Le code borne toujours la perte pour ne pas extraire plus que l'énergie disponible :
 
 ```text
 Q_pertes_ballon_h = min(E_buffer, Q_pertes_ballon_h)
 ```
 
-Hypothèse : les pertes sont proportionnelles à l’énergie stockée au-dessus de l’ambiance, sans calcul UA explicite.
+Hypothèse : le ballon reste représenté par une température unique. Il ne s'agit pas d'un modèle stratifié.
 
 ## 11. Préchauffage HT par le ballon solaire
 
@@ -498,8 +503,9 @@ Q_appoint_HT = max(0, Q_HT_besoin_h - Q_HT_solaire)
 
 Variable historique à connaître :
 
-- dans `HourlyResult`, le champ `solar_ht_direct_kwh` contient aujourd’hui le préchauffage HT solaire via ballon ;
-- il ne représente plus un solaire direct capteurs -> process.
+- dans `HourlyResult`, le champ principal est `solar_ht_from_buffer_kwh` : il contient le préchauffage HT solaire via ballon ;
+- le champ `solar_ht_direct_kwh` reste seulement un alias de compatibilité pour les exports historiques ;
+- aucun de ces champs ne représente un solaire direct capteurs -> process.
 
 ## 12. Fraction de ressource solaire restante pour BTES
 
@@ -847,7 +853,7 @@ Principales correspondances :
 | Affichage | Colonne horaire |
 |---|---|
 | Besoin total | `demand_ht_kwh + demand_bt_kwh` |
-| Préchauffage HT solaire | `solar_ht_direct_kwh` |
+| Préchauffage HT solaire | `solar_ht_from_buffer_kwh` |
 | Charge ballon solaire | `solar_ht_to_buffer_kwh` |
 | Injection BTES | `solar_to_btes_kwh` |
 | T ballon max | max de `solar_ht_buffer_temp_end_c` |
@@ -1464,7 +1470,7 @@ Tmax ballon / bascule BTES = 80 °C
 seuil de bascule BTES = Tmax ballon = 80 °C
 approche capteur sur ballon = 10 K
 approche échangeur ballon-process = 5 K
-pertes = 2 %/jour
+pertes ballon = modele SOLO2018 detaille, 1 ballon, 10 cm isolant, lambda 0,035 W/m/K
 cible max préchauffage HT solaire = 60 °C
 ```
 
@@ -1540,7 +1546,7 @@ que d'ajouter une correction thermique arbitraire.
 
 Priorités techniques :
 
-1. Renommer dans le code `solar_ht_direct_kwh` en `solar_ht_preheat_kwh` pour supprimer l’ambiguïté historique.
+1. Supprimer dans une future version majeure l'alias de compatibilité `solar_ht_direct_kwh` quand les exports historiques ne l'exigeront plus.
 2. Renforcer les profils horaires process et les tests de non-régression énergétique.
 3. Consolider les limites de puissance d’injection/extraction BTES par mètre de sonde.
 4. Consolider le backend `pygfunction` et comparer ensuite avec `GHEtool`.

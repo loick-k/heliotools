@@ -12,6 +12,9 @@ env/
 
 # Streamlit local secrets
 .streamlit/secrets.toml
+.streamlit/*.toml
+.env
+.env.*
 
 # Local client/process demand files
 *.xlsx

@@ -17,6 +17,8 @@ from heliostock.engine import (
 )
 from heliostock.btes_models import PygfunctionBtesModel, create_btes_model, pygfunction_available
 from heliostock.app_service import CalculationSelection, HourlyCalculationRequest, ParametricRange, run_hourly_calculation
+from heliostock.calculation_snapshot import build_calculation_snapshot, stable_snapshot_hash
+from heliostock.dashboard_data_cleaning import group_small_categories, join_values, to_float, to_year
 from heliostock.economics import (
     compute_heat_costs,
     compute_solar_thermal_economics,
@@ -124,6 +126,13 @@ def _fake_hourly_result(**overrides) -> HourlyResult:
     return HourlyResult(**base)
 
 
+def _return_or_sink_results(results, result_sink=None, store_results=True):
+    if result_sink is not None:
+        for row in results:
+            result_sink(row)
+    return results if store_results else []
+
+
 def test_simulation_cache_reuses_identical_hourly_simulations(monkeypatch):
     weather = [
         HourlyWeather(
@@ -143,7 +152,16 @@ def test_simulation_cache_reuses_identical_hourly_simulations(monkeypatch):
     )
     calls = []
 
-    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+    def fake_simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=None,
+        simulation_years=1,
+        result_sink=None,
+        store_results=True,
+        **kwargs,
+    ):
         calls.append((float(config.collector.area_m2), int(simulation_years)))
         return [
             _fake_hourly_result(
@@ -222,7 +240,7 @@ def test_hourly_simulation_smoke():
     assert all(hasattr(result, "t_source_pac_for_cop_c") for result in results)
     assert all(result.solar_ht_potential_kwh >= 0 for result in results)
     assert sum(result.solar_ht_instant_kwh for result in results) == 0.0
-    assert sum(result.solar_ht_direct_kwh for result in results) > 0
+    assert sum(result.solar_ht_from_buffer_kwh for result in results) > 0
     assert min(result.solar_ht_buffer_temp_end_c for result in results) >= config.collector.daily_buffer_ambient_temp_c - 1e-9
     assert max(result.solar_ht_buffer_temp_end_c for result in results) <= config.collector.daily_buffer_max_temp_c + 1e-9
     assert all(
@@ -380,7 +398,7 @@ def test_hourly_energy_balances():
         * (config.collector.daily_buffer_max_temp_c - config.collector.daily_buffer_ambient_temp_c)
     )
     for result in results:
-        assert abs(result.demand_ht_kwh - result.solar_ht_direct_kwh - result.unmet_ht_kwh) <= 1e-6
+        assert abs(result.demand_ht_kwh - result.solar_ht_from_buffer_kwh - result.unmet_ht_kwh) <= 1e-6
         assert result.solar_ht_instant_kwh == 0.0
         assert config.collector.daily_buffer_ambient_temp_c - 1e-9 <= result.solar_ht_buffer_temp_end_c <= config.collector.daily_buffer_max_temp_c + 1e-9
         assert abs(
@@ -469,7 +487,7 @@ def test_hourly_no_solar_case_has_no_solar_fluxes():
     )
 
     assert sum(result.solar_ht_potential_kwh for result in results) == 0.0
-    assert sum(result.solar_ht_direct_kwh for result in results) == 0.0
+    assert sum(result.solar_ht_from_buffer_kwh for result in results) == 0.0
     assert sum(result.solar_to_btes_kwh for result in results) == 0.0
     assert sum(result.solar_not_used_kwh for result in results) == 0.0
 
@@ -1114,8 +1132,9 @@ def test_run_hourly_scenario_returns_summaries_and_economics():
     assert not result.hourly_by_month_df.empty
     assert result.total_ht_kwh > 0.0
     assert result.total_bt_kwh > 0.0
-    assert result.solar_direct_ht_economic_mwh == result.total_preheat_ht_kwh / 1000.0
+    assert result.solar_ht_from_buffer_economic_mwh == result.total_preheat_ht_kwh / 1000.0
     assert "combined_heat_cost_eur_mwh" in result.heat_costs
+    assert "annual_solar_ht_from_buffer_mwh" in result.solar_economics
     assert "annual_solar_direct_ht_mwh" in result.solar_economics
 
 
@@ -1135,7 +1154,16 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
     progress_messages = []
     dataframe_lengths = []
 
-    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+    def fake_simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=None,
+        simulation_years=1,
+        result_sink=None,
+        store_results=True,
+        **kwargs,
+    ):
         calls.append((float(config.collector.area_m2), int(simulation_years)))
         results = []
         for year in range(1, int(simulation_years) + 1):
@@ -1159,7 +1187,7 @@ def test_multiyear_scenario_reuses_projection_instead_of_one_year_runs(monkeypat
                         electricity_pac_kwh=bt_kwh * 0.25,
                     )
                 )
-        return results
+        return _return_or_sink_results(results, result_sink=result_sink, store_results=store_results)
 
     def counted_hourly_results_to_dataframe(results):
         dataframe_lengths.append(len(results))
@@ -1211,7 +1239,16 @@ def test_run_hourly_scenario_reuses_reduced_borefield_dataframe(monkeypatch):
     ]
     calls = []
 
-    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+    def fake_simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=None,
+        simulation_years=1,
+        result_sink=None,
+        store_results=True,
+        **kwargs,
+    ):
         calls.append((float(config.collector.area_m2), int(config.btes.boreholes)))
         return [
             _fake_hourly_result(
@@ -1663,7 +1700,16 @@ def test_solar_parametric_study_uses_direct_summaries_without_full_dataframe(mon
     )
     dataframe_calls = []
 
-    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+    def fake_simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=None,
+        simulation_years=1,
+        result_sink=None,
+        store_results=True,
+        **kwargs,
+    ):
         results = []
         for year in range(1, int(simulation_years) + 1):
             for item in weather:
@@ -1689,7 +1735,7 @@ def test_solar_parametric_study_uses_direct_summaries_without_full_dataframe(mon
                         q_injection_w_m=5.0,
                     )
                 )
-        return results
+        return _return_or_sink_results(results, result_sink=result_sink, store_results=store_results)
 
     def counted_hourly_results_to_dataframe(results):
         dataframe_calls.append(len(results))
@@ -1726,7 +1772,7 @@ def test_solar_parametric_study_uses_direct_summaries_without_full_dataframe(mon
 
     assert len(df) == 2
     assert dataframe_calls == []
-    assert "CoÃ»t chaleur mÃªme linÃ©aire (EUR/MWh)" in df.columns
+    assert "Coût chaleur même linéaire (EUR/MWh)" in df.columns
 
 
 def test_solar_parametric_reuses_matching_main_scenario(monkeypatch):
@@ -1789,9 +1835,22 @@ def test_solar_parametric_reuses_matching_main_scenario(monkeypatch):
         pac_power_kw=80.0,
     )
 
-    def fake_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+    def fake_simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=None,
+        simulation_years=1,
+        result_sink=None,
+        store_results=True,
+        **kwargs,
+    ):
         calls.append(float(config.collector.area_m2))
-        return make_results(float(config.collector.area_m2), int(simulation_years))
+        return _return_or_sink_results(
+            make_results(float(config.collector.area_m2), int(simulation_years)),
+            result_sink=result_sink,
+            store_results=store_results,
+        )
 
     monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
     df = scenarios_module.solar_surface_parametric_study(
@@ -1895,11 +1954,24 @@ def test_solar_parametric_fast_savings_reuses_full_case_metrics(monkeypatch):
 
     savings_calls = []
 
-    def fake_savings_simulate_hourly(weather, demands, config, hourly_demand_override=None, simulation_years=1):
+    def fake_savings_simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=None,
+        simulation_years=1,
+        result_sink=None,
+        store_results=True,
+        **kwargs,
+    ):
         savings_calls.append(int(config.btes.boreholes))
         if int(config.btes.boreholes) == 20:
             raise AssertionError("Le cas champ complet reutilise ne doit pas relancer pygfunction.")
-        return make_results(float(config.collector.area_m2), int(simulation_years))
+        return _return_or_sink_results(
+            make_results(float(config.collector.area_m2), int(simulation_years)),
+            result_sink=result_sink,
+            store_results=store_results,
+        )
 
     def fail_main_simulate_hourly(*args, **kwargs):
         raise AssertionError("Le scenario principal reutilise ne doit pas relancer pygfunction.")
@@ -2103,7 +2175,8 @@ def test_borefield_savings_annualizes_multiyear_candidate_heat():
         iterations=0,
     )
 
-    assert bool(savings["found"])
+    assert not bool(savings["found"])
+    assert str(savings["message"]) == "Aucune réduction de sondes validée"
     assert abs(float(savings["equivalent_bt_pac_kwh"]) - 80.0) <= 1e-6
 
 
@@ -2325,7 +2398,15 @@ def test_found_false_when_no_real_savings():
 
 def test_no_pygfunction_parallel():
     root = Path(__file__).resolve().parent / "heliostock"
-    source = "\n".join(path.read_text(encoding="utf-8") for path in root.glob("*.py"))
+    simulation_files = [
+        "app_service.py",
+        "borefield_savings.py",
+        "btes_models.py",
+        "hourly_engine.py",
+        "scenarios.py",
+        "simulation_cache.py",
+    ]
+    source = "\n".join((root / name).read_text(encoding="utf-8") for name in simulation_files)
     assert "ThreadPoolExecutor" not in source
     assert "ProcessPoolExecutor" not in source
 
@@ -2456,3 +2537,109 @@ def test_run_hourly_scenario_builds_btes_diagnostics_without_multiyear_dataframe
     assert result.btes_diagnostics["hours_total"] == 4
     assert result.btes_diagnostics["sign_changes"] >= 1
     assert float(result.btes_diagnostics["injected_btes_kwh"]) > 0.0
+
+
+def test_airtable_token_is_not_project_saveable():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    saveable_block = source.split("SAVEABLE_WIDGET_KEYS = [", 1)[1].split("]", 1)[0]
+    assert '"airtable_api_key"' not in saveable_block
+    assert '"dashboard_google_api_key"' not in saveable_block
+    assert '"airtable_base_id"' in saveable_block
+    assert '"airtable_table_id"' in saveable_block
+
+
+def test_project_result_pickle_is_limited_to_local_sidecar():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    assert "RESULT_SIDECAR_SUFFIX" in source
+    assert "def _assert_local_project_path" in source
+    assert "_assert_local_project_path(path)" in source
+    assert "_assert_local_project_path(path: Path)" in source
+    assert "pickle.load(handle)" in source
+    assert "resolved.name.endswith(RESULT_SIDECAR_SUFFIX)" in source
+
+
+def test_calculation_snapshot_hash_is_stable_and_sensitive():
+    base_kwargs = dict(
+        weather_region="Bretagne",
+        weather_station="Rennes",
+        weather_tilt_deg=35.0,
+        weather_azimuth_deg_south=0.0,
+        weather_albedo=0.2,
+        demand_file_name="besoins.xlsx",
+        demand_file_hash="abc",
+        hourly_profile_df=pd.DataFrame({"hour_index": [0], "demand_ht_kwh": [1.0], "demand_bt_kwh": [2.0]}),
+        process_bt_target_c=25.0,
+        process_ht_target_c=60.0,
+        solar=SolarInputs(
+            area_m2=100.0,
+            eta0=0.8,
+            a1_w_m2_k=3.0,
+            a2_w_m2_k2=0.01,
+            process_ht_target_c=60.0,
+            system_efficiency=0.9,
+            daily_buffer_charge_factor_ht=1.0,
+            daily_buffer_l_per_m2=60.0,
+            daily_buffer_ambient_temp_c=20.0,
+            daily_buffer_max_temp_c=80.0,
+            daily_buffer_loss_pct_per_day=0.0,
+            solar_preheat_target_ht_c=60.0,
+            solar_buffer_hx_approach_k=5.0,
+            solar_buffer_collector_approach_k=5.0,
+        ),
+        btes=BtesInputs(boreholes=10, depth_m=100.0, spacing_m=6.0, t_initial_c=12.0, t_min_c=-3.0, t_max_c=40.0),
+        heat_pump=HeatPumpInputs(
+            air_target_bt_c=25.0,
+            condenser_approach_k=2.0,
+            evaporator_approach_k=3.0,
+            carnot_efficiency=0.54,
+            cop_min=1.0,
+            cop_max=8.0,
+            pac_power_fraction_pct=100.0,
+            peak_bt_power_kw=100.0,
+        ),
+        economics=EconomicsInputs(
+            reference_energy_cost_eur_mwh=70.0,
+            reference_energy_inflation_pct=2.0,
+            eta_appoint_eco=0.9,
+            analysis_years=25,
+            auxiliary_electricity_ratio_pct=3.0,
+            electricity_cost_eur_mwh=180.0,
+            maintenance_cost_eur_m2_year=1.0,
+            ademe_eur_mwh_year=0.0,
+            other_public_aid_eur=0.0,
+            backup_p2_eur_kw_year=10.0,
+        ),
+        pac_power_fraction_pct=100.0,
+        use_probe_predesign=True,
+        probe_power_ratio_w_m=40.0,
+        probe_energy_ratio_kwh_m=60.0,
+        probe_unit_depth_m=100.0,
+        calculation_selection=CalculationSelection(technical_simulation_years=25),
+        pac_parametric=ParametricRange(False, 0.0, 0.0, 1.0),
+        solar_parametric=ParametricRange(False, 0.0, 0.0, 1.0),
+    )
+    snapshot = build_calculation_snapshot(**base_kwargs)
+    assert stable_snapshot_hash(snapshot) == stable_snapshot_hash(build_calculation_snapshot(**base_kwargs))
+
+    changed = dict(base_kwargs)
+    changed["weather_station"] = "Brest"
+    assert stable_snapshot_hash(snapshot) != stable_snapshot_hash(build_calculation_snapshot(**changed))
+
+
+def test_dashboard_data_cleaning_helpers_are_testable():
+    assert to_float("5 000,5 L") == 5000.5
+    assert to_year("mise en service 2024") == 2024
+    assert join_values(["A", "B"]) == "A, B"
+    grouped = group_small_categories(
+        pd.DataFrame({"Categorie": ["A", "B", "C"], "Valeur": [95, 3, 2]}),
+        "Categorie",
+        "Valeur",
+        seuil_pct=4.0,
+    )
+    assert "Autres" in set(grouped["Categorie"])
+
+
+def test_ui_results_uses_single_active_section_instead_of_tabs():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_results.py").read_text(encoding="utf-8")
+    assert "st.tabs(" not in source
+    assert "st.radio(" in source

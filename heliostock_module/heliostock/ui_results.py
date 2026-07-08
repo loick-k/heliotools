@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
@@ -431,7 +431,8 @@ def render_hourly_results(
             no_solar_total_pac=scenario.no_solar_total_pac_kwh,
         )
 
-    tab_temp, tab_multi, tab_mono, tab_monthly, tab_economics, tab_parametric_pac, tab_parametric_solar, tab_detail = st.tabs(
+    result_section = st.radio(
+        "Section de resultats",
         [
             "Analyse solaire et géothermie",
             "Multiannuel BTES",
@@ -441,10 +442,12 @@ def render_hourly_results(
             "Paramétrique PAC",
             "Paramétrique solaire",
             "Données",
-        ]
+        ],
+        horizontal=True,
+        key=f"result_section_{calculation_id}",
     )
 
-    with tab_temp:
+    if result_section.startswith("Analyse solaire"):
         st.markdown(f"### Grandeurs solaires et géothermie horaire - année {scenario.simulation_year_displayed}")
         st.caption(
             "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
@@ -452,19 +455,19 @@ def render_hourly_results(
         )
         st.altair_chart(_temperature_chart(hourly_df), use_container_width=True)
 
-    with tab_multi:
+    elif result_section == "Multiannuel BTES":
         _render_multiyear_tab(scenario, multiyear_btes_df, no_solar_multiyear_btes_df)
 
-    with tab_mono:
+    elif result_section == "Monotone horaire":
         _render_duration_tab(hourly_df)
 
-    with tab_monthly:
+    elif result_section == "Analyses mensuelles":
         _render_monthly_tab(
             annual_df=annual_df,
             hourly_by_month_df=hourly_by_month_df,
         )
 
-    with tab_economics:
+    elif result_section.endswith("conomie"):
         render_economics_tab(
             economic_comparison_df=scenario.economic_comparison_df,
             economic_comparison_chart_df=scenario.economic_comparison_chart_df,
@@ -480,13 +483,13 @@ def render_hourly_results(
             spf_system=spf_system,
         )
 
-    with tab_parametric_pac:
+    elif result_section.endswith("PAC"):
         _render_parametric_pac_tab(parametric_pac_df, calculation_id=calculation_id)
 
-    with tab_parametric_solar:
+    elif result_section.endswith("solaire"):
         _render_parametric_solar_tab(parametric_surface_df, calculation_id=calculation_id)
 
-    with tab_detail:
+    else:
         _render_detail_tab(hourly_by_month_df, hourly_profile_df, hourly_df)
 
     return hourly_df
@@ -770,15 +773,14 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
     st.markdown("### Agregation par mois des resultats horaires")
     st.dataframe(display_dataframe(hourly_by_month_df), use_container_width=True, hide_index=True)
 
-    if not hourly_profile_df.empty:
-        with st.expander("Profil besoin horaire importe"):
-            st.dataframe(
-                display_dataframe(hourly_profile_df[["hour_index", "month", "day", "hour", "demand_ht_kwh", "demand_bt_kwh"]]),
-                use_container_width=True,
-                hide_index=True,
-            )
+    if not hourly_profile_df.empty and st.checkbox("Afficher le profil besoin horaire importe", value=False):
+        st.dataframe(
+            display_dataframe(hourly_profile_df[["hour_index", "month", "day", "hour", "demand_ht_kwh", "demand_bt_kwh"]]),
+            use_container_width=True,
+            hide_index=True,
+        )
 
-    with st.expander("Table horaire brute"):
+    if st.checkbox("Afficher la table horaire brute", value=False):
         st.dataframe(
             display_dataframe(
                 hourly_df[
@@ -830,3 +832,4 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
             - Le champ de sondes utilise pygfunction pour calculer la température source PAC.
             """
         )
+

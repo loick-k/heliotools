@@ -310,6 +310,8 @@ def simulate_hourly(
         solar_ht_from_buffer = min(solar_ht_eligible_from_buffer, buffer_energy)
         buffer_energy -= solar_ht_from_buffer
         solar_ht_instant = 0.0
+        # Alias legacy conserve pour les exports historiques : la chaleur HT
+        # vient bien du ballon solaire journalier, pas d'un usage direct capteur.
         solar_ht_direct = solar_ht_from_buffer
 
         buffer_was_saturated_by_solar = (
@@ -478,7 +480,7 @@ def simulate_hourly(
             electricity_pac_total_kwh=electricity_pac_total,
             electricity_system_total_kwh=electricity_system_total,
             electricity_pac_kwh=electricity_compressor,
-            unmet_ht_kwh=max(0.0, demand_ht - solar_ht_direct),
+            unmet_ht_kwh=max(0.0, demand_ht - solar_ht_from_buffer),
             unmet_bt_kwh=max(0.0, demand_bt - heat_bt_from_pac),
             collector_eff_ht=eta_ht,
             collector_eff_storage=eta_storage,
@@ -516,7 +518,7 @@ def aggregate_hourly_results_monthly(results: list[HourlyResult]) -> list[dict[s
                 "T stockage solaire moyenne (C)": sum(r.solar_ht_buffer_temp_end_c for r in month_results) / len(month_results),
                 "T capteur HT moyenne (C)": sum(r.collector_temp_ht_c for r in month_results) / len(month_results),
                 "T capteur stockage moyenne (C)": sum(r.collector_temp_storage_c for r in month_results) / len(month_results),
-                "Prechauffage HT solaire (kWh)": sum(r.solar_ht_direct_kwh for r in month_results),
+                "Prechauffage HT solaire (kWh)": sum(r.solar_ht_from_buffer_kwh for r in month_results),
                 "Potentiel solaire stockage (kWh)": sum(r.solar_storage_potential_kwh for r in month_results),
                 "Solaire injecte BTES (kWh)": sum(r.solar_to_btes_kwh for r in month_results),
                 "Solaire non valorise (kWh)": sum(r.solar_not_used_kwh for r in month_results),
@@ -549,7 +551,7 @@ def aggregate_hourly_results_monthly(results: list[HourlyResult]) -> list[dict[s
                     / max(1e-9, sum(r.electricity_pac_total_kwh for r in month_results))
                 ),
                 "Taux couverture solaire HT (%)": (
-                    sum(r.solar_ht_direct_kwh for r in month_results)
+                    sum(r.solar_ht_from_buffer_kwh for r in month_results)
                     / max(1e-9, sum(r.demand_ht_kwh for r in month_results))
                     * 100.0
                 ),

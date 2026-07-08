@@ -102,7 +102,7 @@ Pour chaque heure EPW, le calcul suit l'ordre suivant :
 12. Mise a jour de l'historique thermique `pygfunction` par charge lineique nette.
 
 L'analyse economique solaire thermique est calculee apres la simulation horaire, uniquement a partir du prechauffage
-HT solaire direct :
+HT solaire issu du ballon journalier :
 
 ```text
 energie_solaire_valorisee_solaire = prechauffage_HT_solaire
@@ -119,7 +119,7 @@ Une synthese multi-energies ajoute :
 
 La reference de chaleur evitee pour le solaire est un appoint gaz. La geothermie beneficie d'une aide ADEME de
 50 EUR/MWh.an sur la chaleur PAC, plafonnee a 65 % du CAPEX geothermie brut.
-L'aide ADEME solaire est calculee uniquement sur le prechauffage HT solaire direct. Le surplus solaire injecte dans
+L'aide ADEME solaire est calculee uniquement sur le prechauffage HT solaire via ballon. Le surplus solaire injecte dans
 le BTES n'est pas recompte cote solaire : il est valorise via la recharge geothermique et l'economie de lineaire de
 sondes.
 

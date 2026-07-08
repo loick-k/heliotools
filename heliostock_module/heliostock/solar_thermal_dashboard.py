@@ -1,4 +1,4 @@
-"""
+﻿"""
 Dashboard Streamlit - Installations Solaire Thermique (Atlansun)
 ==================================================================
 Connecte l'app à votre base Airtable "BDD Atlansun Solaire thermique"
@@ -10,7 +10,6 @@ Lancement local :
     streamlit run app.py
 """
 
-import re
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote_plus
 
@@ -22,6 +21,8 @@ import streamlit as st
 from folium.plugins import MarkerCluster
 from pyairtable import Api
 from streamlit_folium import st_folium
+
+from .dashboard_data_cleaning import group_small_categories, join_values, to_float, to_year
 
 # ---------------------------------------------------------------------------
 # Configuration de la page
@@ -47,63 +48,6 @@ def _dashboard_secret(name: str, default: str = "") -> str:
         return str(st.secrets.get(name, default) or default)
     except Exception:
         return default
-
-
-# ---------------------------------------------------------------------------
-# Fonctions utilitaires de nettoyage
-# ---------------------------------------------------------------------------
-def to_float(value):
-    """Extrait un nombre flottant d'une chaîne du type '5 000 L' ou '45%'."""
-    if value is None or value == "":
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    match = re.search(r"[-+]?\d[\d\s]*(?:[.,]\d+)?", str(value))
-    if not match:
-        return None
-    cleaned = match.group(0).replace(" ", "").replace(",", ".")
-    try:
-        return float(cleaned)
-    except ValueError:
-        return None
-
-
-def to_year(value):
-    """Extrait une année à 4 chiffres (19xx ou 20xx) d'une chaîne."""
-    if value is None:
-        return None
-    match = re.search(r"(19|20)\d{2}", str(value))
-    return int(match.group(0)) if match else None
-
-
-def join_values(value):
-    """Uniformise les valeurs de type liste (lookups) en chaîne lisible."""
-    if value is None:
-        return None
-    if isinstance(value, list):
-        return ", ".join(str(v) for v in value) if value else None
-    return value
-
-
-def group_small_categories(
-    counts: pd.DataFrame, label_col: str, value_col: str, seuil_pct: float = 3.0
-) -> pd.DataFrame:
-    """Regroupe les catégories représentant moins de `seuil_pct`% du total
-    dans une catégorie 'Autres', pour éviter les graphiques illisibles avec
-    de nombreuses petites tranches."""
-    total = counts[value_col].sum()
-    if total == 0 or counts.empty:
-        return counts
-    counts = counts.copy()
-    counts["_pct"] = counts[value_col] / total * 100
-    principales = counts[counts["_pct"] >= seuil_pct][[label_col, value_col]]
-    petites = counts[counts["_pct"] < seuil_pct]
-    if not petites.empty:
-        ligne_autres = pd.DataFrame(
-            {label_col: ["Autres"], value_col: [petites[value_col].sum()]}
-        )
-        principales = pd.concat([principales, ligne_autres], ignore_index=True)
-    return principales.sort_values(value_col, ascending=False)
 
 
 # ---------------------------------------------------------------------------
@@ -293,8 +237,11 @@ def render_solar_thermal_dashboard() -> None:
 
     try:
         df = load_data(api_key, base_id, table_id)
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"Erreur lors du chargement des données Airtable : {exc}")
+    except Exception:  # noqa: BLE001
+        st.error(
+            "Erreur lors du chargement des données Airtable. Vérifie le token, "
+            "le Base ID et le Table ID."
+        )
         st.stop()
 
     if df.empty:
@@ -662,3 +609,4 @@ def render_solar_thermal_dashboard() -> None:
             file_name="installations_solaire_thermique.csv",
             mime="text/csv",
         )
+
