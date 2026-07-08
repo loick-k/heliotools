@@ -12,5 +12,12 @@
     "success": false,
     "reason": "invalid_credentials",
     "role": ""
+  },
+  {
+    "timestamp": "2026-07-08T14:23:59",
+    "email": "loick@atlansun.fr",
+    "success": false,
+    "reason": "invalid_credentials",
+    "role": ""
   }
 ]
