@@ -16,6 +16,10 @@ env/
 .env
 .env.*
 
+# HelioTools local auth/project state
+.heliostock/
+!heliostock_module/seed_data/users.json
+
 # Local client/process demand files
 *.xlsx
 *.xls
