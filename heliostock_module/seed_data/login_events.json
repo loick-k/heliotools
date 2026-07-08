@@ -110,5 +110,26 @@
     "success": true,
     "reason": "login",
     "role": "user"
+  },
+  {
+    "timestamp": "2026-07-08T14:27:06",
+    "email": "klara@atlansun.fr",
+    "success": true,
+    "reason": "login",
+    "role": "user"
+  },
+  {
+    "timestamp": "2026-07-08T14:27:07",
+    "email": "klara@atlansun.fr",
+    "success": true,
+    "reason": "login",
+    "role": "user"
+  },
+  {
+    "timestamp": "2026-07-08T14:27:08",
+    "email": "klara@atlansun.fr",
+    "success": true,
+    "reason": "login",
+    "role": "user"
   }
 ]
