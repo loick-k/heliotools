@@ -1643,21 +1643,44 @@ def run_hourly_scenario(
 
     _notify(progress, 70, "Calcul de l'économie équivalente de sondes...")
     if no_solar_economic_metrics is not None:
-        savings = borefield_equivalent_savings(
-            weather=weather,
-            demands=demands,
-            config=config,
-            reference_final_cop=no_solar_cop,
-            reference_final_bt_pac_kwh=no_solar_total_pac,
-            reference_final_bt_coverage=no_solar_reference_coverage,
-            reference_final_source_limited_hours=no_solar_reference_limited_hours,
-            hourly_demand_override=hourly_demand_override,
-            simulation_years=multiyear_years,
-            search_mode=savings_search_mode if run_reduced_borefield else "none",
-            full_case_metrics=full_case_metrics,
-            simulation_cache=simulation_cache,
-            include_hourly_df=run_reduced_borefield,
-        )
+        try:
+            savings = borefield_equivalent_savings(
+                weather=weather,
+                demands=demands,
+                config=config,
+                reference_final_cop=no_solar_cop,
+                reference_final_bt_pac_kwh=no_solar_total_pac,
+                reference_final_bt_coverage=no_solar_reference_coverage,
+                reference_final_source_limited_hours=no_solar_reference_limited_hours,
+                hourly_demand_override=hourly_demand_override,
+                simulation_years=multiyear_years,
+                search_mode=savings_search_mode if run_reduced_borefield else "none",
+                full_case_metrics=full_case_metrics,
+                simulation_cache=simulation_cache,
+                include_hourly_df=False,
+            )
+        except Exception as exc:
+            if simulation_cache is not None:
+                simulation_cache.record_event(
+                    "borefield_savings:error",
+                    "Economie de sondes non determinee",
+                    {
+                        "Mode economie sondes": str(savings_search_mode),
+                        "Erreur": f"{type(exc).__name__}: {exc}",
+                        "Simulations lancees": 0,
+                    },
+                )
+            savings = {
+                "found": False,
+                "saved_length_m": 0.0,
+                "saved_fraction": 0.0,
+                "equivalent_length_m": float(config.btes.boreholes) * float(config.btes.depth_m),
+                "equivalent_boreholes": int(config.btes.boreholes),
+                "equivalent_cop": same_metrics["mean_cop"],
+                "equivalent_bt_pac_kwh": same_metrics["pac_heat_mwh"] * 1000.0,
+                "savings_simulations_count": 0,
+                "message": "Economie de sondes non determinee : le calcul expert a echoue.",
+            }
     else:
         savings = {"found": False, "saved_length_m": 0.0, "equivalent_length_m": 0.0}
     _notify(progress, 85, "Calcul économique solaire thermique...")
@@ -1701,16 +1724,40 @@ def run_hourly_scenario(
             reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
             reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
             reduced_config = replace(config, btes=reduced_btes)
-            reduced_results = _simulate_hourly_cached(
-                weather=weather,
-                demands=demands,
-                config=reduced_config,
-                hourly_demand_override=hourly_demand_override,
-                simulation_years=multiyear_years,
-                simulation_cache=simulation_cache,
-                cache_mode="pygfunction",
-            )
-            reduced_metrics = _hourly_metrics_from_results(reduced_results, annualization_years=multiyear_years)
+            try:
+                reduced_results = _simulate_hourly_cached(
+                    weather=weather,
+                    demands=demands,
+                    config=reduced_config,
+                    hourly_demand_override=hourly_demand_override,
+                    simulation_years=multiyear_years,
+                    simulation_cache=simulation_cache,
+                    cache_mode="pygfunction",
+                )
+                reduced_metrics = _hourly_metrics_from_results(reduced_results, annualization_years=multiyear_years)
+            except Exception as exc:
+                if simulation_cache is not None:
+                    simulation_cache.record_event(
+                        "reduced_borefield:error",
+                        "Simulation sondes reduites non disponible",
+                        {
+                            "Sondes": int(reduced_boreholes),
+                            "Annees simulees": int(multiyear_years),
+                            "Erreur": f"{type(exc).__name__}: {exc}",
+                            "Simulations lancees": 0,
+                        },
+                    )
+                savings = {
+                    **savings,
+                    "found": False,
+                    "saved_length_m": 0.0,
+                    "saved_fraction": 0.0,
+                    "equivalent_length_m": full_borefield_length_m,
+                    "equivalent_boreholes": int(config.btes.boreholes),
+                    "message": "Economie de sondes non determinee : la simulation sondes reduites a echoue.",
+                }
+                reduced_results = []
+                reduced_metrics = same_metrics
     else:
         reduced_results = []
         reduced_metrics = same_metrics
