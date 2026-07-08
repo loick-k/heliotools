@@ -1,20 +1,25 @@
 import streamlit as st
 
 from heliostock.streamlit_module import render_heliostock_hourly
-from heliostock.ui_portal import (
-    is_user_authenticated,
-    render_admin_login,
-    render_portal_sidebar,
-)
+from heliostock import ui_portal
 
 
 st.set_page_config(page_title="HelioStock", layout="wide")
 
-if not is_user_authenticated():
-    render_admin_login()
+
+def _is_user_authenticated() -> bool:
+    checker = getattr(ui_portal, "is_user_authenticated", None)
+    if callable(checker):
+        return bool(checker())
+    user = st.session_state.get("user")
+    return bool(isinstance(user, dict) and user.get("email"))
+
+
+if not _is_user_authenticated():
+    ui_portal.render_admin_login()
     st.stop()
 
-selected_app = render_portal_sidebar()
+selected_app = ui_portal.render_portal_sidebar()
 if selected_app == "HelioStock":
     render_heliostock_hourly()
 elif selected_app == "Dashboard solaire thermique":

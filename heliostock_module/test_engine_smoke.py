@@ -2595,8 +2595,8 @@ def test_login_events_are_recorded_without_secret_values():
 
 def test_app_gate_accepts_non_admin_authenticated_users():
     source = (Path(__file__).resolve().parent / "demo_app.py").read_text(encoding="utf-8")
-    assert "is_user_authenticated" in source
-    assert "if not is_user_authenticated():" in source
+    assert "getattr(ui_portal, \"is_user_authenticated\", None)" in source
+    assert "if not _is_user_authenticated():" in source
     assert "if not is_admin_authenticated():" not in source
 
 
