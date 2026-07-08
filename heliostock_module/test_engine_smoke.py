@@ -2636,6 +2636,19 @@ def test_projects_are_scoped_to_owner_for_non_admin_users():
     assert "Tu n'as pas accès à ce projet." in source
 
 
+def test_project_state_is_cleared_on_login_and_logout():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    assert "def _clear_project_session_state" in source
+    assert '"heliostock_last_result"' in source
+    assert '"heliostock_current_project_name"' in source
+    assert '"heliostock_demand_file_bytes"' in source
+    assert '"portal_project_to_load"' in source
+    connect_block = source.split("def _connect_user", 1)[1].split("def _disconnect_user", 1)[0]
+    disconnect_block = source.split("def _disconnect_user", 1)[1].split("def is_admin_authenticated", 1)[0]
+    assert "_clear_project_session_state()" in connect_block
+    assert "_clear_project_session_state()" in disconnect_block
+
+
 def test_app_gate_accepts_non_admin_authenticated_users():
     source = (Path(__file__).resolve().parent / "demo_app.py").read_text(encoding="utf-8")
     assert "getattr(ui_portal, \"is_user_authenticated\", None)" in source

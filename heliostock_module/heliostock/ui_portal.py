@@ -467,6 +467,7 @@ def _connect_user(email: str, password: str) -> bool:
         return False
 
     _clear_login_failures(email_norm)
+    _clear_project_session_state()
     st.session_state["user"] = {
         "email": user.get("email"),
         "nom": user.get("nom") or user.get("email"),
@@ -480,6 +481,7 @@ def _connect_user(email: str, password: str) -> bool:
 
 
 def _disconnect_user() -> None:
+    _clear_project_session_state()
     st.session_state.pop("user", None)
     st.session_state["heliostock_admin_authenticated"] = False
     st.session_state.pop("heliostock_admin_email", None)
@@ -503,6 +505,18 @@ def _current_user_email() -> str:
     if isinstance(user, dict):
         return _email_normalise(str(user.get("email", "")))
     return ""
+
+
+def _clear_project_session_state() -> None:
+    for key in (
+        "heliostock_last_result",
+        "heliostock_current_project_name",
+        "heliostock_demand_file_bytes",
+        "heliostock_demand_file_name",
+        "portal_project_to_load",
+        "portal_project_name",
+    ):
+        st.session_state.pop(key, None)
 
 
 def _render_user_admin_panel() -> None:
