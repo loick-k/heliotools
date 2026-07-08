@@ -2,7 +2,7 @@ import streamlit as st
 
 from heliostock.streamlit_module import render_heliostock_hourly
 from heliostock.ui_portal import (
-    is_admin_authenticated,
+    is_user_authenticated,
     render_admin_login,
     render_portal_sidebar,
 )
@@ -10,7 +10,7 @@ from heliostock.ui_portal import (
 
 st.set_page_config(page_title="HelioStock", layout="wide")
 
-if not is_admin_authenticated():
+if not is_user_authenticated():
     render_admin_login()
     st.stop()
 

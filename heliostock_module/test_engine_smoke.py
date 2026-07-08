@@ -2593,6 +2593,13 @@ def test_login_events_are_recorded_without_secret_values():
     assert "_github_write_json_list(" in source
 
 
+def test_app_gate_accepts_non_admin_authenticated_users():
+    source = (Path(__file__).resolve().parent / "demo_app.py").read_text(encoding="utf-8")
+    assert "is_user_authenticated" in source
+    assert "if not is_user_authenticated():" in source
+    assert "if not is_admin_authenticated():" not in source
+
+
 def test_calculation_snapshot_hash_is_stable_and_sensitive():
     base_kwargs = dict(
         weather_region="Bretagne",

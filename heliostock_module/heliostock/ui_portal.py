@@ -493,6 +493,11 @@ def is_admin_authenticated() -> bool:
     )
 
 
+def is_user_authenticated() -> bool:
+    user = st.session_state.get("user")
+    return isinstance(user, dict) and bool(user.get("email"))
+
+
 def _render_user_admin_panel() -> None:
     with st.expander("Utilisateurs", expanded=False):
         users = _load_users()
@@ -682,7 +687,7 @@ def render_brand_header(*, subtitle: str = "Portail des outils solaires Atlansun
 def render_admin_login(*, compact: bool = False) -> bool:
     """Render admin login and return authentication state."""
 
-    if is_admin_authenticated():
+    if is_user_authenticated():
         return True
 
     if _bootstrap_admin_from_secrets():
@@ -754,7 +759,7 @@ def render_portal_sidebar() -> str:
     with st.sidebar:
         if HELIOPILOT_LOGO.exists():
             st.image(str(HELIOPILOT_LOGO), use_container_width=True)
-        if is_admin_authenticated():
+        if is_user_authenticated():
             user = st.session_state.get("user") if isinstance(st.session_state.get("user"), dict) else {}
             st.write(f"Connecté : {user.get('nom') or user.get('email') or st.session_state.get('heliostock_admin_email', 'admin')}")
             st.caption(f"Rôle : {user.get('role', 'admin')}")
