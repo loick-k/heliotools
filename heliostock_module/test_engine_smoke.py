@@ -2606,6 +2606,18 @@ def test_solar_dashboard_is_admin_only_and_airtable_inputs_are_hidden():
     assert '_dashboard_secret("AIRTABLE_TOKEN")' in dashboard_source
 
 
+def test_projects_are_scoped_to_owner_for_non_admin_users():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    assert '"owner_email": _current_user_email()' in source
+    assert "def _can_access_project" in source
+    assert "if is_admin_authenticated():" in source
+    assert "owner_email == _current_user_email()" in source
+    assert "and _can_access_project(path)" in source
+    assert "def _owned_project_slug" in source
+    assert "_owned_project_slug(str(payload['name']))" in source
+    assert "Tu n'as pas accès à ce projet." in source
+
+
 def test_app_gate_accepts_non_admin_authenticated_users():
     source = (Path(__file__).resolve().parent / "demo_app.py").read_text(encoding="utf-8")
     assert "getattr(ui_portal, \"is_user_authenticated\", None)" in source

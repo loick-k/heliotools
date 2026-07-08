@@ -498,6 +498,13 @@ def is_user_authenticated() -> bool:
     return isinstance(user, dict) and bool(user.get("email"))
 
 
+def _current_user_email() -> str:
+    user = st.session_state.get("user")
+    if isinstance(user, dict):
+        return _email_normalise(str(user.get("email", "")))
+    return ""
+
+
 def _render_user_admin_panel() -> None:
     with st.expander("Utilisateurs", expanded=False):
         users = _load_users()
@@ -537,6 +544,29 @@ def _safe_project_slug(name: str) -> str:
     return slug[:80] or "projet_heliostock"
 
 
+def _owned_project_slug(name: str) -> str:
+    owner = _safe_project_slug(_current_user_email() or "anonymous")
+    project = _safe_project_slug(name)
+    return f"{owner}_{project}"[:120]
+
+
+def _project_owner_email(path: Path) -> str:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return _email_normalise(str(data.get("owner_email", "") or data.get("created_by_email", "")))
+
+
+def _can_access_project(path: Path) -> bool:
+    if is_admin_authenticated():
+        return True
+    owner_email = _project_owner_email(path)
+    return bool(owner_email and owner_email == _current_user_email())
+
+
 def _project_files() -> list[Path]:
     if not PROJECTS_DIR.exists():
         return []
@@ -545,6 +575,7 @@ def _project_files() -> list[Path]:
         path
         for path in PROJECTS_DIR.glob("*.json")
         if path.resolve() != users_path
+        and _can_access_project(path)
     ]
     return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
 
@@ -626,6 +657,8 @@ def _project_payload(name: str) -> dict[str, Any]:
     return {
         "schema_version": 2,
         "name": name.strip() or "Projet HelioStock",
+        "owner_email": _current_user_email(),
+        "created_by_email": _current_user_email(),
         "saved_at": datetime.now().isoformat(timespec="seconds"),
         "app": "HelioStock",
         "widget_values": widget_values,
@@ -637,6 +670,9 @@ def _project_payload(name: str) -> dict[str, Any]:
 
 def _load_project(path: Path) -> None:
     path = _assert_local_project_path(path)
+    if not _can_access_project(path):
+        st.error("Tu n'as pas accès à ce projet.")
+        return
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         st.warning("Ce fichier projet utilise un ancien format non compatible.")
@@ -820,7 +856,7 @@ def render_project_save_controls() -> None:
         if st.button("Enregistrer le projet", type="primary", use_container_width=True):
             PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
             payload = _project_payload(project_name)
-            path = PROJECTS_DIR / f"{_safe_project_slug(str(payload['name']))}.json"
+            path = PROJECTS_DIR / f"{_owned_project_slug(str(payload['name']))}.json"
             path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             demand_path, result_path = _project_sidecar_paths(path)
             demand_bytes = st.session_state.get("heliostock_demand_file_bytes")
