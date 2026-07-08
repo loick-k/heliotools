@@ -1,23 +1,16 @@
 [
   {
-    "timestamp": "2026-07-08T14:47:26",
-    "email": "loick@atlansun.fr",
-    "success": false,
-    "reason": "invalid_credentials",
-    "role": ""
-  },
-  {
-    "timestamp": "2026-07-08T14:47:32",
-    "email": "loick@atlansun.fr",
-    "success": true,
-    "reason": "login",
-    "role": "admin"
-  },
-  {
-    "timestamp": "2026-07-08T14:51:26",
+    "timestamp": "2026-07-08T14:57:28",
     "email": "klara@atlansun.fr",
     "success": true,
     "reason": "login",
     "role": "user"
+  },
+  {
+    "timestamp": "2026-07-08T14:57:44",
+    "email": "loick@atlansun.fr",
+    "success": true,
+    "reason": "login",
+    "role": "admin"
   }
 ]
