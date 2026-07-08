@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import pickle
 import re
+import base64
 import hashlib
 import hmac
 import os
@@ -10,6 +11,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib import error as urlerror
+from urllib import request as urlrequest
 
 import streamlit as st
 
@@ -19,7 +22,11 @@ HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
 USERS_FILE = PROJECTS_DIR / "users.json"
+LOGIN_EVENTS_FILE = PROJECTS_DIR / "login_events.json"
 RESULT_SIDECAR_SUFFIX = "_resultat.pkl"
+DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"
+DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"
+DEFAULT_BACKUP_INSTALLATIONS_PATH = "seed_data/installations.json"
 PASSWORD_MIN_LENGTH = 10
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCK_SECONDS = 60
@@ -80,23 +87,238 @@ def _admin_password() -> str:
     return _secret_value("HELIOSTOCK_ADMIN_PASSWORD")
 
 
-def _email_normalise(email: str) -> str:
-    return str(email or "").strip().lower()
+def _github_backup_repo() -> str:
+    return _secret_value("GITHUB_BACKUP_REPO")
 
 
-def _load_users() -> list[dict[str, Any]]:
-    if not USERS_FILE.exists():
-        return []
+def _github_backup_branch() -> str:
+    return _secret_value("GITHUB_BACKUP_BRANCH") or "main"
+
+
+def _github_backup_token() -> str:
+    return _secret_value("GITHUB_BACKUP_TOKEN")
+
+
+def _backup_users_path_setting() -> str:
+    return _secret_value("GITHUB_BACKUP_USERS_PATH") or DEFAULT_BACKUP_USERS_PATH
+
+
+def _backup_login_events_path_setting() -> str:
+    return _secret_value("GITHUB_BACKUP_LOGIN_EVENTS_PATH") or DEFAULT_BACKUP_LOGIN_EVENTS_PATH
+
+
+def _backup_installations_path_setting() -> str:
+    return _secret_value("GITHUB_BACKUP_INSTALLATIONS_PATH") or DEFAULT_BACKUP_INSTALLATIONS_PATH
+
+
+def _github_backup_enabled() -> bool:
+    return bool(_github_backup_repo() and _github_backup_branch() and _github_backup_token())
+
+
+def _resolve_backup_users_path() -> Path:
+    configured = Path(_backup_users_path_setting())
+    if configured.is_absolute():
+        return configured
+
+    candidates = [
+        Path.cwd() / configured,
+        Path(__file__).resolve().parents[1] / configured,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _resolve_backup_login_events_path() -> Path:
+    configured = Path(_backup_login_events_path_setting())
+    if configured.is_absolute():
+        return configured
+
+    candidates = [
+        Path.cwd() / configured,
+        Path(__file__).resolve().parents[1] / configured,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _read_users_file(path: Path) -> list[dict[str, Any]]:
     try:
-        data = json.loads(USERS_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
     return data if isinstance(data, list) else []
 
 
+def _read_json_list(path: Path) -> list[dict[str, Any]]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _write_users_file(path: Path, users: list[dict[str, Any]]) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def _write_json_list(path: Path, rows: list[dict[str, Any]]) -> bool:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def _github_api_headers() -> dict[str, str]:
+    return {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {_github_backup_token()}",
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "HelioTools-Streamlit",
+    }
+
+
+def _github_contents_url(path: str) -> str:
+    repo = _github_backup_repo().strip().strip("/")
+    safe_path = str(path or "").strip().lstrip("/")
+    return f"https://api.github.com/repos/{repo}/contents/{safe_path}"
+
+
+def _github_read_json_list(path: str) -> list[dict[str, Any]]:
+    if not _github_backup_enabled():
+        return []
+    url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
+    req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
+    try:
+        with urlrequest.urlopen(req, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return []
+    encoded = str(payload.get("content", "") or "")
+    try:
+        decoded = base64.b64decode(encoded).decode("utf-8")
+        data = json.loads(decoded)
+    except Exception:
+        return []
+    return data if isinstance(data, list) else []
+
+
+def _github_file_sha(path: str) -> str | None:
+    if not _github_backup_enabled():
+        return None
+    url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
+    req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
+    try:
+        with urlrequest.urlopen(req, timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except urlerror.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        return None
+    except Exception:
+        return None
+    sha = payload.get("sha")
+    return str(sha) if sha else None
+
+
+def _github_write_json_list(path: str, rows: list[dict[str, Any]], *, message: str) -> bool:
+    if not _github_backup_enabled():
+        return False
+    content = json.dumps(rows, ensure_ascii=False, indent=2).encode("utf-8")
+    body: dict[str, Any] = {
+        "message": message,
+        "content": base64.b64encode(content).decode("ascii"),
+        "branch": _github_backup_branch(),
+    }
+    sha = _github_file_sha(path)
+    if sha:
+        body["sha"] = sha
+    req = urlrequest.Request(
+        _github_contents_url(path),
+        data=json.dumps(body).encode("utf-8"),
+        headers={**_github_api_headers(), "Content-Type": "application/json"},
+        method="PUT",
+    )
+    try:
+        with urlrequest.urlopen(req, timeout=10):
+            return True
+    except Exception:
+        return False
+
+
+def _restore_users_from_backup() -> list[dict[str, Any]]:
+    github_users = _github_read_json_list(_backup_users_path_setting())
+    if github_users:
+        _write_users_file(USERS_FILE, github_users)
+        return github_users
+
+    backup_path = _resolve_backup_users_path()
+    if not backup_path.exists():
+        return []
+    users = _read_users_file(backup_path)
+    if users:
+        _write_users_file(USERS_FILE, users)
+    return users
+
+
+def _backup_users_configured() -> bool:
+    return (
+        _github_backup_enabled()
+        or bool(_secret_value("GITHUB_BACKUP_USERS_PATH"))
+        or _resolve_backup_users_path().exists()
+    )
+
+
+def _email_normalise(email: str) -> str:
+    return str(email or "").strip().lower()
+
+
+def _load_users() -> list[dict[str, Any]]:
+    if USERS_FILE.exists():
+        users = _read_users_file(USERS_FILE)
+        if users:
+            return users
+    return _restore_users_from_backup()
+
+
 def _save_users(users: list[dict[str, Any]]) -> None:
-    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-    USERS_FILE.write_text(json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
+    _write_users_file(USERS_FILE, users)
+    _write_users_file(_resolve_backup_users_path(), users)
+    _github_write_json_list(
+        _backup_users_path_setting(),
+        users,
+        message="chore: update heliotools users backup",
+    )
+
+
+def _append_login_event(*, email: str, success: bool, reason: str = "", role: str = "") -> None:
+    event = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "email": _email_normalise(email),
+        "success": bool(success),
+        "reason": str(reason or ""),
+        "role": str(role or ""),
+    }
+    rows = _read_json_list(LOGIN_EVENTS_FILE)
+    rows.append(event)
+    rows = rows[-1000:]
+    _write_json_list(LOGIN_EVENTS_FILE, rows)
+    _write_json_list(_resolve_backup_login_events_path(), rows)
+    _github_write_json_list(
+        _backup_login_events_path_setting(),
+        rows,
+        message="chore: update heliotools login events",
+    )
 
 
 def _user_by_email(email: str) -> dict[str, Any] | None:
@@ -133,24 +355,30 @@ def _validate_password(password: str) -> None:
         raise ValueError(f"Le mot de passe doit contenir au moins {PASSWORD_MIN_LENGTH} caractères.")
 
 
-def _create_admin_user(email: str, name: str, password: str) -> None:
+def _create_user(email: str, name: str, password: str, *, role: str = "user") -> None:
     email_norm = _email_normalise(email)
     if not email_norm:
-        raise ValueError("Email administrateur requis.")
+        raise ValueError("Email utilisateur requis.")
     _validate_password(password)
     if _user_by_email(email_norm) is not None:
         raise ValueError("Ce compte existe déjà.")
+    role_value = "admin" if str(role).strip().lower() == "admin" else "user"
     users = _load_users()
     users.append(
         {
             "email": email_norm,
             "nom": str(name or "").strip() or email_norm,
-            "role": "admin",
+            "role": role_value,
             "password_hash": _hash_password(password),
             "created_at": datetime.now().isoformat(timespec="seconds"),
+            "active": True,
         }
     )
     _save_users(users)
+
+
+def _create_admin_user(email: str, name: str, password: str) -> None:
+    _create_user(email=email, name=name, password=password, role="admin")
 
 
 def _bootstrap_admin_from_secrets() -> bool:
@@ -223,12 +451,19 @@ def _connect_user(email: str, password: str) -> bool:
         st.session_state["heliotools_login_error"] = (
             f"Trop de tentatives de connexion. Réessaie dans {remaining} seconde(s)."
         )
+        _append_login_event(email=email_norm, success=False, reason="locked")
         return False
 
     user = _user_by_email(email_norm)
     if not user or not _verify_password(password, str(user.get("password_hash", ""))):
         _record_login_failure(email_norm)
         st.session_state["heliotools_login_error"] = "Identifiants incorrects."
+        _append_login_event(email=email_norm, success=False, reason="invalid_credentials")
+        return False
+
+    if user.get("active") is False:
+        st.session_state["heliotools_login_error"] = "Compte désactivé."
+        _append_login_event(email=email_norm, success=False, reason="disabled", role=str(user.get("role", "")))
         return False
 
     _clear_login_failures(email_norm)
@@ -240,6 +475,7 @@ def _connect_user(email: str, password: str) -> bool:
     st.session_state["heliostock_admin_authenticated"] = user.get("role") == "admin"
     st.session_state["heliostock_admin_email"] = str(user.get("email", ""))
     st.session_state.pop("heliotools_login_error", None)
+    _append_login_event(email=email_norm, success=True, reason="login", role=str(user.get("role", "")))
     return True
 
 
@@ -257,6 +493,39 @@ def is_admin_authenticated() -> bool:
     )
 
 
+def _render_user_admin_panel() -> None:
+    with st.expander("Utilisateurs", expanded=False):
+        users = _load_users()
+        if users:
+            st.caption(f"{len(users)} compte(s) enregistré(s)")
+            for user in users[-8:]:
+                status = "actif" if user.get("active", True) is not False else "désactivé"
+                st.write(f"- {user.get('email', '')} · {user.get('role', 'user')} · {status}")
+        else:
+            st.caption("Aucun utilisateur enregistré.")
+
+        with st.form("form_create_portal_user"):
+            email = st.text_input("Email utilisateur", key="portal_new_user_email")
+            name = st.text_input("Nom utilisateur", key="portal_new_user_name")
+            role = st.selectbox("Rôle", options=["user", "admin"], key="portal_new_user_role")
+            password = st.text_input("Mot de passe temporaire", type="password", key="portal_new_user_password")
+            submitted = st.form_submit_button("Créer l'utilisateur")
+        if submitted:
+            try:
+                _create_user(email=email, name=name, password=password, role=role)
+                st.success("Utilisateur créé.")
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+
+        events = _read_json_list(LOGIN_EVENTS_FILE)
+        if events:
+            st.caption("Dernières connexions")
+            for event in events[-5:][::-1]:
+                outcome = "OK" if event.get("success") else "KO"
+                st.write(f"- {event.get('timestamp', '')} · {outcome} · {event.get('email', '')}")
+
+
 def _safe_project_slug(name: str) -> str:
     slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip())
     slug = slug.strip("._-")
@@ -266,7 +535,25 @@ def _safe_project_slug(name: str) -> str:
 def _project_files() -> list[Path]:
     if not PROJECTS_DIR.exists():
         return []
-    return sorted(PROJECTS_DIR.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    users_path = USERS_FILE.resolve()
+    files = [
+        path
+        for path in PROJECTS_DIR.glob("*.json")
+        if path.resolve() != users_path
+    ]
+    return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def _has_existing_project_data() -> bool:
+    if not PROJECTS_DIR.exists():
+        return False
+    users_path = USERS_FILE.resolve()
+    for path in PROJECTS_DIR.iterdir():
+        if path.resolve() == users_path:
+            continue
+        if path.is_file():
+            return True
+    return False
 
 
 def _assert_local_project_path(path: Path) -> Path:
@@ -408,6 +695,18 @@ def render_admin_login(*, compact: bool = False) -> bool:
             render_brand_header()
 
         if not _load_users():
+            if _has_existing_project_data() or _backup_users_configured():
+                st.error(
+                    "Aucun compte utilisateur n'a pu être restauré depuis la sauvegarde configurée. "
+                    "Par sécurité, la création libre d'un nouvel administrateur est bloquée."
+                )
+                st.info(
+                    "Vérifie le secret Streamlit `GITHUB_BACKUP_USERS_PATH` "
+                    "(par exemple `seed_data/users.json`) ou restaure l'accès avec "
+                    "`HELIOSTOCK_ADMIN_EMAIL` et `HELIOSTOCK_ADMIN_PASSWORD`."
+                )
+                return False
+
             st.subheader("Initialisation administrateur")
             st.info("Aucun compte n'existe encore. Crée le premier compte administrateur.")
             with st.form(f"form_init_admin_{'compact' if compact else 'page'}"):
@@ -463,6 +762,8 @@ def render_portal_sidebar() -> str:
                 _disconnect_user()
                 st.session_state.pop("heliostock_last_result", None)
                 st.rerun()
+            if user.get("role") == "admin":
+                _render_user_admin_panel()
             st.divider()
         app_name = st.selectbox(
             "Application",

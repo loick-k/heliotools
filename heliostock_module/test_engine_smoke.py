@@ -2558,6 +2558,41 @@ def test_project_result_pickle_is_limited_to_local_sidecar():
     assert "resolved.name.endswith(RESULT_SIDECAR_SUFFIX)" in source
 
 
+def test_admin_creation_is_blocked_when_project_data_already_exists():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    assert "def _has_existing_project_data" in source
+    assert "if _has_existing_project_data() or _backup_users_configured():" in source
+    assert "création libre d'un nouvel administrateur est bloquée" in source
+    assert "HELIOSTOCK_ADMIN_EMAIL" in source
+    assert "HELIOSTOCK_ADMIN_PASSWORD" in source
+    assert "path.resolve() != users_path" in source
+
+
+def test_users_are_restored_from_configured_backup_path():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    assert 'DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"' in source
+    assert 'GITHUB_BACKUP_USERS_PATH' in source
+    assert 'GITHUB_BACKUP_REPO' in source
+    assert 'GITHUB_BACKUP_BRANCH' in source
+    assert 'GITHUB_BACKUP_TOKEN' in source
+    assert "def _restore_users_from_backup" in source
+    assert "_github_read_json_list(_backup_users_path_setting())" in source
+    assert "return _restore_users_from_backup()" in source
+    assert "_write_users_file(_resolve_backup_users_path(), users)" in source
+    assert "_github_write_json_list(" in source
+
+
+def test_login_events_are_recorded_without_secret_values():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    assert "LOGIN_EVENTS_FILE" in source
+    assert 'DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"' in source
+    assert "def _append_login_event" in source
+    assert '"email": _email_normalise(email)' in source
+    assert '"success": bool(success)' in source
+    assert '"role": str(role or "")' in source
+    assert "_github_write_json_list(" in source
+
+
 def test_calculation_snapshot_hash_is_stable_and_sensitive():
     base_kwargs = dict(
         weather_region="Bretagne",
