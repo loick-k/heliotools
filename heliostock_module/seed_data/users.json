@@ -1,1 +1,17 @@
-[]
+[
+  {
+    "email": "loick@atlansun.fr",
+    "nom": "Loick",
+    "role": "admin",
+    "password_hash": "1d7161140f6a5f31e15a374d7b56e862:c0b1cfa32fdd1c6bdb53d254a42014e4c0045bebaf9ea02128eac18d990a200e",
+    "created_at": "2026-07-08T09:05:13"
+  },
+  {
+    "email": "klara@atlansun.fr",
+    "nom": "Klara",
+    "role": "user",
+    "password_hash": "e168f32caf5c5a4c0590a0e559cca69a:da7e8b4c70cd70f46aad9a8e395f821aa4595ddec028345b20d31d0984b5c216",
+    "created_at": "2026-07-08T14:25:34",
+    "active": true
+  }
+]
