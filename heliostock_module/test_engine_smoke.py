@@ -2593,6 +2593,19 @@ def test_login_events_are_recorded_without_secret_values():
     assert "_github_write_json_list(" in source
 
 
+def test_solar_dashboard_is_admin_only_and_airtable_inputs_are_hidden():
+    portal_source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
+    dashboard_source = (Path(__file__).resolve().parent / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
+
+    assert 'app_options = ["HelioStock"]' in portal_source
+    assert 'if is_admin_authenticated():' in portal_source
+    assert 'app_options.append("Dashboard solaire thermique")' in portal_source
+    assert '"Personal Access Token Airtable"' not in dashboard_source
+    assert 'st.sidebar.text_input("Base ID"' not in dashboard_source
+    assert 'st.sidebar.text_input("Table ID' not in dashboard_source
+    assert '_dashboard_secret("AIRTABLE_TOKEN")' in dashboard_source
+
+
 def test_app_gate_accepts_non_admin_authenticated_users():
     source = (Path(__file__).resolve().parent / "demo_app.py").read_text(encoding="utf-8")
     assert "getattr(ui_portal, \"is_user_authenticated\", None)" in source

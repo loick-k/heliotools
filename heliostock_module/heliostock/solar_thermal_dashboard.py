@@ -204,34 +204,20 @@ def render_solar_thermal_dashboard() -> None:
     # ---------------------------------------------------------------------------
     # Barre latérale - connexion & filtres
     # ---------------------------------------------------------------------------
-    st.sidebar.header("🔌 Connexion Airtable")
-    default_api_key = _dashboard_secret("AIRTABLE_TOKEN")
-    default_base_id = _dashboard_secret("AIRTABLE_BASE_ID", DEFAULT_BASE_ID)
-    default_table_id = _dashboard_secret("AIRTABLE_TABLE_ID", DEFAULT_TABLE_ID)
-    api_key = st.sidebar.text_input(
-        "Personal Access Token Airtable",
-        type="password",
-        value=default_api_key,
-        key="airtable_api_key",
-        help=(
-            "Créez un token sur airtable.com/create/tokens avec les scopes "
-            "'data.records:read' et 'schema.bases:read', et donnez-lui accès "
-            "à la base 'BDD Atlansun Solaire thermique'."
-        ),
-    )
-    base_id = st.sidebar.text_input("Base ID", value=default_base_id, key="airtable_base_id")
-    table_id = st.sidebar.text_input("Table ID (BDD STH)", value=default_table_id, key="airtable_table_id")
+    st.sidebar.header("Connexion Airtable")
+    api_key = _dashboard_secret("AIRTABLE_TOKEN")
+    base_id = _dashboard_secret("AIRTABLE_BASE_ID", DEFAULT_BASE_ID)
+    table_id = _dashboard_secret("AIRTABLE_TABLE_ID", DEFAULT_TABLE_ID)
 
-    if st.sidebar.button("🔄 Rafraîchir les données"):
+    if st.sidebar.button("Rafraîchir les données"):
         st.cache_data.clear()
 
-    st.title("☀️ Installations Solaire Thermique")
+    st.title("Installations Solaire Thermique")
     st.caption("Base Airtable : BDD Atlansun Solaire thermique — table BDD STH")
 
     if not api_key:
         st.info(
-            "👈 Renseignez votre Personal Access Token Airtable dans la barre "
-            "latérale pour charger les données."
+            "Le token Airtable n'est pas configuré dans les secrets Streamlit."
         )
         st.stop()
 

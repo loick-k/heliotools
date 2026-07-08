@@ -770,9 +770,12 @@ def render_portal_sidebar() -> str:
             if user.get("role") == "admin":
                 _render_user_admin_panel()
             st.divider()
+        app_options = ["HelioStock"]
+        if is_admin_authenticated():
+            app_options.append("Dashboard solaire thermique")
         app_name = st.selectbox(
             "Application",
-            options=["HelioStock", "Dashboard solaire thermique"],
+            options=app_options,
             key="portal_app",
         )
 
