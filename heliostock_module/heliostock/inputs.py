@@ -63,7 +63,9 @@ class SolarInputs:
             daily_buffer_min_temp_c=self.daily_buffer_ambient_temp_c,
             daily_buffer_max_temp_c=self.daily_buffer_max_temp_c,
             daily_buffer_delta_t_k=max(0.0, self.daily_buffer_max_temp_c - self.daily_buffer_ambient_temp_c),
-            daily_buffer_loss_fraction_per_day=self.daily_buffer_loss_pct_per_day / 100.0,
+            # Legacy field kept on CollectorConfig for compatibility only.
+            # Hourly losses are computed from the SOLO2018 CRStockSolaire model.
+            daily_buffer_loss_fraction_per_day=0.0,
             daily_buffer_tank_count=self.daily_buffer_tank_count,
             daily_buffer_insulation_thickness_cm=self.daily_buffer_insulation_thickness_cm,
             daily_buffer_insulation_lambda_w_m_k=self.daily_buffer_insulation_lambda_w_m_k,

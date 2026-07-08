@@ -51,6 +51,20 @@ Avant de livrer une archive, verifier qu'elle ne contient pas `__pycache__/`, `.
 `heliostock_module/heliostock_module/`. Le depot doit contenir un seul package `heliostock/` actif afin d'eviter les
 conflits d'import et de tests.
 
+## Sauvegarde des projets et secrets
+
+Les projets sauvegardes contiennent les hypotheses d'interface autorisees, le fichier Excel de besoins horaires si
+l'utilisateur l'a charge, et eventuellement le dernier resultat calcule dans un cache local associe au projet.
+
+Les secrets ne sont pas sauvegardes dans les fichiers projet. Les cles contenant `token`, `api_key`, `apikey`,
+`secret` ou `password` sont filtrees au moment de creer le payload projet. Le token Airtable doit rester dans les
+secrets Streamlit ou dans la session d'execution, jamais dans un projet exporte.
+
+Le cache de resultat utilise encore un format pickle provisoire, car l'objet de resultat contient des structures Python
+complexes. Pour limiter le risque, HelioTools ne charge que des caches locaux situes dans le dossier projet HelioStock,
+avec suffixe dedie `_resultat.pkl`, taille plafonnee et en-tete signe `HELIOSTOCK_RESULT_CACHE_V1`. Un cache ancien ou
+non signe est ignore : il faut alors relancer le calcul pour regenerer les resultats.
+
 Pour le fichier Excel process actuellement supporte, le mapping est :
 
 - `E besoin HT kWh` / `P besoin HT kW` -> besoin HT 60 C ;

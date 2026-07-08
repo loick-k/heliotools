@@ -6,6 +6,7 @@ import tempfile
 import pandas as pd
 
 import heliostock.borefield_savings as borefield_savings_module
+import heliostock.scenario_compact as scenario_compact_module
 import heliostock.scenarios as scenarios_module
 import heliostock.simulation_cache as simulation_cache_module
 from heliostock.engine import (
@@ -69,6 +70,39 @@ def _demand_aggregate(month: int, weather: list[HourlyWeather], *, ht_kwh: float
             process_bt_kwh=bt_kwh * len(weather),
         )
     ]
+
+
+def test_streamlit_calls_use_width_instead_of_deprecated_container_width():
+    module_dir = Path(__file__).parent / "heliostock"
+    streamlit_sources = [
+        path
+        for path in module_dir.glob("*.py")
+        if path.name.startswith(("ui_", "streamlit", "solar_thermal_dashboard"))
+    ]
+
+    offenders = [
+        str(path.relative_to(module_dir.parent))
+        for path in streamlit_sources
+        if "use_container_width" in path.read_text(encoding="utf-8")
+    ]
+
+    assert offenders == []
+
+
+def test_gitignore_keeps_caches_and_local_secrets_out_of_repo():
+    gitignore = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8")
+
+    required_patterns = [
+        "__pycache__/",
+        "*.py[cod]",
+        ".pytest_cache/",
+        ".streamlit/secrets.toml",
+        ".env",
+        ".env.*",
+    ]
+
+    for pattern in required_patterns:
+        assert pattern in gitignore
 
 
 def _fake_hourly_result(**overrides) -> HourlyResult:
@@ -205,6 +239,61 @@ def test_simulation_cache_reuses_identical_hourly_simulations(monkeypatch):
     assert cache.summary() == {"hits": 1, "misses": 2, "entries": 2}
 
 
+def test_simulation_cache_does_not_store_large_hourly_results(monkeypatch):
+    weather = [
+        HourlyWeather(
+            hour_index=hour,
+            month=1,
+            day=1,
+            hour=hour + 1,
+            tair_c=8.0,
+            g_tilt_kwh_m2=0.0,
+        )
+        for hour in range(3)
+    ]
+    demands = [MonthlyDemand(month=1, process_ht_kwh=0.0, process_bt_kwh=300.0)]
+    config = SimulationConfig(
+        collector=CollectorConfig(area_m2=0.0),
+        btes=BtesConfig(boreholes=4, depth_m=100.0),
+        heat_pump=HeatPumpConfig(max_thermal_power_kw=50.0),
+    )
+    calls = []
+    events = []
+
+    def fake_simulate_hourly(
+        weather,
+        demands,
+        config,
+        hourly_demand_override=None,
+        simulation_years=1,
+        result_sink=None,
+        store_results=True,
+        **kwargs,
+    ):
+        calls.append(int(simulation_years))
+        return [
+            _fake_hourly_result(
+                simulation_year=1,
+                hour_index=hour.hour_index,
+                demand_bt_kwh=100.0,
+            )
+            for hour in weather
+        ]
+
+    monkeypatch.setattr(simulation_cache_module, "simulate_hourly", fake_simulate_hourly)
+    cache = SimulationCache(event_callback=events.append, max_entries=2, max_cached_results=2)
+
+    first = cache.simulate(weather, demands, config, simulation_years=25, mode="large")
+    second = cache.simulate(weather, demands, config, simulation_years=25, mode="large")
+
+    assert len(first) == 3
+    assert len(second) == 3
+    assert calls == [25, 25]
+    assert cache.summary() == {"hits": 0, "misses": 2, "entries": 0}
+    assert events[-1]["Resultats horaires retournes"] == 3
+    assert events[-1]["Resultats horaires caches"] == 0
+
+
 def test_hourly_simulation_smoke():
     if not pygfunction_available():
         return
@@ -241,6 +330,7 @@ def test_hourly_simulation_smoke():
     assert all(result.solar_ht_potential_kwh >= 0 for result in results)
     assert sum(result.solar_ht_instant_kwh for result in results) == 0.0
     assert sum(result.solar_ht_from_buffer_kwh for result in results) > 0
+    assert all(result.solar_ht_direct_kwh == result.solar_ht_from_buffer_kwh for result in results)
     assert min(result.solar_ht_buffer_temp_end_c for result in results) >= config.collector.daily_buffer_ambient_temp_c - 1e-9
     assert max(result.solar_ht_buffer_temp_end_c for result in results) <= config.collector.daily_buffer_max_temp_c + 1e-9
     assert all(
@@ -1287,6 +1377,7 @@ def test_run_hourly_scenario_reuses_reduced_borefield_dataframe(monkeypatch):
     )
 
     def fake_borefield_equivalent_savings(**kwargs):
+        assert kwargs["include_hourly_df"] is True
         return {
             "found": True,
             "equivalent_length_m": 500.0,
@@ -1371,7 +1462,7 @@ def test_run_hourly_scenario_does_not_crash_when_borefield_savings_fails(monkeyp
         return results
 
     def fake_borefield_equivalent_savings(**kwargs):
-        assert kwargs["include_hourly_df"] is False
+        assert kwargs["include_hourly_df"] is True
         raise RuntimeError("pygfunction expert search failed")
 
     monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
@@ -1931,6 +2022,7 @@ def test_solar_parametric_reuses_matching_main_scenario(monkeypatch):
         )
 
     monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
+    monkeypatch.setattr(scenario_compact_module, "simulate_hourly", fake_simulate_hourly)
     df = scenarios_module.solar_surface_parametric_study(
         surfaces_m2=[250.0, 500.0],
         weather=weather,
@@ -2432,6 +2524,37 @@ def test_heliotools_portal_password_hashing_helpers():
         raise AssertionError("password length validation should fail")
 
 
+def test_solar_inputs_do_not_reactivate_legacy_daily_buffer_loss_fraction():
+    solar = SolarInputs(
+        area_m2=100.0,
+        eta0=0.8,
+        a1_w_m2_k=3.0,
+        a2_w_m2_k2=0.01,
+        process_ht_target_c=60.0,
+        system_efficiency=0.9,
+        daily_buffer_charge_factor_ht=1.0,
+        daily_buffer_l_per_m2=60.0,
+        daily_buffer_ambient_temp_c=20.0,
+        daily_buffer_max_temp_c=80.0,
+        daily_buffer_loss_pct_per_day=25.0,
+        solar_preheat_target_ht_c=60.0,
+        solar_buffer_hx_approach_k=5.0,
+        solar_buffer_collector_approach_k=10.0,
+    )
+
+    collector = solar.to_collector_config()
+
+    assert collector.daily_buffer_loss_fraction_per_day == 0.0
+    assert collector.daily_buffer_insulation_thickness_cm == 10.0
+    assert collector.daily_buffer_insulation_lambda_w_m_k == 0.035
+
+
+def test_solar_ht_direct_is_only_a_legacy_alias_name():
+    source = (Path(__file__).resolve().parent / "heliostock" / "hourly_engine.py").read_text(encoding="utf-8")
+    assert "solar_ht_direct_legacy_alias = solar_ht_from_buffer" in source
+    assert "solar_ht_direct = solar_ht_from_buffer" not in source
+
+
 def test_no_nested_project_folder():
     root = Path(__file__).resolve().parents[1]
     assert not (root / "heliostock_module" / "heliostock_module").exists()
@@ -2481,12 +2604,22 @@ def test_no_pygfunction_parallel():
         "borefield_savings.py",
         "btes_models.py",
         "hourly_engine.py",
+        "scenario_compact.py",
         "scenarios.py",
         "simulation_cache.py",
     ]
     source = "\n".join((root / name).read_text(encoding="utf-8") for name in simulation_files)
     assert "ThreadPoolExecutor" not in source
     assert "ProcessPoolExecutor" not in source
+
+
+def test_dashboard_parallelism_is_limited_to_geocoding_io():
+    source = (Path(__file__).resolve().parent / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
+    assert "GEOCODING_MAX_WORKERS = 6" in source
+    assert "ThreadPoolExecutor(max_workers=GEOCODING_MAX_WORKERS)" in source
+    assert "pygfunction calls remain sequential" in source
+    assert "simulate_hourly" not in source
+    assert "create_btes_model" not in source
 
 
 def test_btes_efficiency_indicator():
@@ -2624,16 +2757,84 @@ def test_airtable_token_is_not_project_saveable():
     assert '"dashboard_google_api_key"' not in saveable_block
     assert '"airtable_base_id"' in saveable_block
     assert '"airtable_table_id"' in saveable_block
+    assert "FORBIDDEN_PROJECT_KEY_FRAGMENTS" in source
+    assert "_is_safe_project_widget_key(key)" in source
+
+
+def test_project_payload_filters_secret_like_widget_keys(monkeypatch):
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    monkeypatch.setattr(
+        ui_portal,
+        "SAVEABLE_WIDGET_KEYS",
+        [
+            "solar_area_m2",
+            "airtable_api_key",
+            "github_token",
+            "admin_password",
+            "client_secret",
+            "custom_apikey",
+        ],
+    )
+    monkeypatch.setattr(ui_portal, "_current_user_email", lambda: "user@example.com")
+    monkeypatch.setitem(ui_portal.st.session_state, "solar_area_m2", 500.0)
+    monkeypatch.setitem(ui_portal.st.session_state, "airtable_api_key", "secret-airtable")
+    monkeypatch.setitem(ui_portal.st.session_state, "github_token", "secret-github")
+    monkeypatch.setitem(ui_portal.st.session_state, "admin_password", "secret-password")
+    monkeypatch.setitem(ui_portal.st.session_state, "client_secret", "secret-client")
+    monkeypatch.setitem(ui_portal.st.session_state, "custom_apikey", "secret-apikey")
+
+    payload = ui_portal._project_payload("demo")
+
+    assert payload["widget_values"] == {"solar_area_m2": 500.0}
+
+
+def test_readme_documents_project_secret_filtering_and_signed_cache():
+    readme = (Path(__file__).resolve().parent / "README.md").read_text(encoding="utf-8")
+    assert "Les secrets ne sont pas sauvegardes dans les fichiers projet" in readme
+    for fragment in ["`token`", "`api_key`", "`apikey`", "`secret`", "`password`"]:
+        assert fragment in readme
+    assert "HELIOSTOCK_RESULT_CACHE_V1" in readme
 
 
 def test_project_result_pickle_is_limited_to_local_sidecar():
     source = (Path(__file__).resolve().parent / "heliostock" / "ui_portal.py").read_text(encoding="utf-8")
     assert "RESULT_SIDECAR_SUFFIX" in source
+    assert "RESULT_PICKLE_MAGIC" in source
+    assert "RESULT_PICKLE_MAX_BYTES" in source
     assert "def _assert_local_project_path" in source
     assert "_assert_local_project_path(path)" in source
     assert "_assert_local_project_path(path: Path)" in source
-    assert "pickle.load(handle)" in source
+    assert "payload.startswith(RESULT_PICKLE_MAGIC)" in source
+    assert "pickle.loads(payload[len(RESULT_PICKLE_MAGIC) :])" in source
     assert "resolved.name.endswith(RESULT_SIDECAR_SUFFIX)" in source
+    assert "Ne jamais brancher" in source
+
+
+def test_project_result_pickle_requires_heliostock_signature(tmp_path, monkeypatch):
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    projects_dir = tmp_path / "projects"
+    monkeypatch.setattr(ui_portal, "PROJECTS_DIR", projects_dir)
+    result_path = projects_dir / "demo_resultat.pkl"
+
+    ui_portal._save_local_result_pickle(result_path, {"ok": True})
+    assert result_path.read_bytes().startswith(ui_portal.RESULT_PICKLE_MAGIC)
+    assert ui_portal._load_local_result_pickle(result_path) == {"ok": True}
+
+    unsigned_path = projects_dir / "unsigned_resultat.pkl"
+    unsigned_path.parent.mkdir(parents=True, exist_ok=True)
+    unsigned_path.write_bytes(b"not-a-heliostock-cache")
+    try:
+        ui_portal._load_local_result_pickle(unsigned_path)
+    except ValueError as exc:
+        assert "non signé" in str(exc)
+    else:
+        raise AssertionError("unsigned pickle cache should be rejected")
 
 
 def test_admin_creation_is_blocked_when_project_data_already_exists():

@@ -24,6 +24,8 @@ PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
 USERS_FILE = PROJECTS_DIR / "users.json"
 LOGIN_EVENTS_FILE = PROJECTS_DIR / "login_events.json"
 RESULT_SIDECAR_SUFFIX = "_resultat.pkl"
+RESULT_PICKLE_MAGIC = b"HELIOSTOCK_RESULT_CACHE_V1\n"
+RESULT_PICKLE_MAX_BYTES = 200 * 1024 * 1024
 DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"
 DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"
 DEFAULT_BACKUP_INSTALLATIONS_PATH = "seed_data/installations.json"
@@ -34,6 +36,7 @@ LOGIN_FAILURE_STATE_KEY = "heliotools_login_failures"
 LOGIN_LOCK_STATE_KEY = "heliotools_login_locked_until"
 USERS_SESSION_CACHE_KEY = "heliotools_users_cache"
 GITHUB_BACKUP_TIMEOUT_SECONDS = 3
+FORBIDDEN_PROJECT_KEY_FRAGMENTS = ("token", "api_key", "apikey", "secret", "password")
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -647,14 +650,20 @@ def _load_local_result_pickle(path: Path) -> Any:
     """Charge un résultat généré localement par HelioStock.
 
     Le format pickle est conservé provisoirement parce que les résultats
-    contiennent des objets Python complexes. Ne jamais brancher cette fonction
-    sur un upload utilisateur ou un fichier externe non maîtrisé.
+    contiennent des objets Python complexes. La désérialisation reste limitée
+    aux caches locaux générés par l'outil, avec chemin local contrôlé, suffixe
+    dédié, taille plafonnée et en-tête signé HelioStock. Ne jamais brancher
+    cette fonction sur un upload utilisateur ou un fichier externe non maîtrisé.
     """
     resolved = _assert_local_project_path(path)
     if not resolved.name.endswith(RESULT_SIDECAR_SUFFIX):
         raise ValueError("Cache résultat HelioStock non reconnu.")
-    with resolved.open("rb") as handle:
-        return pickle.load(handle)
+    payload = resolved.read_bytes()
+    if len(payload) > RESULT_PICKLE_MAX_BYTES:
+        raise ValueError("Cache résultat HelioStock trop volumineux.")
+    if not payload.startswith(RESULT_PICKLE_MAGIC):
+        raise ValueError("Cache résultat HelioStock non signé par cette version.")
+    return pickle.loads(payload[len(RESULT_PICKLE_MAGIC) :])
 
 
 def _save_local_result_pickle(path: Path, result: Any) -> None:
@@ -662,8 +671,10 @@ def _save_local_result_pickle(path: Path, result: Any) -> None:
     resolved = _assert_local_project_path(path)
     if not resolved.name.endswith(RESULT_SIDECAR_SUFFIX):
         raise ValueError("Chemin de cache résultat HelioStock invalide.")
-    with resolved.open("wb") as handle:
-        pickle.dump(result, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    payload = pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL)
+    if len(payload) > RESULT_PICKLE_MAX_BYTES:
+        raise ValueError("Cache résultat HelioStock trop volumineux.")
+    resolved.write_bytes(RESULT_PICKLE_MAGIC + payload)
 
 
 def _jsonable(value: Any) -> Any:
@@ -672,11 +683,16 @@ def _jsonable(value: Any) -> Any:
     return str(value)
 
 
+def _is_safe_project_widget_key(key: str) -> bool:
+    lowered = str(key or "").lower()
+    return not any(fragment in lowered for fragment in FORBIDDEN_PROJECT_KEY_FRAGMENTS)
+
+
 def _project_payload(name: str) -> dict[str, Any]:
     widget_values = {
         key: _jsonable(st.session_state[key])
         for key in SAVEABLE_WIDGET_KEYS
-        if key in st.session_state
+        if key in st.session_state and _is_safe_project_widget_key(key)
     }
     return {
         "schema_version": 2,

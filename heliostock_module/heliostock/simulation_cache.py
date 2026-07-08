@@ -65,6 +65,7 @@ class SimulationCache:
         event_callback: Callable[[dict[str, Any]], None] | None = None,
         *,
         max_entries: int = 2,
+        max_cached_results: int = 8760 * 2,
     ) -> None:
         self._store: dict[tuple[Any, ...], tuple[HourlyResult, ...]] = {}
         self._order: list[tuple[Any, ...]] = []
@@ -73,6 +74,7 @@ class SimulationCache:
         self._lock = Lock()
         self._event_callback = event_callback
         self._max_entries = max(0, int(max_entries))
+        self._max_cached_results = max(0, int(max_cached_results))
 
     @property
     def entries(self) -> int:
@@ -154,9 +156,14 @@ class SimulationCache:
             )
         )
         elapsed = time.perf_counter() - started_at
+        store_full_results = (
+            self._max_entries > 0
+            and self._max_cached_results > 0
+            and len(results) <= self._max_cached_results
+        )
         with self._lock:
             evicted = 0
-            if self._max_entries > 0:
+            if store_full_results:
                 self._store[key] = results
                 if key in self._order:
                     self._order.remove(key)
@@ -179,6 +186,8 @@ class SimulationCache:
                 "Cache misses": misses,
                 "Entrees cache": entries,
                 "Entrees cache supprimees": int(evicted),
+                "Resultats horaires retournes": int(len(results)),
+                "Resultats horaires caches": int(len(results)) if store_full_results else 0,
                 "Simulations lancees": 1,
                 "Duree pygfunction (s)": elapsed,
             },

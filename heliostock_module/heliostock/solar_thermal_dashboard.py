@@ -31,6 +31,7 @@ from .dashboard_data_cleaning import group_small_categories, join_values, to_flo
 # IDs par défaut (base "BDD Atlansun Solaire thermique")
 DEFAULT_BASE_ID = "appjauiOQySQq9PBz"
 DEFAULT_TABLE_ID = "tblU1ec0gGyWq9YN8"  # table "BDD STH"
+GEOCODING_MAX_WORKERS = 6
 
 # Tables liées utilisées pour résoudre les champs de type "lien vers un
 # enregistrement" (Ville, Secteurs, Type d'installation, Etat) en libellés
@@ -166,8 +167,11 @@ def build_map_points(map_df: pd.DataFrame) -> list:
         if row.get("Ville"):
             city_queries.add(row["Ville"])
 
+    # Parallelism is limited to dashboard geocoding I/O. HelioStock physical
+    # simulations and pygfunction calls remain sequential for Streamlit Cloud
+    # robustness.
     city_cache = {}
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=GEOCODING_MAX_WORKERS) as executor:
         city_futures = {executor.submit(geocode_city, v): v for v in city_queries}
         for future, v in city_futures.items():
             city_cache[v] = future.result()

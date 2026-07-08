@@ -53,5 +53,8 @@ def group_small_categories(
         ligne_autres = pd.DataFrame(
             {label_col: ["Autres"], value_col: [petites[value_col].sum()]}
         )
-        principales = pd.concat([principales, ligne_autres], ignore_index=True)
+        if principales.empty:
+            principales = ligne_autres
+        else:
+            principales = pd.concat([principales, ligne_autres], ignore_index=True)
     return principales.sort_values(value_col, ascending=False)

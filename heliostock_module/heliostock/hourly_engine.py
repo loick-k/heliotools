@@ -312,7 +312,7 @@ def simulate_hourly(
         solar_ht_instant = 0.0
         # Alias legacy conserve pour les exports historiques : la chaleur HT
         # vient bien du ballon solaire journalier, pas d'un usage direct capteur.
-        solar_ht_direct = solar_ht_from_buffer
+        solar_ht_direct_legacy_alias = solar_ht_from_buffer
 
         buffer_was_saturated_by_solar = (
             solar_ht_potential > 0.0
@@ -454,7 +454,7 @@ def simulate_hourly(
             solar_ht_buffer_temp_end_c=_daily_buffer_temperature_c(buffer_energy, collector),
             collector_temp_ht_c=collector_temp_ht,
             collector_temp_storage_c=t_storage_collector,
-            solar_ht_direct_kwh=solar_ht_direct,
+            solar_ht_direct_kwh=solar_ht_direct_legacy_alias,
             solar_storage_potential_kwh=solar_storage_potential,
             solar_to_btes_kwh=solar_to_btes,
             solar_not_used_kwh=solar_not_used,
