@@ -49,6 +49,7 @@ SAVEABLE_WIDGET_KEYS = [
     "weather_station",
     "process_bt_target_c",
     "process_ht_target_c",
+    "demand_scope_label",
     "solar_collector_name",
     "solar_area_m2",
     "solar_eta0",

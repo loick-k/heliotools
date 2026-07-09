@@ -53,6 +53,7 @@ def build_calculation_snapshot(
     hourly_profile_df: pd.DataFrame | None,
     process_bt_target_c: Any,
     process_ht_target_c: Any,
+    demand_scope: Any,
     solar: Any,
     btes: Any,
     heat_pump: Any,
@@ -80,6 +81,7 @@ def build_calculation_snapshot(
             "profile_hash": dataframe_content_hash(hourly_profile_df),
             "process_bt_target_c": process_bt_target_c,
             "process_ht_target_c": process_ht_target_c,
+            "scope": demand_scope,
         },
         "solar": _jsonable(solar),
         "geothermal": {

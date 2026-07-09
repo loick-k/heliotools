@@ -148,6 +148,52 @@ def _hourly_demands_from_process_file(
     )
 
 
+def apply_demand_scope(
+    *,
+    scope: str,
+    demands: list[MonthlyDemand],
+    hourly_demand_override: dict[int, tuple[float, float]] | None,
+    hourly_profile_df: pd.DataFrame,
+) -> tuple[list[MonthlyDemand], dict[int, tuple[float, float]] | None, pd.DataFrame]:
+    """Keep all needs, only HT, or only BT without mutating the imported file."""
+
+    normalized_scope = str(scope or "ht_bt").lower()
+    if normalized_scope not in {"ht_bt", "bt_only", "ht_only"}:
+        raise ValueError(f"Perimetre de besoins inconnu : {scope}")
+
+    keep_ht = normalized_scope in {"ht_bt", "ht_only"}
+    keep_bt = normalized_scope in {"ht_bt", "bt_only"}
+
+    scoped_demands = [
+        MonthlyDemand(
+            month=item.month,
+            process_ht_kwh=max(0.0, float(item.process_ht_kwh)) if keep_ht else 0.0,
+            process_bt_kwh=max(0.0, float(item.process_bt_kwh)) if keep_bt else 0.0,
+        )
+        for item in demands
+    ]
+
+    scoped_override = None
+    if hourly_demand_override is not None:
+        scoped_override = {
+            int(hour): (
+                max(0.0, float(values[0])) if keep_ht else 0.0,
+                max(0.0, float(values[1])) if keep_bt else 0.0,
+            )
+            for hour, values in hourly_demand_override.items()
+        }
+
+    scoped_profile = hourly_profile_df.copy()
+    if not scoped_profile.empty:
+        if "demand_ht_kwh" in scoped_profile and not keep_ht:
+            scoped_profile["demand_ht_kwh"] = 0.0
+        if "demand_bt_kwh" in scoped_profile and not keep_bt:
+            scoped_profile["demand_bt_kwh"] = 0.0
+        scoped_profile["demand_scope"] = normalized_scope
+
+    return scoped_demands, scoped_override, scoped_profile
+
+
 def _peak_bt_power_kw(
     weather,
     demands: list[MonthlyDemand],

@@ -31,7 +31,7 @@ from heliostock.hourly_engine import HourlyWeather, aggregate_hourly_results_mon
 from heliostock.hourly_engine import HourlyResult
 from heliostock.geothermal_design import predimension_borefield
 from heliostock.inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, ScenarioInputs, SolarInputs
-from heliostock.load_profiles import _hourly_demands_from_process_file
+from heliostock.load_profiles import apply_demand_scope, _hourly_demands_from_process_file
 from heliostock.postprocess import _hourly_results_to_dataframe, _multiyear_btes_summary
 from heliostock.postprocess import (
     btes_efficiency_indicator,
@@ -1172,6 +1172,51 @@ def test_hourly_8760_process_profile_maps_generic_ht_and_bt_columns():
         assert float(profile["demand_bt_kwh"].sum()) == 48.0
         assert monthly[0].process_ht_kwh == 24.0
         assert monthly[0].process_bt_kwh == 48.0
+
+
+def test_apply_demand_scope_can_keep_only_ht_or_bt_needs():
+    demands = [
+        MonthlyDemand(month=1, process_ht_kwh=100.0, process_bt_kwh=200.0),
+        MonthlyDemand(month=2, process_ht_kwh=300.0, process_bt_kwh=400.0),
+    ]
+    override = {0: (10.0, 20.0), 1: (30.0, 40.0)}
+    profile = pd.DataFrame(
+        {
+            "hour_index": [0, 1],
+            "month": [1, 1],
+            "day": [1, 1],
+            "hour": [1, 2],
+            "demand_ht_kwh": [10.0, 30.0],
+            "demand_bt_kwh": [20.0, 40.0],
+        }
+    )
+
+    bt_demands, bt_override, bt_profile = apply_demand_scope(
+        scope="bt_only",
+        demands=demands,
+        hourly_demand_override=override,
+        hourly_profile_df=profile,
+    )
+    ht_demands, ht_override, ht_profile = apply_demand_scope(
+        scope="ht_only",
+        demands=demands,
+        hourly_demand_override=override,
+        hourly_profile_df=profile,
+    )
+
+    assert [item.process_ht_kwh for item in bt_demands] == [0.0, 0.0]
+    assert [item.process_bt_kwh for item in bt_demands] == [200.0, 400.0]
+    assert bt_override == {0: (0.0, 20.0), 1: (0.0, 40.0)}
+    assert float(bt_profile["demand_ht_kwh"].sum()) == 0.0
+    assert float(bt_profile["demand_bt_kwh"].sum()) == 60.0
+    assert set(bt_profile["demand_scope"]) == {"bt_only"}
+
+    assert [item.process_ht_kwh for item in ht_demands] == [100.0, 300.0]
+    assert [item.process_bt_kwh for item in ht_demands] == [0.0, 0.0]
+    assert ht_override == {0: (10.0, 0.0), 1: (30.0, 0.0)}
+    assert float(ht_profile["demand_ht_kwh"].sum()) == 40.0
+    assert float(ht_profile["demand_bt_kwh"].sum()) == 0.0
+    assert set(ht_profile["demand_scope"]) == {"ht_only"}
 
 
 def test_run_hourly_scenario_returns_summaries_and_economics():
@@ -2962,6 +3007,7 @@ def test_calculation_snapshot_hash_is_stable_and_sensitive():
         hourly_profile_df=pd.DataFrame({"hour_index": [0], "demand_ht_kwh": [1.0], "demand_bt_kwh": [2.0]}),
         process_bt_target_c=25.0,
         process_ht_target_c=60.0,
+        demand_scope="ht_bt",
         solar=SolarInputs(
             area_m2=100.0,
             eta0=0.8,
@@ -3016,6 +3062,10 @@ def test_calculation_snapshot_hash_is_stable_and_sensitive():
     changed = dict(base_kwargs)
     changed["weather_station"] = "Brest"
     assert stable_snapshot_hash(snapshot) != stable_snapshot_hash(build_calculation_snapshot(**changed))
+
+    changed_scope = dict(base_kwargs)
+    changed_scope["demand_scope"] = "bt_only"
+    assert stable_snapshot_hash(snapshot) != stable_snapshot_hash(build_calculation_snapshot(**changed_scope))
 
 
 def test_dashboard_data_cleaning_helpers_are_testable():

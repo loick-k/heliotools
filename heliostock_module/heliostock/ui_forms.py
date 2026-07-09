@@ -14,6 +14,7 @@ from .geothermal_design import BorefieldPreDesign, predimension_borefield
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, SolarInputs
 from .load_profiles import (
+    apply_demand_scope,
     _estimate_capped_bt_heat_mwh,
     _hourly_demands_from_process_file,
     _peak_bt_power_kw,
@@ -88,6 +89,7 @@ class DemandFormResult:
     hourly_profile_df: pd.DataFrame
     process_bt_target_c: float = 25.0
     process_ht_target_c: float = 60.0
+    demand_scope: str = "ht_bt"
     valid: bool = True
 
 
@@ -237,6 +239,25 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
             key="process_ht_target_c",
             help="Exemple : ECS ou process haute tempÃ©rature.",
         )
+        scope_options = {
+            "HT + BT - scÃƒÂ©nario complet": "ht_bt",
+            "BT seule - test gÃƒÂ©othermie/PAC": "bt_only",
+            "HT seule - test solaire thermique": "ht_only",
+        }
+        scope_labels = list(scope_options.keys())
+        if st.session_state.get("demand_scope_label") not in scope_labels:
+            st.session_state["demand_scope_label"] = scope_labels[0]
+        demand_scope_label = st.selectbox(
+            "PÃƒÂ©rimÃƒÂ¨tre de besoins actif",
+            options=scope_labels,
+            index=scope_labels.index(st.session_state["demand_scope_label"]),
+            key="demand_scope_label",
+            help=(
+                "Permet de tester seulement la basse tempÃƒÂ©rature ou seulement la haute tempÃƒÂ©rature "
+                "sans modifier le fichier Excel importÃƒÂ©."
+            ),
+        )
+        demand_scope = scope_options[str(demand_scope_label)]
         demand_file = st.file_uploader("Fichier Excel de besoins horaires", type=["xlsx", "xls"])
         if demand_file is not None:
             st.session_state["heliostock_demand_file_bytes"] = demand_file.getvalue()
@@ -256,6 +277,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
                 pd.DataFrame(),
                 process_bt_target_c=float(process_bt_target_c),
                 process_ht_target_c=float(process_ht_target_c),
+                demand_scope=str(demand_scope),
                 valid=False,
             )
 
@@ -264,12 +286,28 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
                 demand_file,
                 hourly_weather,
             )
+            raw_ht_kwh = float(demand_info["ht_kwh"])
+            raw_bt_kwh = float(demand_info["bt_kwh"])
+            demands, hourly_demand_override, hourly_profile_df = apply_demand_scope(
+                scope=demand_scope,
+                demands=demands,
+                hourly_demand_override=hourly_demand_override,
+                hourly_profile_df=hourly_profile_df,
+            )
+            active_ht_kwh = float(hourly_profile_df["demand_ht_kwh"].sum()) if "demand_ht_kwh" in hourly_profile_df else 0.0
+            active_bt_kwh = float(hourly_profile_df["demand_bt_kwh"].sum()) if "demand_bt_kwh" in hourly_profile_df else 0.0
             st.success(
                 "Profil process 8760 h chargÃ© : "
                 f"{demand_info['rows']:.0f} lignes, "
-                f"HT {demand_info['ht_kwh'] / 1000:.0f} MWh/an, "
-                f"BT {demand_info['bt_kwh'] / 1000:.0f} MWh/an."
+                f"HT active {active_ht_kwh / 1000:.0f} MWh/an, "
+                f"BT active {active_bt_kwh / 1000:.0f} MWh/an."
             )
+            if demand_scope != "ht_bt":
+                st.info(
+                    "PÃƒÂ©rimÃƒÂ¨tre de test appliquÃƒÂ© au calcul : "
+                    f"HT importÃƒÂ©e {raw_ht_kwh / 1000:.0f} MWh/an, "
+                    f"BT importÃƒÂ©e {raw_bt_kwh / 1000:.0f} MWh/an."
+                )
         except Exception as exc:
             st.error(f"Lecture du fichier besoin impossible : {exc}")
             return DemandFormResult(
@@ -278,6 +316,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
                 pd.DataFrame(),
                 process_bt_target_c=float(process_bt_target_c),
                 process_ht_target_c=float(process_ht_target_c),
+                demand_scope=str(demand_scope),
                 valid=False,
             )
 
@@ -287,6 +326,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
         hourly_profile_df=hourly_profile_df,
         process_bt_target_c=float(process_bt_target_c),
         process_ht_target_c=float(process_ht_target_c),
+        demand_scope=str(demand_scope),
     )
 
 

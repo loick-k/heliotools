@@ -47,6 +47,7 @@ def _snapshot_from_forms(
         hourly_profile_df=demand_form.hourly_profile_df,
         process_bt_target_c=demand_form.process_bt_target_c,
         process_ht_target_c=demand_form.process_ht_target_c,
+        demand_scope=demand_form.demand_scope,
         solar=solar_form.inputs,
         btes=geothermal_form.btes,
         heat_pump=geothermal_form.heat_pump,
