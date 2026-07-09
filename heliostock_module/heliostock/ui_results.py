@@ -88,6 +88,7 @@ def render_hourly_results(
     btes_backend_used: str,
     probe_power_ratio_w_m: float,
     hourly_profile_df: pd.DataFrame,
+    demand_scope: str = "ht_bt",
 ) -> pd.DataFrame:
     """Render all result panels for a completed HelioStock calculation."""
 
@@ -100,6 +101,9 @@ def render_hourly_results(
 
     total_ht = scenario.total_ht_kwh
     total_bt = scenario.total_bt_kwh
+    normalized_demand_scope = str(demand_scope or "ht_bt").lower()
+    show_solar_blocks = total_ht > 1e-6 and normalized_demand_scope != "bt_only"
+    show_geothermal_blocks = total_bt > 1e-6 and normalized_demand_scope != "ht_only"
     total_preheat_ht = scenario.total_preheat_ht_kwh
     total_charge_buffer = scenario.total_charge_buffer_kwh
     total_to_btes = scenario.total_to_btes_kwh
@@ -217,49 +221,70 @@ def render_hourly_results(
         else 0.0
     )
 
-    _render_kpi_section(
-        "Données d'entrée principales",
+    input_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = []
+    if show_solar_blocks:
+        input_metrics.extend(
+            [
+                ("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m?"),
+                ("Volume stockage solaire", f"{solar_storage_volume_m3:.0f} m?"),
+            ]
+        )
+    if show_geothermal_blocks:
+        input_metrics.extend(
+            [
+                ("P PAC géothermie retenue", f"{pac_nominal_power_kw:.0f} kW", f"{pac_power_fraction_pct:.0f} % Pmax"),
+                ("Lin?aire sondes", f"{scenario.full_borefield_length_m:.0f} ml"),
+            ]
+        )
+    _render_kpi_section("Données d'entr?e principales", input_metrics, tone="inputs")
+    if not show_solar_blocks and not show_geothermal_blocks:
+        st.warning("Aucun besoin HT ou BT actif dans le p?rim?tre de calcul.")
+
+    energy_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = [
+        ("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
+    ]
+    if show_solar_blocks:
+        energy_metrics.extend(
+            [
+                ("Besoin haute temp?rature", f"{total_ht / 1000:.0f} MWh"),
+                ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+            ]
+        )
+    if show_geothermal_blocks:
+        energy_metrics.extend(
+            [
+                ("Besoin basse temp?rature", f"{total_bt / 1000:.0f} MWh"),
+                ("Part EnR PAC géothermie", f"{geothermal_renewable_kwh / 1000:.0f} MWh"),
+                ("?lectricit? PAC", f"{total_elec / 1000:.0f} MWh"),
+            ]
+        )
+    energy_metrics.extend(
         [
-            ("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m²"),
-            ("Volume stockage solaire", f"{solar_storage_volume_m3:.0f} m³"),
-            ("P PAC géothermie retenue", f"{pac_nominal_power_kw:.0f} kW", f"{pac_power_fraction_pct:.0f} % Pmax"),
-            ("Linéaire sondes", f"{scenario.full_borefield_length_m:.0f} ml"),
-        ],
-        tone="inputs",
-    )
-    _render_kpi_section(
-        "Besoins et production par générateur",
-        [
-            ("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh"),
-            ("Besoin haute température", f"{total_ht / 1000:.0f} MWh"),
-            ("Besoin basse température", f"{total_bt / 1000:.0f} MWh"),
-            ("Part EnR PAC géothermie", f"{geothermal_renewable_kwh / 1000:.0f} MWh"),
-            ("Électricité PAC", f"{total_elec / 1000:.0f} MWh"),
-            ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
             ("Consommation appoint gaz", f"{(total_backup_ht + total_backup_bt) / 1000:.0f} MWh"),
             ("Taux EnR global", f"{global_ren_rate * 100:.0f} %"),
-        ],
-        caption=(
-            "Lecture comptable : besoin total = part EnR PAC géothermie + électricité PAC "
-            "+ production solaire ECS + appoint gaz. L'injection solaire dans le BTES est détaillée "
-            "dans le solaire thermique pour éviter un double comptage."
-        ),
-        tone="energy",
+        ]
     )
     _render_kpi_section(
-        "Solaire thermique",
-        [
-            ("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh"),
-            ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
-            ("Production solaire injectée dans le BTES", f"{total_to_btes / 1000:.0f} MWh"),
-            ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
-            ("Taux de couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %"),
-            ("η solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
-            ("η solaire BTES", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh injectés"),
-            ("η solaire global", f"{combined_eff * 100:.1f} %" if combined_eff > 0.0 else "non disponible"),
-        ],
-        tone="solar",
+        "Besoins et production par g?n?rateur",
+        energy_metrics,
+        caption="Lecture comptable limit?e au p?rim?tre actif : les blocs et KPI sans besoin associ? sont masqu?s.",
+        tone="energy",
     )
+    if show_solar_blocks:
+        _render_kpi_section(
+            "Solaire thermique",
+            [
+                ("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh"),
+                ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+                ("Production solaire inject?e dans le BTES", f"{total_to_btes / 1000:.0f} MWh"),
+                ("Productivit? solaire valoris?e", f"{solar_productivity_valued:.0f} kWh/m?.an"),
+                ("Taux de couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %"),
+                ("? solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh capt?s"),
+                ("? solaire BTES", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh inject?s"),
+                ("? solaire global", f"{combined_eff * 100:.1f} %" if combined_eff > 0.0 else "non disponible"),
+            ],
+            tone="solar",
+        )
 
     gain_value = f"{float(savings['saved_length_m']):.0f} ml" if bool(savings["found"]) else "non trouvé"
 
@@ -317,141 +342,149 @@ def render_hourly_results(
             ("q injection max", f"{q_inject:.0f} W/m"),
         ]
 
-    st.markdown("#### PAC géothermie")
-    _render_kpi_section(
-        "Géothermie seule",
-        _scenario_pac_metrics(
-            row=geo_only_row,
-            final_row=geo_only_final_row,
-            length_m=scenario.full_borefield_length_m,
-            fallback_cop=no_solar_cop,
-            fallback_elec_mwh=no_solar_total_elec / 1000.0,
-            fallback_pac_mwh=no_solar_total_pac / 1000.0,
-            available=no_solar_cop > 0.0,
-        ),
-        tone="pac",
-    )
-    _render_kpi_section(
-        "Géothermie avec recharge solaire",
-        _scenario_pac_metrics(
-            row=same_borefield_row,
-            final_row=same_final_row,
-            length_m=scenario.full_borefield_length_m,
-            fallback_cop=mean_cop,
-            fallback_elec_mwh=total_elec / 1000.0,
-            fallback_pac_mwh=total_pac / 1000.0,
-        ),
-        tone="pac",
-    )
-    _render_kpi_section(
-        "Géothermie avec recharge solaire et linéaire de sondes réduites",
-        _scenario_pac_metrics(
-            row=reduced_borefield_row,
-            final_row=reduced_final_row,
-            length_m=reduced_borefield_length_m,
-            fallback_cop=reduced_borefield_cop,
-            fallback_elec_mwh=reduced_borefield_elec_mwh,
-            fallback_pac_mwh=0.0,
-            available=reduced_borefield_available,
-        ),
-        tone="pac",
-    )
+    if show_geothermal_blocks:
+        st.markdown("#### PAC géothermie")
+        _render_kpi_section(
+            "G?othermie seule",
+            _scenario_pac_metrics(
+                row=geo_only_row,
+                final_row=geo_only_final_row,
+                length_m=scenario.full_borefield_length_m,
+                fallback_cop=no_solar_cop,
+                fallback_elec_mwh=no_solar_total_elec / 1000.0,
+                fallback_pac_mwh=no_solar_total_pac / 1000.0,
+                available=no_solar_cop > 0.0,
+            ),
+            tone="pac",
+        )
+        if show_solar_blocks:
+            _render_kpi_section(
+                "G?othermie avec recharge solaire",
+                _scenario_pac_metrics(
+                    row=same_borefield_row,
+                    final_row=same_final_row,
+                    length_m=scenario.full_borefield_length_m,
+                    fallback_cop=mean_cop,
+                    fallback_elec_mwh=total_elec / 1000.0,
+                    fallback_pac_mwh=total_pac / 1000.0,
+                ),
+                tone="pac",
+            )
+            _render_kpi_section(
+                "G?othermie avec recharge solaire et lin?aire de sondes r?duites",
+                _scenario_pac_metrics(
+                    row=reduced_borefield_row,
+                    final_row=reduced_final_row,
+                    length_m=reduced_borefield_length_m,
+                    fallback_cop=reduced_borefield_cop,
+                    fallback_elec_mwh=reduced_borefield_elec_mwh,
+                    fallback_pac_mwh=0.0,
+                    available=reduced_borefield_available,
+                ),
+                tone="pac",
+            )
 
-    pac_security_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = (
-        [
-            ("Gain équivalent éco", gain_value),
+        pac_security_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = [
+            ("Gain ?quivalent ?co", gain_value),
             ("Limite source PAC", f"{source_limit_hours} h", f"{source_limit_energy:.1f} MWh"),
             ("T source fin année 1", _format_temp(first_year_end_source_c)),
             (
                 f"T source fin année {multiyear_years_count}",
                 _format_temp(final_year_end_source_c),
                 (
-                    f"{final_year_end_source_c - first_year_end_source_c:+.1f} °C"
+                    f"{final_year_end_source_c - first_year_end_source_c:+.1f} ?C"
                     if final_year_end_source_c is not None and first_year_end_source_c is not None
                     else None
                 ),
             ),
-            ("T source min période", _format_temp(period_min_source_c)),
+            ("T source min p?riode", _format_temp(period_min_source_c)),
             (
-                "Heures sous Tmin opérationnelle",
+                "Heures sous Tmin op?rationnelle",
                 f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h",
             ),
             ("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h"),
-            ("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C"),
+            ("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} ?C"),
         ]
-    )
-    pac_security_metrics.extend(
-        [
-            ("Injection BTES annee finale", f"{final_btes_injection_mwh:.0f} MWh"),
-            ("Extraction sol annee finale", f"{final_btes_extraction_mwh:.0f} MWh"),
-            ("eta_BTES annee finale", f"{eta_btes_final:.2f}" if eta_btes_final is not None else "non applicable"),
-            ("eta_BTES multiannuel", f"{float(eta_btes_multi):.2f}" if eta_btes_multi is not None else "non applicable"),
-            ("Type fonctionnement champ", geo_field_mode_label),
-            ("Ratio injection/extraction", f"{ratio_injection_extraction:.2f}"),
-        ]
-    )
-    _render_kpi_section("Champ de sondes et sécurité", pac_security_metrics, tone="pac")
-    if btes_diag.get("geo_field_mode_comment"):
-        st.caption(str(btes_diag["geo_field_mode_comment"]))
-    if btes_diag.get("warning"):
-        st.warning(str(btes_diag["warning"]))
-    if btes_diag.get("surface_insulation_warning"):
-        st.warning(str(btes_diag["surface_insulation_warning"]))
+        if show_solar_blocks:
+            pac_security_metrics.extend(
+                [
+                    ("Injection BTES année finale", f"{final_btes_injection_mwh:.0f} MWh"),
+                    ("Extraction sol année finale", f"{final_btes_extraction_mwh:.0f} MWh"),
+                    ("eta_BTES année finale", f"{eta_btes_final:.2f}" if eta_btes_final is not None else "non applicable"),
+                    ("eta_BTES multiannuel", f"{float(eta_btes_multi):.2f}" if eta_btes_multi is not None else "non applicable"),
+                    ("Type fonctionnement champ", geo_field_mode_label),
+                    ("Ratio injection/extraction", f"{ratio_injection_extraction:.2f}"),
+                ]
+            )
+        _render_kpi_section("Champ de sondes et s?curit?", pac_security_metrics, tone="pac")
+        if btes_diag.get("geo_field_mode_comment"):
+            st.caption(str(btes_diag["geo_field_mode_comment"]))
+        if btes_diag.get("warning"):
+            st.warning(str(btes_diag["warning"]))
+        if btes_diag.get("surface_insulation_warning"):
+            st.warning(str(btes_diag["surface_insulation_warning"]))
 
-    _render_kpi_section(
-        "Synthèse P1 électrique - géothermie avec recharge solaire",
-        [
-            ("Électricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an"),
-            ("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an"),
-            ("Veille/régulation", f"{total_standby / 1000.0:.1f} MWh/an"),
-            ("Électricité totale PAC", f"{total_elec / 1000.0:.1f} MWh/an"),
-            ("COP machine", f"{mean_cop:.1f}"),
-            ("SPF PAC complet", f"{spf_pac_total:.1f}"),
-            ("SPF système simplifié", f"{spf_system:.1f}"),
-        ],
-        caption="Ces indicateurs correspondent au scénario principal affiché : géothermie avec recharge solaire et linéaire initial.",
-        tone="pac",
-    )
+        _render_kpi_section(
+            "Synth?se P1 ?lectrique - géothermie" + (" avec recharge solaire" if show_solar_blocks else " seule"),
+            [
+                ("?lectricit? compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an"),
+                ("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an"),
+                ("Veille/r?gulation", f"{total_standby / 1000.0:.1f} MWh/an"),
+                ("?lectricit? totale PAC", f"{total_elec / 1000.0:.1f} MWh/an"),
+                ("COP machine", f"{mean_cop:.1f}"),
+                ("SPF PAC complet", f"{spf_pac_total:.1f}"),
+                ("SPF syst?me simplifi?", f"{spf_system:.1f}"),
+            ],
+            caption=(
+                "Ces indicateurs correspondent au sc?nario principal affich? : "
+                + ("géothermie avec recharge solaire et lin?aire initial." if show_solar_blocks else "géothermie seule sur le besoin BT.")
+            ),
+            tone="pac",
+        )
+
+        _render_btes_warnings(
+            scenario=scenario,
+            hourly_df=hourly_df,
+            btes_backend_used=btes_backend_used,
+            probe_power_ratio_w_m=probe_power_ratio_w_m,
+        )
+        if show_solar_blocks and no_solar_cop > 0.0:
+            _render_borefield_savings_explanation(
+                scenario=scenario,
+                no_solar_cop=no_solar_cop,
+                no_solar_total_pac=scenario.no_solar_total_pac_kwh,
+            )
 
     _render_kpi_section(
         "Appoint gaz",
         [("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW")],
         tone="gas",
     )
-    _render_btes_warnings(
-        scenario=scenario,
-        hourly_df=hourly_df,
-        btes_backend_used=btes_backend_used,
-        probe_power_ratio_w_m=probe_power_ratio_w_m,
-    )
-    if no_solar_cop > 0.0:
-        _render_borefield_savings_explanation(
-            scenario=scenario,
-            no_solar_cop=no_solar_cop,
-            no_solar_total_pac=scenario.no_solar_total_pac_kwh,
-        )
+
+    result_sections = []
+    if show_geothermal_blocks:
+        result_sections.append("Analyse solaire et géothermie" if show_solar_blocks else "Analyse géothermie")
+        result_sections.append("Multiannuel BTES")
+    result_sections.extend(["Monotone horaire", "Analyses mensuelles", "?conomie"])
+    if show_geothermal_blocks:
+        result_sections.append("Paramétrique PAC")
+    if show_solar_blocks:
+        result_sections.append("Paramétrique solaire")
+    result_sections.append("Données")
 
     result_section = st.radio(
-        "Section de resultats",
-        [
-            "Analyse solaire et géothermie",
-            "Multiannuel BTES",
-            "Monotone horaire",
-            "Analyses mensuelles",
-            "Économie",
-            "Paramétrique PAC",
-            "Paramétrique solaire",
-            "Données",
-        ],
+        "Section de r?sultats",
+        result_sections,
         horizontal=True,
         key=f"result_section_{calculation_id}",
     )
 
-    if result_section.startswith("Analyse solaire"):
-        st.markdown(f"### Grandeurs solaires et géothermie horaire - année {scenario.simulation_year_displayed}")
+    if result_section.startswith("Analyse"):
+        title = "Grandeurs solaires et géothermie horaire" if show_solar_blocks else "Grandeurs géothermie horaire"
+        st.markdown(f"### {title} - année {scenario.simulation_year_displayed}")
         st.caption(
-            "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
-            "vue par la PAC. La température de paroi forage est affichée séparément."
+            "T source PAC n'est pas une temp?rature moyenne du sous-sol : c'est la temp?rature c?t? source g?othermique "
+            "vue par la PAC. La temp?rature de paroi forage est affich?e s?par?ment."
         )
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
 
@@ -832,5 +865,4 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
             - Le champ de sondes utilise pygfunction pour calculer la température source PAC.
             """
         )
-
 

@@ -185,6 +185,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
             "display_context": {
                 "probe_power_ratio_w_m": geothermal_form.probe_power_ratio_w_m,
                 "hourly_profile_df": demand_form.hourly_profile_df.copy(),
+                "demand_scope": demand_form.demand_scope,
             },
             "performance_log_df": calculation.performance_log_df.copy(),
         }
@@ -225,6 +226,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
         btes_backend_used=str(last_result.get("btes_backend", scenario.config.btes.backend)),
         probe_power_ratio_w_m=float(display_context.get("probe_power_ratio_w_m", geothermal_form.probe_power_ratio_w_m)),
         hourly_profile_df=stored_hourly_profile_df,
+        demand_scope=str(display_context.get("demand_scope", demand_form.demand_scope)),
     )
     render_elapsed = time.perf_counter() - render_started_at
     performance_log_df = last_result.get("performance_log_df", pd.DataFrame()).copy()

@@ -89,6 +89,37 @@ def test_streamlit_calls_use_width_instead_of_deprecated_container_width():
     assert offenders == []
 
 
+def test_ui_text_does_not_contain_common_mojibake_sequences():
+    module_dir = Path(__file__).parent / "heliostock"
+    ui_sources = [
+        path
+        for path in module_dir.glob("*.py")
+        if path.name.startswith(("ui_", "streamlit"))
+    ]
+    mojibake_markers = (chr(0x00C2), chr(0x00C3))
+
+    offenders = []
+    for path in ui_sources:
+        text = path.read_text(encoding="utf-8")
+        if any(marker in text for marker in mojibake_markers):
+            offenders.append(str(path.relative_to(module_dir.parent)))
+
+    assert offenders == []
+
+
+def test_ui_results_hides_irrelevant_blocks_by_demand_scope():
+    source = (Path(__file__).resolve().parent / "heliostock" / "ui_results.py").read_text(encoding="utf-8")
+
+    assert 'if show_solar_blocks:' in source
+    assert 'if show_geothermal_blocks:' in source
+    assert 'result_sections = []' in source
+    assert 'result_sections.append("Paramétrique PAC")' in source
+    assert 'result_sections.append("Paramétrique solaire")' in source
+    assert "Solaire thermique" in source
+    assert "PAC géothermie" in source
+    assert "Pic appoint gaz appelé" in source
+
+
 def test_gitignore_keeps_caches_and_local_secrets_out_of_repo():
     gitignore = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8")
 
