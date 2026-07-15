@@ -99,12 +99,17 @@ def test_ui_text_does_not_contain_common_mojibake_sequences():
     mojibake_markers = (chr(0x00C2), chr(0x00C3))
 
     offenders = []
+    suspicious_question_marks = []
     for path in ui_sources:
         text = path.read_text(encoding="utf-8")
         if any(marker in text for marker in mojibake_markers):
             offenders.append(str(path.relative_to(module_dir.parent)))
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if "?" in line and "?ref=" not in line:
+                suspicious_question_marks.append(f"{path.name}:{line_no}")
 
     assert offenders == []
+    assert suspicious_question_marks == []
 
 
 def test_ui_results_hides_irrelevant_blocks_by_demand_scope():
@@ -1142,6 +1147,7 @@ def test_fixed_ui_assumptions_keep_expected_defaults():
     assert solar.daily_buffer_tank_count == 1
     assert solar.daily_buffer_insulation_thickness_cm == 10.0
     assert solar.daily_buffer_insulation_lambda_w_m_k == 0.035
+    assert "Volume ballon" not in set(solar.to_table()["Hypothese"])
     assert geo.spacing_m == 10.0
     assert geo.carnot_efficiency == 0.54
     assert geo.t_min_c == -3.0
@@ -2833,6 +2839,7 @@ def test_airtable_token_is_not_project_saveable():
     assert '"dashboard_google_api_key"' not in saveable_block
     assert '"airtable_base_id"' in saveable_block
     assert '"airtable_table_id"' in saveable_block
+    assert '"solar_daily_buffer_l_per_m2"' in saveable_block
     assert "FORBIDDEN_PROJECT_KEY_FRAGMENTS" in source
     assert "_is_safe_project_widget_key(key)" in source
 

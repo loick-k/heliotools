@@ -347,16 +347,26 @@ def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
         a2 = c4.number_input("a2 (W/m2.K2)", min_value=0.0, value=float(collector_ref["a2_w_m2_k2"]), step=0.001, format="%.3f", key="solar_a2")
 
         solar_fixed = FixedSolarAssumptions()
-        c9, c10 = st.columns(2)
+        c9, c10, c11 = st.columns(3)
         daily_buffer_ambient_temp_c = c9.number_input("T° ambiance ballon (°C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0, key="solar_daily_buffer_ambient_temp_c")
         daily_buffer_max_temp_c = c10.number_input("Tmax ballon / bascule BTES (°C)", min_value=30.0, max_value=120.0, value=80.0, step=1.0, key="solar_daily_buffer_max_temp_c")
+        daily_buffer_l_per_m2 = c11.number_input(
+            "Ratio stockage solaire V/S (L/m²)",
+            min_value=0.0,
+            max_value=300.0,
+            value=float(solar_fixed.daily_buffer_l_per_m2),
+            step=5.0,
+            key="solar_daily_buffer_l_per_m2",
+            help="Volume de ballon journalier par m² de capteurs solaires. Par défaut : 60 L/m².",
+        )
         solar_preheat_target_ht_c = float(process_ht_target_c)
+        st.caption("Ratio stockage solaire V/S : par défaut 60 L/m².")
 
         with st.expander("Hypothèses solaires fixées", expanded=False):
             st.dataframe(display_dataframe(solar_fixed.to_table()), width="stretch", hide_index=True)
             st.caption(
                 "Ces valeurs sont fixées pour réduire les degrés de liberté de l'interface. "
-                "Le volume ballon est fixé à 60 L/m² de capteurs."
+                "Le ratio V/S du stockage solaire est réglable dans le module solaire thermique."
             )
 
     return SolarFormResult(
@@ -368,7 +378,7 @@ def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
             process_ht_target_c=float(process_ht_target_c),
             system_efficiency=solar_fixed.system_efficiency,
             daily_buffer_charge_factor_ht=solar_fixed.daily_buffer_charge_factor_ht,
-            daily_buffer_l_per_m2=solar_fixed.daily_buffer_l_per_m2,
+            daily_buffer_l_per_m2=daily_buffer_l_per_m2,
             daily_buffer_ambient_temp_c=daily_buffer_ambient_temp_c,
             daily_buffer_max_temp_c=daily_buffer_max_temp_c,
             daily_buffer_loss_pct_per_day=0.0,
@@ -641,4 +651,3 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             step=float(param_surface_step_m2),
         ),
     )
-

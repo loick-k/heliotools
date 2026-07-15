@@ -108,18 +108,6 @@ def render_economics_tab(
         chart_df = economic_comparison_chart_df[economic_comparison_chart_df["Indicateur"] == indicator]
         col.altair_chart(_scenario_comparison_chart(chart_df, title=chart_titles[indicator]), width="stretch")
 
-    st.markdown("### Synthèse P1 électrique - géothermie avec recharge solaire")
-    st.caption("Ces indicateurs correspondent au scénario principal avec recharge solaire et linéaire initial.")
-    e1, e2, e3, e4 = st.columns(4)
-    e1.metric("Electricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an")
-    e2.metric("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an")
-    e3.metric("Veille/régulation", f"{total_standby / 1000.0:.1f} MWh/an")
-    e4.metric("Electricité totale PAC", f"{total_elec / 1000.0:.1f} MWh/an")
-    e5, e6, e7 = st.columns(3)
-    e5.metric("COP machine", f"{mean_cop:.1f}")
-    e6.metric("SPF PAC complet", f"{spf_pac_total:.1f}")
-    e7.metric("SPF système simplifié", f"{spf_system:.1f}")
-
     st.markdown("### Valeur économique de la recharge solaire")
     if not bool(recharge_value["applicable"]):
         st.info("Recharge solaire non applicable : aucune énergie solaire injectée au BTES.")
@@ -146,4 +134,3 @@ def render_economics_tab(
         "Si l'horizon économique dépasse les années simulées, la dernière année simulée est répétée comme année stabilisée."
     )
     st.dataframe(display_dataframe(economic_trajectory_df), width="stretch", hide_index=True)
-

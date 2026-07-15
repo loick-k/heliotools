@@ -108,7 +108,6 @@ class FixedSolarAssumptions:
             [
                 ("Rendement hydraulique global", self.system_efficiency, "-"),
                 ("Facteur charge ballon solaire", self.daily_buffer_charge_factor_ht, "-"),
-                ("Volume ballon", self.daily_buffer_l_per_m2, "L/m2 capteur"),
                 ("Modèle pertes ballon", "SOLO2018 détaillé", "-"),
                 ("Nombre de ballons", self.daily_buffer_tank_count, "-"),
                 ("Épaisseur isolant ballon", self.daily_buffer_insulation_thickness_cm, "cm"),

@@ -225,20 +225,20 @@ def render_hourly_results(
     if show_solar_blocks:
         input_metrics.extend(
             [
-                ("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m?"),
-                ("Volume stockage solaire", f"{solar_storage_volume_m3:.0f} m?"),
+                ("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m²"),
+                ("Volume stockage solaire", f"{solar_storage_volume_m3:.0f} m³"),
             ]
         )
     if show_geothermal_blocks:
         input_metrics.extend(
             [
                 ("P PAC géothermie retenue", f"{pac_nominal_power_kw:.0f} kW", f"{pac_power_fraction_pct:.0f} % Pmax"),
-                ("Lin?aire sondes", f"{scenario.full_borefield_length_m:.0f} ml"),
+                ("Linéaire sondes", f"{scenario.full_borefield_length_m:.0f} ml"),
             ]
         )
-    _render_kpi_section("Données d'entr?e principales", input_metrics, tone="inputs")
+    _render_kpi_section("Données d'entrée principales", input_metrics, tone="inputs")
     if not show_solar_blocks and not show_geothermal_blocks:
-        st.warning("Aucun besoin HT ou BT actif dans le p?rim?tre de calcul.")
+        st.warning("Aucun besoin HT ou BT actif dans le périmètre de calcul.")
 
     energy_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = [
         ("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")
@@ -246,16 +246,16 @@ def render_hourly_results(
     if show_solar_blocks:
         energy_metrics.extend(
             [
-                ("Besoin haute temp?rature", f"{total_ht / 1000:.0f} MWh"),
+                ("Besoin haute température", f"{total_ht / 1000:.0f} MWh"),
                 ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
             ]
         )
     if show_geothermal_blocks:
         energy_metrics.extend(
             [
-                ("Besoin basse temp?rature", f"{total_bt / 1000:.0f} MWh"),
+                ("Besoin basse température", f"{total_bt / 1000:.0f} MWh"),
                 ("Part EnR PAC géothermie", f"{geothermal_renewable_kwh / 1000:.0f} MWh"),
-                ("?lectricit? PAC", f"{total_elec / 1000:.0f} MWh"),
+                ("Électricité PAC", f"{total_elec / 1000:.0f} MWh"),
             ]
         )
     energy_metrics.extend(
@@ -265,9 +265,9 @@ def render_hourly_results(
         ]
     )
     _render_kpi_section(
-        "Besoins et production par g?n?rateur",
+        "Besoins et production par générateur",
         energy_metrics,
-        caption="Lecture comptable limit?e au p?rim?tre actif : les blocs et KPI sans besoin associ? sont masqu?s.",
+        caption="Lecture comptable limitée au périmètre actif : les blocs et KPI sans besoin associé sont masqués.",
         tone="energy",
     )
     if show_solar_blocks:
@@ -276,12 +276,12 @@ def render_hourly_results(
             [
                 ("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh"),
                 ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
-                ("Production solaire inject?e dans le BTES", f"{total_to_btes / 1000:.0f} MWh"),
-                ("Productivit? solaire valoris?e", f"{solar_productivity_valued:.0f} kWh/m?.an"),
+                ("Production solaire injectée dans le BTES", f"{total_to_btes / 1000:.0f} MWh"),
+                ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                 ("Taux de couverture solaire HT", f"{annual_ht_solar_coverage * 100:.0f} %"),
-                ("? solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh capt?s"),
-                ("? solaire BTES", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh inject?s"),
-                ("? solaire global", f"{combined_eff * 100:.1f} %" if combined_eff > 0.0 else "non disponible"),
+                ("η solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
+                ("η solaire BTES", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh injectés"),
+                ("η solaire global", f"{combined_eff * 100:.1f} %" if combined_eff > 0.0 else "non disponible"),
             ],
             tone="solar",
         )
@@ -345,7 +345,7 @@ def render_hourly_results(
     if show_geothermal_blocks:
         st.markdown("#### PAC géothermie")
         _render_kpi_section(
-            "G?othermie seule",
+            "Géothermie seule",
             _scenario_pac_metrics(
                 row=geo_only_row,
                 final_row=geo_only_final_row,
@@ -359,7 +359,7 @@ def render_hourly_results(
         )
         if show_solar_blocks:
             _render_kpi_section(
-                "G?othermie avec recharge solaire",
+                "Géothermie avec recharge solaire",
                 _scenario_pac_metrics(
                     row=same_borefield_row,
                     final_row=same_final_row,
@@ -371,7 +371,7 @@ def render_hourly_results(
                 tone="pac",
             )
             _render_kpi_section(
-                "G?othermie avec recharge solaire et lin?aire de sondes r?duites",
+                "Géothermie avec recharge solaire et linéaire de sondes réduites",
                 _scenario_pac_metrics(
                     row=reduced_borefield_row,
                     final_row=reduced_final_row,
@@ -385,25 +385,25 @@ def render_hourly_results(
             )
 
         pac_security_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = [
-            ("Gain ?quivalent ?co", gain_value),
+            ("Gain équivalent éco", gain_value),
             ("Limite source PAC", f"{source_limit_hours} h", f"{source_limit_energy:.1f} MWh"),
             ("T source fin année 1", _format_temp(first_year_end_source_c)),
             (
                 f"T source fin année {multiyear_years_count}",
                 _format_temp(final_year_end_source_c),
                 (
-                    f"{final_year_end_source_c - first_year_end_source_c:+.1f} ?C"
+                    f"{final_year_end_source_c - first_year_end_source_c:+.1f} °C"
                     if final_year_end_source_c is not None and first_year_end_source_c is not None
                     else None
                 ),
             ),
-            ("T source min p?riode", _format_temp(period_min_source_c)),
+            ("T source min période", _format_temp(period_min_source_c)),
             (
-                "Heures sous Tmin op?rationnelle",
+                "Heures sous Tmin opérationnelle",
                 f"{int((hourly_df['T_source_PAC_pour_COP_C'] <= scenario.config.btes.t_min_c + 1e-6).sum())} h",
             ),
             ("Heures hors GMI", f"{gmi_hours_low + gmi_hours_high} h"),
-            ("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} ?C"),
+            ("T fluide injection max", f"{float(hourly_df['T_fluide_injection_C'].max()):.1f} °C"),
         ]
         if show_solar_blocks:
             pac_security_metrics.extend(
@@ -416,7 +416,7 @@ def render_hourly_results(
                     ("Ratio injection/extraction", f"{ratio_injection_extraction:.2f}"),
                 ]
             )
-        _render_kpi_section("Champ de sondes et s?curit?", pac_security_metrics, tone="pac")
+        _render_kpi_section("Champ de sondes et sécurité", pac_security_metrics, tone="pac")
         if btes_diag.get("geo_field_mode_comment"):
             st.caption(str(btes_diag["geo_field_mode_comment"]))
         if btes_diag.get("warning"):
@@ -425,19 +425,19 @@ def render_hourly_results(
             st.warning(str(btes_diag["surface_insulation_warning"]))
 
         _render_kpi_section(
-            "Synth?se P1 ?lectrique - géothermie" + (" avec recharge solaire" if show_solar_blocks else " seule"),
+            "Synthèse P1 électrique - géothermie" + (" avec recharge solaire" if show_solar_blocks else " seule"),
             [
-                ("?lectricit? compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an"),
+                ("Électricité compresseur PAC", f"{total_compressor / 1000.0:.1f} MWh/an"),
                 ("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an"),
-                ("Veille/r?gulation", f"{total_standby / 1000.0:.1f} MWh/an"),
-                ("?lectricit? totale PAC", f"{total_elec / 1000.0:.1f} MWh/an"),
+                ("Veille/régulation", f"{total_standby / 1000.0:.1f} MWh/an"),
+                ("Électricité totale PAC", f"{total_elec / 1000.0:.1f} MWh/an"),
                 ("COP machine", f"{mean_cop:.1f}"),
                 ("SPF PAC complet", f"{spf_pac_total:.1f}"),
-                ("SPF syst?me simplifi?", f"{spf_system:.1f}"),
+                ("SPF système simplifié", f"{spf_system:.1f}"),
             ],
             caption=(
-                "Ces indicateurs correspondent au sc?nario principal affich? : "
-                + ("géothermie avec recharge solaire et lin?aire initial." if show_solar_blocks else "géothermie seule sur le besoin BT.")
+                "Ces indicateurs correspondent au scénario principal affiché : "
+                + ("géothermie avec recharge solaire et linéaire initial." if show_solar_blocks else "géothermie seule sur le besoin BT.")
             ),
             tone="pac",
         )
@@ -465,7 +465,7 @@ def render_hourly_results(
     if show_geothermal_blocks:
         result_sections.append("Analyse solaire et géothermie" if show_solar_blocks else "Analyse géothermie")
         result_sections.append("Multiannuel BTES")
-    result_sections.extend(["Monotone horaire", "Analyses mensuelles", "?conomie"])
+    result_sections.extend(["Monotone horaire", "Analyses mensuelles", "Économie"])
     if show_geothermal_blocks:
         result_sections.append("Paramétrique PAC")
     if show_solar_blocks:
@@ -473,7 +473,7 @@ def render_hourly_results(
     result_sections.append("Données")
 
     result_section = st.radio(
-        "Section de r?sultats",
+        "Section de résultats",
         result_sections,
         horizontal=True,
         key=f"result_section_{calculation_id}",
@@ -483,8 +483,8 @@ def render_hourly_results(
         title = "Grandeurs solaires et géothermie horaire" if show_solar_blocks else "Grandeurs géothermie horaire"
         st.markdown(f"### {title} - année {scenario.simulation_year_displayed}")
         st.caption(
-            "T source PAC n'est pas une temp?rature moyenne du sous-sol : c'est la temp?rature c?t? source g?othermique "
-            "vue par la PAC. La temp?rature de paroi forage est affich?e s?par?ment."
+            "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
+            "vue par la PAC. La température de paroi forage est affichée séparément."
         )
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
 
@@ -865,4 +865,3 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
             - Le champ de sondes utilise pygfunction pour calculer la température source PAC.
             """
         )
-

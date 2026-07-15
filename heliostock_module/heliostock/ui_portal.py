@@ -55,6 +55,7 @@ SAVEABLE_WIDGET_KEYS = [
     "solar_eta0",
     "solar_a1",
     "solar_a2",
+    "solar_daily_buffer_l_per_m2",
     "solar_daily_buffer_ambient_temp_c",
     "solar_daily_buffer_max_temp_c",
     "geo_pac_power_fraction_pct",
