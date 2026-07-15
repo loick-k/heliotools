@@ -369,8 +369,16 @@ L_sondes = max(P_sous_sol * 1000 / ratio_W_ml, Q_sous_sol * 1000 / ratio_kWh_ml_
 ```
 
 La longueur requise est arrondie aux 10 m superieurs, puis convertie en nombre de sondes avec la profondeur unitaire.
-Les ratios par defaut sont `40 W/ml` et `60 kWh/ml.an`, avec facteur de securite `1,20`.
-Les plages de lecture recommandees sont environ `35 a 45 W/ml` et `55 a 70 kWh/ml.an`, modifiables dans l'interface.
+Les ratios standards de predimensionnement sont `50 W/ml` et `100 kWh/ml.an`, avec facteur de securite `1,20`.
+HelioStock distingue ces ratios de predimensionnement des limites operationnelles de simulation. Les premiers servent
+a proposer un champ initial ; les secondes bornent les puissances horaires extremes. Par defaut, les limites dures sont
+`70 W/ml` en extraction et `80 W/ml` en injection. Les alertes signalent les zones de vigilance sans bloquer
+systematiquement le calcul : extraction au-dessus de `50 W/ml`, vigilance forte au-dessus de `60 W/ml`, injection
+au-dessus de `60 W/ml`, limite forte a `80 W/ml`.
+
+Les limites horaires sont volontairement plus hautes que les ratios de predimensionnement. La validation physique repose
+d'abord sur la temperature source, le critere GMI `-3/+40 C`, la trajectoire sur 25 ans, le COP de l'annee finale et la
+couverture PAC.
 
 La chaleur livree par la PAC est separee en deux postes :
 

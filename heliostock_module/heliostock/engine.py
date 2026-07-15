@@ -66,8 +66,8 @@ class BtesConfig:
     borehole_radius_m: float = 0.075
     borehole_buried_depth_m: float = 4.0
     borehole_thermal_resistance_m_k_w: float = 0.10
-    max_extraction_w_m: float = 40.0
-    max_injection_w_m: float = 40.0
+    max_extraction_w_m: float = 70.0
+    max_injection_w_m: float = 80.0
     load_aggregation_mode: str = "pygfunction_default"
     surface_insulation_considered: bool = False
 

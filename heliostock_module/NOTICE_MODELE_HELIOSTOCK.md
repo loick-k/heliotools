@@ -1591,14 +1591,32 @@ au COP de cette meme heure.
 Le predimensionnement prudent utilise maintenant :
 
 ```text
-ratio puissance extraction = 40 W/ml
-ratio energie extraction = 60 kWh/ml.an
+ratio puissance predimensionnement = 50 W/ml
+ratio energie annuelle predimensionnement = 100 kWh/ml.an
 facteur securite = 1,20
 ```
 
-Les plages de lecture recommandees sont environ 35 a 45 W/ml et 55 a 70 kWh/ml.an. Ces ratios restent des ordres de
-grandeur de predimensionnement ; la geometrie du champ et les interactions temporelles doivent etre consolidees par une
-etude geothermique detaillee.
+HelioStock distingue les ratios de predimensionnement des limites operationnelles de simulation. Les premiers servent a
+proposer un champ initial ; les secondes bornent les puissances horaires extremes. Les limites dures standard sont :
+
+```text
+limite dure extraction simulation = 70 W/ml
+limite dure injection simulation = 80 W/ml
+```
+
+Les alertes signalent les zones de vigilance sans bloquer systematiquement le calcul :
+
+```text
+alerte extraction = 50 W/ml
+alerte forte extraction = 60 W/ml
+alerte injection = 60 W/ml
+alerte forte injection = 80 W/ml
+```
+
+Ces limites horaires sont volontairement plus hautes que les ratios de predimensionnement. La validation physique repose
+d'abord sur la temperature source, le critere GMI -3/+40 C, la trajectoire sur 25 ans, le COP de l'annee finale et la
+couverture PAC. La geometrie du champ et les interactions temporelles doivent etre consolidees par une etude
+geothermique detaillee.
 
 L'outil conserve ses specificites : process HT/BT, solaire thermique via ballon journalier, injection solaire seulement
 apres saturation du ballon, comparaison gaz / geothermie / geothermie + solaire. Il reste un outil d'opportunite et ne

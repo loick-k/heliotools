@@ -11,6 +11,7 @@ Lancement local :
 """
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from urllib.parse import quote_plus
 
 import folium
@@ -203,6 +204,218 @@ def build_map_points(map_df: pd.DataFrame) -> list:
 
     return points
 
+
+def _fmt_number(value: float, decimals: int = 0, suffix: str = "") -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = 0.0
+    formatted = f"{numeric:,.{decimals}f}".replace(",", " ")
+    return f"{formatted} {suffix}".strip()
+
+
+def _filtered_summary_metrics(df_f: pd.DataFrame) -> list[tuple[str, str]]:
+    return [
+        ("Installations", _fmt_number(len(df_f))),
+        ("Superficie totale", _fmt_number(df_f["Superficie (m²)"].sum(), suffix="m²")),
+        ("Production annuelle totale", _fmt_number(df_f["Production annuelle (MWh)"].sum(), suffix="MWh")),
+        ("Aide ADEME totale", _fmt_number(df_f["Aide ADEME (€)"].sum(), suffix="€")),
+    ]
+
+
+def _counts_table(df_f: pd.DataFrame, column: str, value_label: str = "Nombre") -> pd.DataFrame:
+    table = df_f[column].fillna("Non renseigné").value_counts().reset_index()
+    table.columns = [column, value_label]
+    return table
+
+
+def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    dep_counts = _counts_table(df_f, "Département")
+    secteur_counts = group_small_categories(_counts_table(df_f, "Secteur"), "Secteur", "Nombre", seuil_pct=3.0)
+    etat_counts = group_small_categories(_counts_table(df_f, "Etat"), "Etat", "Nombre", seuil_pct=3.0)
+    installations_par_annee = (
+        df_f.dropna(subset=["Année de mise en service"])
+        .groupby("Année de mise en service")
+        .size()
+        .reset_index(name="Nombre")
+        .sort_values("Année de mise en service")
+    )
+    evolution_cumulee = installations_par_annee.copy()
+    if not evolution_cumulee.empty:
+        evolution_cumulee["Cumulé"] = evolution_cumulee["Nombre"].cumsum()
+    superficie_secteur = df_f.dropna(subset=["Superficie (m²)"]).copy()
+    if not superficie_secteur.empty:
+        superficie_secteur["Secteur"] = superficie_secteur["Secteur"].fillna("Non renseigné")
+        superficie_secteur = (
+            superficie_secteur.groupby("Secteur")["Superficie (m²)"]
+            .sum()
+            .reset_index()
+        )
+        superficie_secteur = group_small_categories(
+            superficie_secteur, "Secteur", "Superficie (m²)", seuil_pct=3.0
+        )
+    scatter_data = df_f.dropna(subset=["Superficie (m²)", "Production annuelle (MWh)"])[
+        ["Application", "Ville", "Secteur", "Année de mise en service", "Superficie (m²)", "Production annuelle (MWh)"]
+    ].copy()
+    return {
+        "Installations par département": dep_counts,
+        "Répartition par secteur": secteur_counts,
+        "Répartition par état": etat_counts,
+        "Évolution cumulée": evolution_cumulee,
+        "Nouvelles installations par année": installations_par_annee,
+        "Superficie par secteur": superficie_secteur,
+        "Superficie vs production annuelle": scatter_data,
+    }
+
+
+def _active_filters_summary(
+    *,
+    departements: list[str],
+    secteurs: list[str],
+    types: list[str],
+    etats: list[str],
+    annees: tuple[int, int] | None,
+) -> list[tuple[str, str]]:
+    def values(selected: list[str]) -> str:
+        return ", ".join(selected) if selected else "Tous"
+
+    return [
+        ("Département", values(departements)),
+        ("Secteur", values(secteurs)),
+        ("Type d'installation", values(types)),
+        ("Etat", values(etats)),
+        ("Année de mise en service", f"{annees[0]} - {annees[1]}" if annees else "Toutes"),
+    ]
+
+
+def _pdf_escape(value: object) -> bytes:
+    raw = str(value).encode("cp1252", errors="replace")
+    escaped = bytearray()
+    for byte in raw:
+        if byte in (40, 41, 92):
+            escaped.extend(b"\\" + bytes([byte]))
+        elif byte < 32 or byte > 126:
+            escaped.extend(f"\\{byte:03o}".encode("ascii"))
+        else:
+            escaped.append(byte)
+    return bytes(escaped)
+
+
+def _pdf_line_command(text: str, *, x: int, y: int, size: int = 9, bold: bool = False) -> bytes:
+    font = "F2" if bold else "F1"
+    return b"BT /" + font.encode("ascii") + b" " + str(size).encode("ascii") + b" Tf " + str(x).encode("ascii") + b" " + str(y).encode("ascii") + b" Td (" + _pdf_escape(text) + b") Tj ET\n"
+
+
+def _wrap_text(text: str, width: int = 105) -> list[str]:
+    words = str(text).split()
+    lines: list[str] = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if len(candidate) > width and current:
+            lines.append(current)
+            current = word
+        else:
+            current = candidate
+    if current:
+        lines.append(current)
+    return lines or [""]
+
+
+def _table_lines(df: pd.DataFrame, *, max_rows: int = 35) -> list[str]:
+    if df.empty:
+        return ["Aucune donnée."]
+    export_df = df.head(max_rows).copy()
+    for column in export_df.columns:
+        if pd.api.types.is_numeric_dtype(export_df[column]):
+            export_df[column] = export_df[column].map(lambda value: _fmt_number(value, 1 if float(value) % 1 else 0))
+    lines = export_df.astype(str).to_string(index=False).splitlines()
+    remaining = len(df) - len(export_df)
+    if remaining > 0:
+        lines.append(f"... {remaining} ligne(s) supplémentaire(s) non affichée(s) dans le PDF.")
+    return lines
+
+
+def _simple_pdf_from_lines(lines: list[tuple[str, int, bool]]) -> bytes:
+    page_width, page_height = 595, 842
+    pages: list[bytes] = []
+    current: list[bytes] = []
+    y = 800
+    for text, size, bold in lines:
+        if y < 46:
+            pages.append(b"".join(current))
+            current = []
+            y = 800
+        current.append(_pdf_line_command(text, x=42, y=y, size=size, bold=bold))
+        y -= max(11, size + 4)
+    if current:
+        pages.append(b"".join(current))
+
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
+    ]
+    page_object_ids: list[int] = []
+    for content in pages:
+        page_id = len(objects) + 1
+        content_id = len(objects) + 2
+        page_object_ids.append(page_id)
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] "
+            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {content_id} 0 R >>".encode("ascii")
+        )
+        objects.append(b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"endstream")
+    kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
+    objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("ascii")
+
+    payload = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    offsets = [0]
+    for object_id, obj in enumerate(objects, start=1):
+        offsets.append(len(payload))
+        payload.extend(f"{object_id} 0 obj\n".encode("ascii"))
+        payload.extend(obj)
+        payload.extend(b"\nendobj\n")
+    xref_offset = len(payload)
+    payload.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    payload.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        payload.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    payload.extend(
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(payload)
+
+
+def _overview_pdf_bytes(
+    *,
+    df_f: pd.DataFrame,
+    filters: list[tuple[str, str]],
+) -> bytes:
+    lines: list[tuple[str, int, bool]] = [
+        ("Dashboard solaire thermique - vue d'ensemble", 16, True),
+        (f"Export généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", 9, False),
+        ("", 9, False),
+        ("Filtres actifs", 12, True),
+    ]
+    for label, value in filters:
+        for wrapped in _wrap_text(f"{label} : {value}", width=95):
+            lines.append((wrapped, 9, False))
+
+    lines.extend([("", 9, False), ("Indicateurs clés", 12, True)])
+    for label, value in _filtered_summary_metrics(df_f):
+        lines.append((f"{label} : {value}", 10, False))
+
+    for title, table in _overview_export_tables(df_f).items():
+        lines.extend([("", 9, False), (title, 12, True)])
+        for line in _table_lines(table):
+            for wrapped in _wrap_text(line, width=105):
+                lines.append((wrapped, 8, False))
+
+    return _simple_pdf_from_lines(lines)
+
+
 def render_solar_thermal_dashboard() -> None:
 
     # ---------------------------------------------------------------------------
@@ -288,6 +501,13 @@ def render_solar_thermal_dashboard() -> None:
             df_f["Année de mise en service"].isna()
             | df_f["Année de mise en service"].between(f_annee[0], f_annee[1])
         ]
+    active_filters = _active_filters_summary(
+        departements=f_departement,
+        secteurs=f_secteur,
+        types=f_type,
+        etats=f_etat,
+        annees=f_annee,
+    )
 
     st.sidebar.caption(f"{len(df_f)} installation(s) sur {len(df)} au total")
 
@@ -309,20 +529,20 @@ def render_solar_thermal_dashboard() -> None:
 
     # --- Vue d'ensemble --------------------------------------------------------
     if section == "📊 Vue d'ensemble":
+        pdf_bytes = _overview_pdf_bytes(df_f=df_f, filters=active_filters)
+        st.download_button(
+            "Télécharger la vue d'ensemble en PDF",
+            data=pdf_bytes,
+            file_name=f"dashboard_solaire_thermique_vue_ensemble_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+            mime="application/pdf",
+        )
+
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Installations", f"{len(df_f):,}".replace(",", " "))
-        c2.metric(
-            "Superficie totale",
-            f"{df_f['Superficie (m²)'].sum():,.0f} m²".replace(",", " "),
-        )
-        c3.metric(
-            "Production annuelle totale",
-            f"{df_f['Production annuelle (MWh)'].sum():,.0f} MWh".replace(",", " "),
-        )
-        c4.metric(
-            "Aide ADEME totale",
-            f"{df_f['Aide ADEME (€)'].sum():,.0f} €".replace(",", " "),
-        )
+        summary_metrics = _filtered_summary_metrics(df_f)
+        c1.metric(summary_metrics[0][0], summary_metrics[0][1])
+        c2.metric(summary_metrics[1][0], summary_metrics[1][1])
+        c3.metric(summary_metrics[2][0], summary_metrics[2][1])
+        c4.metric(summary_metrics[3][0], summary_metrics[3][1])
 
         st.divider()
 

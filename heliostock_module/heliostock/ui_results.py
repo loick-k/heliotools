@@ -24,6 +24,12 @@ from .ui_economics import render_economics_tab
 from .ui_formatting import display_dataframe, round_display_df
 
 
+EXTRACTION_WARNING_W_M = 50.0
+EXTRACTION_STRONG_WARNING_W_M = 60.0
+INJECTION_WARNING_W_M = 60.0
+INJECTION_STRONG_WARNING_W_M = 80.0
+
+
 def _render_kpi_styles() -> None:
     return None
 
@@ -384,9 +390,19 @@ def render_hourly_results(
                 tone="pac",
             )
 
+        full_length_m = max(1e-9, float(scenario.full_borefield_length_m))
+        extraction_kwh_per_m_year = final_btes_extraction_mwh * 1000.0 / full_length_m
+        injection_kwh_per_m_year = final_btes_injection_mwh * 1000.0 / full_length_m
+        q_extraction_max_year = float(hourly_df["q_extraction_w_m"].max()) if "q_extraction_w_m" in hourly_df else 0.0
+        q_injection_max_year = float(hourly_df["q_injection_w_m"].max()) if "q_injection_w_m" in hourly_df else 0.0
+
         pac_security_metrics: list[tuple[str, str] | tuple[str, str, str | None]] = [
             ("Gain équivalent éco", gain_value),
             ("Limite source PAC", f"{source_limit_hours} h", f"{source_limit_energy:.1f} MWh"),
+            ("q extraction max année affichée", f"{q_extraction_max_year:.0f} W/ml"),
+            ("q injection max année affichée", f"{q_injection_max_year:.0f} W/ml"),
+            ("Énergie extraite sol", f"{extraction_kwh_per_m_year:.0f} kWh/ml.an"),
+            ("Énergie injectée BTES", f"{injection_kwh_per_m_year:.0f} kWh/ml.an"),
             ("T source fin année 1", _format_temp(first_year_end_source_c)),
             (
                 f"T source fin année {multiyear_years_count}",
@@ -567,7 +583,6 @@ def _render_btes_warnings(
     max_extraction_w_m = float(hourly_df["q_extraction_w_m"].max())
     max_injection_w_m = float(hourly_df["q_injection_w_m"].max())
     hours_at_tmin = int((hourly_df["T_source_PAC_C"] <= scenario.config.btes.t_min_c + 1e-6).sum())
-    warning_margin = 1.05
     if btes_backend_used == "pygfunction" and hours_at_tmin > 0:
         st.warning(
             f"Backend pygfunction : la température source atteint Tmin pendant {hours_at_tmin} h/an. "
@@ -575,16 +590,42 @@ def _render_btes_warnings(
             "pas sur le scénario économique à sondes réduites. Le champ est probablement trop sollicité ou trop court "
             "pour ce modèle ; le COP est alors borné à Tmin et la chaleur BT non couverte par la PAC bascule en appoint gaz."
         )
-    if max_extraction_w_m > probe_power_ratio_w_m * warning_margin:
+    if max_extraction_w_m >= scenario.config.btes.max_extraction_w_m - 1e-6:
         st.warning(
-            f"Puissance linéique d'extraction max = {max_extraction_w_m:.0f} W/ml, "
-            f"au-dessus du ratio de prédimensionnement retenu ({probe_power_ratio_w_m:.0f} W/ml)."
+            f"Limite dure d'extraction atteinte : {max_extraction_w_m:.0f} W/ml "
+            f"pour une limite de {scenario.config.btes.max_extraction_w_m:.0f} W/ml. "
+            "La puissance PAC peut être bridée par la limite horaire de simulation."
         )
-    if max_injection_w_m > probe_power_ratio_w_m * warning_margin:
+    elif max_extraction_w_m > EXTRACTION_STRONG_WARNING_W_M:
         st.warning(
-            f"Puissance linéique d'injection max = {max_injection_w_m:.0f} W/ml, "
-            f"au-dessus du ratio de prédimensionnement retenu ({probe_power_ratio_w_m:.0f} W/ml). "
-            "Vérifie la contrainte d'injection admissible dans les hypothèses géothermie."
+            f"Vigilance forte extraction : q extraction max = {max_extraction_w_m:.0f} W/ml, "
+            f"au-dessus du seuil fort de {EXTRACTION_STRONG_WARNING_W_M:.0f} W/ml."
+        )
+    elif max_extraction_w_m > EXTRACTION_WARNING_W_M:
+        st.warning(
+            f"Vigilance extraction : q extraction max = {max_extraction_w_m:.0f} W/ml, "
+            f"au-dessus du seuil de lecture de {EXTRACTION_WARNING_W_M:.0f} W/ml."
+        )
+    if max_injection_w_m >= scenario.config.btes.max_injection_w_m - 1e-6:
+        st.warning(
+            f"Limite dure d'injection atteinte : {max_injection_w_m:.0f} W/ml "
+            f"pour une limite de {scenario.config.btes.max_injection_w_m:.0f} W/ml."
+        )
+    elif max_injection_w_m > INJECTION_STRONG_WARNING_W_M:
+        st.warning(
+            f"Vigilance forte injection : q injection max = {max_injection_w_m:.0f} W/ml, "
+            f"au-dessus du seuil fort de {INJECTION_STRONG_WARNING_W_M:.0f} W/ml."
+        )
+    elif max_injection_w_m > INJECTION_WARNING_W_M:
+        st.warning(
+            f"Vigilance injection : q injection max = {max_injection_w_m:.0f} W/ml, "
+            f"au-dessus du seuil de lecture de {INJECTION_WARNING_W_M:.0f} W/ml."
+        )
+    if max_extraction_w_m > EXTRACTION_WARNING_W_M or max_injection_w_m > INJECTION_WARNING_W_M:
+        st.caption(
+            "Les ratios de prédimensionnement ne sont pas des limites physiques instantanées. "
+            "Les pointes horaires peuvent être supérieures si les températures restent compatibles "
+            "avec les critères de fonctionnement et GMI."
         )
 
 

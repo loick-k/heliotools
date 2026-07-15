@@ -139,13 +139,26 @@ class FixedGeoAssumptions:
     borehole_radius_m: float = 0.075
     borehole_buried_depth_m: float = 4.0
     borehole_thermal_resistance_m_k_w: float = 0.10
-    probe_power_ratio_w_m: float = 40.0
-    max_injection_w_m: float = 40.0
-    max_extraction_kwh_per_m_year: float = 60.0
+    predesign_power_ratio_w_m: float = 50.0
+    predesign_energy_ratio_kwh_m_year: float = 100.0
+    extraction_warning_w_m: float = 50.0
+    extraction_strong_warning_w_m: float = 60.0
+    injection_warning_w_m: float = 60.0
+    injection_strong_warning_w_m: float = 80.0
+    max_extraction_w_m: float = 70.0
+    max_injection_w_m: float = 80.0
     safety_factor: float = 1.20
     reduced_borefield_safety_factor: float = 1.10
     aux_pac_ratio: float = 0.15
     standby_power_kw: float = 0.05
+
+    @property
+    def probe_power_ratio_w_m(self) -> float:
+        return self.predesign_power_ratio_w_m
+
+    @property
+    def max_extraction_kwh_per_m_year(self) -> float:
+        return self.predesign_energy_ratio_kwh_m_year
 
     def to_table(self) -> pd.DataFrame:
         return pd.DataFrame(
@@ -168,9 +181,14 @@ class FixedGeoAssumptions:
                 ("Rayon forage", self.borehole_radius_m, "m"),
                 ("Profondeur enterrée", self.borehole_buried_depth_m, "m"),
                 ("Résistance forage Rb_eff", self.borehole_thermal_resistance_m_k_w, "m.K/W"),
-                ("Puissance linéique extraction max", self.probe_power_ratio_w_m, "W/ml"),
-                ("Puissance linéique injection max", self.max_injection_w_m, "W/ml"),
-                ("Extraction max annuelle sondes", self.max_extraction_kwh_per_m_year, "kWh/ml.an"),
+                ("Ratio puissance prédimensionnement", self.predesign_power_ratio_w_m, "W/ml"),
+                ("Ratio énergie annuelle prédimensionnement", self.predesign_energy_ratio_kwh_m_year, "kWh/ml.an"),
+                ("Limite dure extraction simulation", self.max_extraction_w_m, "W/ml"),
+                ("Limite dure injection simulation", self.max_injection_w_m, "W/ml"),
+                ("Seuil alerte extraction", self.extraction_warning_w_m, "W/ml"),
+                ("Seuil alerte forte extraction", self.extraction_strong_warning_w_m, "W/ml"),
+                ("Seuil alerte injection", self.injection_warning_w_m, "W/ml"),
+                ("Seuil alerte forte injection", self.injection_strong_warning_w_m, "W/ml"),
                 ("Facteur sécurité prédimensionnement", self.safety_factor, "-"),
                 ("Marge sécurité sondes réduites", self.reduced_borefield_safety_factor, "-"),
                 ("Forfait auxiliaires PAC/géothermie", self.aux_pac_ratio, "part élec compresseur"),
