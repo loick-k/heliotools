@@ -726,17 +726,40 @@ def _render_multiyear_tab(
         "les tableaux économiques restent calculés sur les indicateurs annuels. "
         "Les températures clés sont reprises dans le résumé technique."
     )
-    chart_col_1, chart_col_2, chart_col_3 = st.columns(3)
-    comparison_frames = [
-        no_solar_multiyear_btes_df.assign(Scenario="Géothermie seule")
-        if not no_solar_multiyear_btes_df.empty
-        else pd.DataFrame(),
-        multiyear_btes_df.assign(Scenario="Géothermie et recharge solaire"),
-    ]
-    comparison_btes_df = pd.concat(
-        [frame for frame in comparison_frames if not frame.empty],
-        ignore_index=True,
-    )
+    comparison_frames: list[pd.DataFrame] = []
+    trajectory_df = scenario.economic_trajectory_df
+    if not trajectory_df.empty and {"Scenario", "Annee", "T_source_PAC_min (C)"}.issubset(trajectory_df.columns):
+        labels = {
+            "Geothermie seule": "A - Géothermie seule",
+            "Geothermie + solaire meme sondes": "B - Géothermie avec recharge solaire",
+            "Geothermie + solaire sondes reduites": "C - Recharge solaire et linéaire réduit",
+        }
+        for raw_name, label in labels.items():
+            rows = trajectory_df[trajectory_df["Scenario"].astype(str) == raw_name].copy()
+            if rows.empty:
+                continue
+            comparison_frames.append(
+                pd.DataFrame(
+                    {
+                        "Mois index": pd.to_numeric(rows["Annee"], errors="coerce") * 12.0,
+                        "Mois": "Année " + rows["Annee"].astype(int).astype(str),
+                        "Scenario": label,
+                        "T source PAC fin (C)": pd.to_numeric(rows["T_source_PAC_min (C)"], errors="coerce"),
+                        "T source PAC min (C)": pd.to_numeric(rows["T_source_PAC_min (C)"], errors="coerce"),
+                        "T source PAC max (C)": pd.to_numeric(rows["T_source_PAC_min (C)"], errors="coerce"),
+                        "Heures sous Tmin source": pd.to_numeric(rows.get("Heures limite source", 0.0), errors="coerce"),
+                    }
+                )
+            )
+    if not comparison_frames:
+        comparison_frames = [
+            no_solar_multiyear_btes_df.assign(Scenario="A - Géothermie seule")
+            if not no_solar_multiyear_btes_df.empty
+            else pd.DataFrame(),
+            multiyear_btes_df.assign(Scenario="B - Géothermie avec recharge solaire"),
+        ]
+    comparison_btes_df = pd.concat([frame for frame in comparison_frames if not frame.empty], ignore_index=True)
+    chart_col_1, chart_col_2 = st.columns(2)
     if not comparison_btes_df.empty:
         with chart_col_1:
             st.markdown("### Comparaison")
@@ -748,10 +771,13 @@ def _render_multiyear_tab(
     with chart_col_2:
         st.markdown("### Température - géothermie et recharge solaire")
         st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), width="stretch")
+    chart_col_3, chart_col_4 = st.columns(2)
     with chart_col_3:
         st.markdown("### Flux mensuels - géothermie et recharge solaire")
         st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), width="stretch")
-    st.dataframe(display_dataframe(multiyear_btes_df), width="stretch", hide_index=True)
+    with chart_col_4:
+        st.markdown("### Données mensuelles")
+        st.dataframe(display_dataframe(multiyear_btes_df), width="stretch", hide_index=True)
 
 
 def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
