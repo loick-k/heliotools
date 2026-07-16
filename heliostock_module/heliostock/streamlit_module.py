@@ -243,9 +243,12 @@ def render_heliostock_hourly() -> pd.DataFrame:
         for column in render_row:
             if column not in performance_log_df.columns:
                 performance_log_df[column] = pd.NA
-        performance_log_df.loc[len(performance_log_df)] = {
-            column: render_row.get(column, pd.NA) for column in performance_log_df.columns
-        }
+        row_df = pd.DataFrame([{column: render_row.get(column, None) for column in performance_log_df.columns}])
+        row_df = row_df.dropna(axis=1, how="all")
+        performance_log_df = pd.concat(
+            [performance_log_df, row_df],
+            ignore_index=True,
+        )
     with st.expander("Journal performance du dernier calcul", expanded=False):
         if performance_log_df.empty:
             st.info("Aucun journal de performance disponible.")

@@ -472,18 +472,20 @@ def render_geothermal_form(
         )
 
         savings_options = ["désactivée", "rapide prédimensionnement", "experte détaillée"]
-        if st.session_state.get("geo_savings_method") not in savings_options:
-            st.session_state["geo_savings_method"] = "rapide prédimensionnement"
-        savings_method_label = st.selectbox(
-            "Méthode économie de sondes",
-            options=savings_options,
-            index=1,
-            key="geo_savings_method",
-            help=(
+        savings_selectbox_kwargs = {
+            "label": "Méthode économie de sondes",
+            "options": savings_options,
+            "key": "geo_savings_method",
+            "help": (
                 "Le mode rapide estime un linéaire réduit puis le vérifie avec quelques simulations pygfunction. "
                 "Le mode expert lance une recherche plus détaillée et donc plus longue."
             ),
-        )
+        }
+        if "geo_savings_method" not in st.session_state:
+            savings_selectbox_kwargs["index"] = 1
+        elif st.session_state.get("geo_savings_method") not in savings_options:
+            st.session_state["geo_savings_method"] = "rapide prédimensionnement"
+        savings_method_label = st.selectbox(**savings_selectbox_kwargs)
         savings_mode_map = {
             "désactivée": "none",
             "rapide prédimensionnement": "fast",

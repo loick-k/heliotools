@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass
 import json
 import pickle
 import re
@@ -10,11 +11,13 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from urllib import error as urlerror
 from urllib import request as urlrequest
 
 import streamlit as st
+import pandas as pd
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -665,7 +668,49 @@ def _load_local_result_pickle(path: Path) -> Any:
         raise ValueError("Cache résultat HelioStock trop volumineux.")
     if not payload.startswith(RESULT_PICKLE_MAGIC):
         raise ValueError("Cache résultat HelioStock non signé par cette version.")
-    return pickle.loads(payload[len(RESULT_PICKLE_MAGIC) :])
+    return _restore_result_cache_payload(pickle.loads(payload[len(RESULT_PICKLE_MAGIC) :]))
+
+
+def _prepare_result_cache_payload(value: Any) -> Any:
+    """Convertit les dataclasses HelioStock en structures stables pour pickle.
+
+    Streamlit Cloud peut recharger les modules entre deux exécutions. Pickle
+    échoue alors si un objet dataclass a été créé avec une ancienne référence
+    de classe. On sauvegarde donc les champs plutôt que l'objet Python exact.
+    """
+    if isinstance(value, pd.DataFrame):
+        return value
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            "__heliostock_dataclass__": f"{value.__class__.__module__}.{value.__class__.__qualname__}",
+            "fields": {
+                field.name: _prepare_result_cache_payload(getattr(value, field.name))
+                for field in fields(value)
+            },
+        }
+    if isinstance(value, dict):
+        return {key: _prepare_result_cache_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_prepare_result_cache_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_prepare_result_cache_payload(item) for item in value)
+    return value
+
+
+def _restore_result_cache_payload(value: Any) -> Any:
+    if isinstance(value, dict) and "__heliostock_dataclass__" in value and isinstance(value.get("fields"), dict):
+        restored_fields = {
+            key: _restore_result_cache_payload(item)
+            for key, item in value["fields"].items()
+        }
+        return SimpleNamespace(**restored_fields)
+    if isinstance(value, dict):
+        return {key: _restore_result_cache_payload(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_restore_result_cache_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_restore_result_cache_payload(item) for item in value)
+    return value
 
 
 def _save_local_result_pickle(path: Path, result: Any) -> None:
@@ -673,7 +718,7 @@ def _save_local_result_pickle(path: Path, result: Any) -> None:
     resolved = _assert_local_project_path(path)
     if not resolved.name.endswith(RESULT_SIDECAR_SUFFIX):
         raise ValueError("Chemin de cache résultat HelioStock invalide.")
-    payload = pickle.dumps(result, protocol=pickle.HIGHEST_PROTOCOL)
+    payload = pickle.dumps(_prepare_result_cache_payload(result), protocol=pickle.HIGHEST_PROTOCOL)
     if len(payload) > RESULT_PICKLE_MAX_BYTES:
         raise ValueError("Cache résultat HelioStock trop volumineux.")
     resolved.write_bytes(RESULT_PICKLE_MAGIC + payload)
