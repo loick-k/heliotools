@@ -370,6 +370,12 @@ def render_hourly_results(
 
     if show_geothermal_blocks:
         st.markdown("#### PAC géothermie")
+        geo_only_hours_gmi = _row_float(geo_only_final_row, "Heures sous Tmin GMI", 0.0) + _row_float(
+            geo_only_final_row,
+            "Heures sur Tmax GMI",
+            0.0,
+        )
+        geo_only_t_source_min_c = _row_float(geo_only_final_row, "T_source_PAC_min (C)", 0.0)
         _render_kpi_section(
             "Géothermie seule",
             _scenario_pac_metrics(
@@ -387,6 +393,14 @@ def render_hourly_results(
             ),
             tone="pac",
         )
+        if geo_only_hours_gmi > 0.0:
+            st.warning(
+                "Référence géothermie seule non conforme au critère GMI "
+                f"({geo_only_hours_gmi:.0f} h hors plage, T source min {geo_only_t_source_min_c:.1f} °C). "
+                "L'économie de sondes du scénario C doit être lue avec prudence : le champ de référence est déjà "
+                "trop sollicité. Conseil : augmenter le linéaire de sondes en priorité, ou réduire la puissance PAC "
+                "appelée/sa couverture BT si le besoin peut accepter davantage d'appoint."
+            )
         if show_solar_blocks:
             scenario_c_simulated = bool(savings.get("simulated", False))
             scenario_c_validated = bool(savings.get("found", False))
