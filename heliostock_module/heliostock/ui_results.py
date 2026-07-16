@@ -107,11 +107,15 @@ def _render_geothermal_interpretation(
         if savings is not None:
             search_count = int(float(savings.get("savings_simulations_count", 0) or 0))
             if search_count <= 0:
-                st.info("L'économie de sondes est désactivée ou n'a pas été lancée pour ce calcul.")
+                st.info(
+                    "Scénario C non calculé : la méthode d'économie de sondes est désactivée "
+                    "ou aucune recherche n'a été lancée pour ce calcul."
+                )
             else:
                 st.warning(
-                    "La recherche d'économie de sondes a été lancée, mais aucun champ réduit physique "
-                    "n'a été conservé pour affichage."
+                    "Scénario C non affichable : la recherche d'économie de sondes a été lancée, "
+                    "mais aucun champ réduit physique n'a été conservé pour produire des KPI. "
+                    "Les valeurs restent donc à `n.d.`."
                 )
             return
         st.info("Aucun résultat physique disponible pour ce scénario.")
@@ -162,17 +166,23 @@ def _render_geothermal_interpretation(
         simulated = bool(savings.get("simulated", False))
         validated = bool(savings.get("found", False))
         if search_count <= 0:
-            infos.append("L'économie de sondes est désactivée ou n'a pas été lancée pour ce calcul.")
+            infos.append(
+                "Scénario C non recherché : économie de sondes désactivée ou non lancée pour ce calcul."
+            )
         elif simulated and validated:
-            infos.append("Le scénario C est simulé physiquement et la réduction de sondes est validée économiquement.")
+            infos.append(
+                "Scénario C validé : le champ réduit est simulé physiquement et le gain de sondes est retenu économiquement."
+            )
         elif simulated:
-            warnings.append(
-                "Le scénario C est simulé physiquement et affiché à titre exploratoire, "
-                "mais le gain de sondes n'est pas retenu économiquement car les critères d'équivalence ne sont pas tous respectés."
+            warnings.insert(
+                0,
+                "Scénario C calculé mais non validé économiquement : les KPI ci-dessus décrivent bien le champ réduit simulé, "
+                "mais le gain de sondes retenu reste à 0 ml car au moins un critère d'équivalence n'est pas respecté."
             )
         else:
             warnings.append(
-                "La recherche d'économie de sondes a été lancée, mais aucun champ réduit physique n'a été conservé pour affichage."
+                "Scénario C non affichable : la recherche d'économie de sondes a été lancée, "
+                "mais aucun champ réduit physique n'a été conservé pour produire des KPI."
             )
 
     if warnings:
@@ -245,25 +255,31 @@ def render_hourly_results(
         scenario.economic_comparison_df,
         "Geothermie + solaire sondes reduites",
     )
-    initial_borefield_cop = _row_float(same_borefield_row, "COP PAC moyen", mean_cop)
-    initial_borefield_elec_mwh = _row_float(same_borefield_row, "Electricite PAC (MWh/an)", total_elec / 1000.0)
-    reduced_borefield_available = (
-        (bool(savings["found"]) or bool(savings.get("simulated", False)))
-        and reduced_borefield_row is not None
-    )
-    reduced_borefield_length_m = _row_float(
-        reduced_borefield_row,
-        "Lineaire sondes (ml)",
-        scenario.economic_borefield_length_m,
-    )
-    reduced_borefield_cop = _row_float(reduced_borefield_row, "COP PAC moyen", 0.0)
-    reduced_borefield_elec_mwh = _row_float(reduced_borefield_row, "Electricite PAC (MWh/an)", 0.0)
     geo_only_final_row = _trajectory_final_row(scenario.economic_trajectory_df, "Geothermie seule")
     same_final_row = _trajectory_final_row(scenario.economic_trajectory_df, "Geothermie + solaire meme sondes")
     reduced_final_row = _trajectory_final_row(scenario.economic_trajectory_df, "Geothermie + solaire sondes reduites")
     geo_only_first_row = _trajectory_first_row(scenario.economic_trajectory_df, "Geothermie seule")
     same_first_row = _trajectory_first_row(scenario.economic_trajectory_df, "Geothermie + solaire meme sondes")
     reduced_first_row = _trajectory_first_row(scenario.economic_trajectory_df, "Geothermie + solaire sondes reduites")
+    initial_borefield_cop = _row_float(same_borefield_row, "COP PAC moyen", mean_cop)
+    initial_borefield_elec_mwh = _row_float(same_borefield_row, "Electricite PAC (MWh/an)", total_elec / 1000.0)
+    reduced_borefield_available = (
+        (bool(savings["found"]) or bool(savings.get("simulated", False)))
+        and (reduced_borefield_row is not None or reduced_final_row is not None)
+    )
+    reduced_borefield_length_m = _row_float(
+        reduced_borefield_row,
+        "Lineaire sondes (ml)",
+        float(
+            savings.get(
+                "candidate_length_m",
+                savings.get("equivalent_length_m", scenario.economic_borefield_length_m),
+            )
+            or scenario.economic_borefield_length_m
+        ),
+    )
+    reduced_borefield_cop = _row_float(reduced_borefield_row, "COP PAC moyen", 0.0)
+    reduced_borefield_elec_mwh = _row_float(reduced_borefield_row, "Electricite PAC (MWh/an)", 0.0)
 
     st.subheader("Résumé technique")
     st.caption(
