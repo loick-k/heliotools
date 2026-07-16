@@ -896,6 +896,8 @@ def render_portal_sidebar() -> str:
                 _render_user_admin_panel()
             st.divider()
         app_options = ["HelioStock"]
+        if HELIOSTOCK_NOTICE.exists():
+            app_options.append("Notice HelioStock")
         if is_admin_authenticated():
             app_options.append("Dashboard solaire thermique")
             app_options.append("Note d'opportunité solaire thermique")
@@ -932,24 +934,39 @@ def render_portal_sidebar() -> str:
                 "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
                 "et le dernier résultat calculé."
             )
-            if HELIOSTOCK_NOTICE.exists():
-                st.divider()
-                st.markdown("### Notice HelioStock")
-                notice_text = HELIOSTOCK_NOTICE.read_text(encoding="utf-8")
-                st.download_button(
-                    "Télécharger la notice",
-                    data=notice_text.encode("utf-8"),
-                    file_name=HELIOSTOCK_NOTICE.name,
-                    mime="text/markdown",
-                    width="stretch",
-                )
-                with st.expander("Aperçu de la notice", expanded=False):
-                    preview = notice_text[:2500]
-                    st.markdown(preview)
-                    if len(notice_text) > len(preview):
-                        st.caption("Aperçu limité. Télécharge la notice pour lire la version complète.")
+
+        elif app_name == "Notice HelioStock" and HELIOSTOCK_NOTICE.exists():
+            st.markdown("### Notice HelioStock")
+            notice_text = HELIOSTOCK_NOTICE.read_text(encoding="utf-8")
+            st.download_button(
+                "Télécharger la notice",
+                data=notice_text.encode("utf-8"),
+                file_name=HELIOSTOCK_NOTICE.name,
+                mime="text/markdown",
+                width="stretch",
+            )
 
     return app_name
+
+
+def render_heliostock_notice_page() -> None:
+    """Affiche la notice HelioStock en pleine page."""
+
+    if not HELIOSTOCK_NOTICE.exists():
+        st.error("La notice HelioStock est introuvable dans le dépôt.")
+        return
+    notice_text = HELIOSTOCK_NOTICE.read_text(encoding="utf-8")
+    st.title("Notice HelioStock")
+    st.caption("Notice méthodologique et limites d'utilisation du modèle.")
+    st.download_button(
+        "Télécharger la notice",
+        data=notice_text.encode("utf-8"),
+        file_name=HELIOSTOCK_NOTICE.name,
+        mime="text/markdown",
+        width="stretch",
+    )
+    st.divider()
+    st.markdown(notice_text)
 
 
 def render_project_save_controls() -> None:

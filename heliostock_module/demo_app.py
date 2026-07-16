@@ -35,6 +35,12 @@ if selected_app == "HelioStock":
     except Exception:
         _show_startup_error("HelioStock n'a pas pu démarrer.")
 
+elif selected_app == "Notice HelioStock":
+    try:
+        ui_portal.render_heliostock_notice_page()
+    except Exception:
+        _show_startup_error("La notice HelioStock n'a pas pu s'afficher.")
+
 elif selected_app == "Dashboard solaire thermique":
     try:
         from heliostock.solar_thermal_dashboard import render_solar_thermal_dashboard
