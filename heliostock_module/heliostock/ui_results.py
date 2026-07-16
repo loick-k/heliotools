@@ -355,6 +355,11 @@ def render_hourly_results(
     storage_eff = _weighted_average_efficiency(hourly_df, "collector_eff_storage", "solar_to_btes_kwh")
     ht_energy_mwh = float(hourly_df["solar_ht_to_buffer_kwh"].sum()) / 1000.0 if "solar_ht_to_buffer_kwh" in hourly_df else 0.0
     storage_energy_mwh = float(hourly_df["solar_to_btes_kwh"].sum()) / 1000.0 if "solar_to_btes_kwh" in hourly_df else 0.0
+    solar_buffer_loss_mwh = (
+        float(hourly_df["solar_ht_buffer_loss_kwh"].sum()) / 1000.0
+        if "solar_ht_buffer_loss_kwh" in hourly_df
+        else 0.0
+    )
     combined_eff = (
         (ht_eff * ht_energy_mwh + storage_eff * storage_energy_mwh)
         / max(1e-9, ht_energy_mwh + storage_energy_mwh)
@@ -607,6 +612,7 @@ def render_hourly_results(
                     ("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh"),
                     ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
                     ("Production solaire injectée BTES", f"{total_to_btes / 1000:.0f} MWh"),
+                    ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
                     ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                     ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
                     ("Énergie injectée BTES", f"{final_btes_injection_mwh:.0f} MWh"),
@@ -650,6 +656,7 @@ def render_hourly_results(
                 [
                     ("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh"),
                     ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+                    ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
                     ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                     ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
                     ("η solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
@@ -1026,8 +1033,6 @@ def _render_monthly_tab(
         "Scénario affiché : B - Géothermie avec recharge solaire et linéaire initial, "
         f"année {scenario.simulation_year_displayed}. Les graphiques mensuels ne représentent pas les scénarios A ou C."
     )
-    st.markdown("### Bilan annuel - scénario B, calculé depuis les 8760 heures")
-    st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
 
     coverage_rate_df = hourly_by_month_df[["Mois", "Taux couverture solaire HT (%)"]].rename(
         columns={"Taux couverture solaire HT (%)": "Valeur"}
