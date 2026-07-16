@@ -404,6 +404,8 @@ def render_hourly_results(
         if show_solar_blocks:
             scenario_c_simulated = bool(savings.get("simulated", False))
             scenario_c_validated = bool(savings.get("found", False))
+            scenario_c_search_count = int(float(savings.get("savings_simulations_count", 0) or 0))
+            scenario_c_search_launched = scenario_c_search_count > 0
             scenario_c_candidate_length = float(
                 savings.get("candidate_length_m", savings.get("equivalent_length_m", reduced_borefield_length_m))
                 or 0.0
@@ -467,7 +469,9 @@ def render_hourly_results(
             )
             scenario_c_metrics.extend(
                 [
-                    ("Calcul physique", "réalisé" if scenario_c_simulated else "non lancé"),
+                    ("Recherche économie de sondes", "lancée" if scenario_c_search_launched else "non lancée"),
+                    ("Simulations économie de sondes", f"{scenario_c_search_count}"),
+                    ("Champ réduit affichable", "oui" if scenario_c_simulated else "non"),
                     ("Réduction validée", "oui" if scenario_c_validated else "non"),
                     ("Gain économique retenu", f"{scenario_c_saved_retained:.0f} ml" if scenario_c_validated else "0 ml"),
                 ]
@@ -485,6 +489,11 @@ def render_hourly_results(
                 st.caption(
                     "Scénario réduit affiché à titre exploratoire : le calcul physique a été réalisé, "
                     "mais l'économie de sondes n'est pas validée comme équivalente aux critères de référence."
+                )
+            elif scenario_c_search_launched and not scenario_c_simulated:
+                st.caption(
+                    "La recherche d'économie de sondes a été lancée, mais aucun champ réduit n'a été retenu "
+                    "comme scénario C affichable. Dans ce cas, les KPI physiques du scénario C restent non déterminés."
                 )
             if str(savings.get("message", "")).strip():
                 st.caption(f"Statut économie de sondes : {savings['message']}")

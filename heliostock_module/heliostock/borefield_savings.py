@@ -305,7 +305,15 @@ def _base_return(
         "equivalent_boreholes": int(boreholes),
         "saved_length_m": saved_length,
         "saved_fraction": saved_length / max(1e-9, base_length_m),
-        "message": "Reduction de sondes validee" if real_savings else "Aucune réduction de sondes validée",
+        "message": (
+            "Reduction de sondes validee"
+            if real_savings
+            else (
+                "Recherche realisee ; aucun champ reduit n'a ete retenu pour affichage."
+                if int(simulations_count) > 0
+                else "Aucune réduction de sondes validée"
+            )
+        ),
         "equivalent_cop": equivalent_cop,
         "equivalent_bt_pac_kwh": equivalent_bt_pac_kwh,
         "savings_simulations_count": int(simulations_count),

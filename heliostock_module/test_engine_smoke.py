@@ -2821,6 +2821,18 @@ def test_found_false_when_no_real_savings():
     assert float(result["saved_fraction"]) == 0.0
     assert result["message"] == "Aucune réduction de sondes validée"
 
+    searched_result = borefield_savings_module._base_return(
+        found=False,
+        base_length_m=1000.0,
+        boreholes=10,
+        equivalent_cop=4.0,
+        equivalent_bt_pac_kwh=1000.0,
+        final_metrics={"depth_m": 100.0, "final_cop": 4.0},
+        estimated_length_m=1000.0,
+        simulations_count=2,
+    )
+    assert searched_result["message"] == "Recherche realisee ; aucun champ reduit n'a ete retenu pour affichage."
+
 
 def test_no_pygfunction_parallel():
     root = Path(__file__).resolve().parent / "heliostock"
