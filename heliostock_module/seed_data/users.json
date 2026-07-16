@@ -13,5 +13,13 @@
     "password_hash": "e168f32caf5c5a4c0590a0e559cca69a:da7e8b4c70cd70f46aad9a8e395f821aa4595ddec028345b20d31d0984b5c216",
     "created_at": "2026-07-08T14:25:34",
     "active": true
+  },
+  {
+    "email": "rgenet@nrg-conseils.com",
+    "nom": "Romain Genet",
+    "role": "user",
+    "password_hash": "637ac2a2fa11fa49ed8a6aa2293fecda:484cf577d9e9d4cbf1a7df074c3a8eb4f3926f1f767dc8bd4dfe15c51923bcad",
+    "created_at": "2026-07-16T20:43:35",
+    "active": true
   }
 ]
