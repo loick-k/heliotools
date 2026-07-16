@@ -201,6 +201,25 @@ def _multiyear_btes_temperature_comparison_chart(comparison_df: pd.DataFrame):
     )
 
 
+def _multiyear_btes_annual_temperature_comparison_chart(comparison_df: pd.DataFrame):
+    return (
+        alt.Chart(comparison_df)
+        .mark_line(point=True, strokeWidth=2.0)
+        .encode(
+            x=alt.X("Annee:Q", title="Année de simulation", axis=alt.Axis(format="d")),
+            y=alt.Y("T source PAC min (C):Q", title="Température source PAC minimale annuelle (°C)"),
+            color=alt.Color("Scenario:N", title="Scénario"),
+            tooltip=[
+                "Scenario:N",
+                alt.Tooltip("Annee:Q", title="Année", format=".0f"),
+                alt.Tooltip("T source PAC min (C):Q", title="T source PAC min (°C)", format=".1f"),
+                alt.Tooltip("Heures limite source:Q", format=".0f"),
+            ],
+        )
+        .properties(height=390)
+    )
+
+
 def _multiyear_btes_flux_chart(summary_df: pd.DataFrame):
     flux_long = summary_df[
         [

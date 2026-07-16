@@ -70,6 +70,7 @@ class ScenarioResult:
     no_solar_hourly_df: pd.DataFrame
     multiyear_btes_df: pd.DataFrame
     no_solar_multiyear_btes_df: pd.DataFrame
+    reduced_multiyear_btes_df: pd.DataFrame
     annual_df: pd.DataFrame
     hourly_by_month_df: pd.DataFrame
     savings: dict[str, float | bool]
@@ -1366,7 +1367,7 @@ def run_hourly_scenario(
                 search_mode=savings_search_mode if run_reduced_borefield else "none",
                 full_case_metrics=full_case_metrics,
                 simulation_cache=simulation_cache,
-                include_hourly_df=bool(run_reduced_borefield),
+                include_hourly_df=False,
             )
         except Exception as exc:
             if simulation_cache is not None:
@@ -1587,6 +1588,13 @@ def run_hourly_scenario(
         and isinstance(equivalent_hourly_df_for_trajectory, pd.DataFrame)
         and not equivalent_hourly_df_for_trajectory.empty
     ):
+        reduced_multiyear_btes_df = _multiyear_btes_summary(
+            equivalent_hourly_df_for_trajectory,
+            t_min_c=config.btes.t_min_c,
+            gmi_t_min_c=config.btes.gmi_t_min_c,
+            gmi_t_max_c=config.btes.gmi_t_max_c,
+            gmi_check_enabled=config.btes.gmi_check_enabled,
+        )
         reduced_trajectory_df = _annual_metrics_trajectory(
             equivalent_hourly_df_for_trajectory,
             analysis_years=int(economics.analysis_years),
@@ -1595,6 +1603,13 @@ def run_hourly_scenario(
             gmi_check_enabled=config.btes.gmi_check_enabled,
         )
     elif run_reduced_borefield and (bool(savings["found"]) or bool(savings.get("simulated", False))) and reduced_results:
+        reduced_multiyear_btes_df = _multiyear_btes_summary_from_results(
+            reduced_results,
+            t_min_c=config.btes.t_min_c,
+            gmi_t_min_c=config.btes.gmi_t_min_c,
+            gmi_t_max_c=config.btes.gmi_t_max_c,
+            gmi_check_enabled=config.btes.gmi_check_enabled,
+        )
         reduced_trajectory_df = _annual_metrics_trajectory_from_results(
             reduced_results,
             analysis_years=int(economics.analysis_years),
@@ -1604,6 +1619,7 @@ def run_hourly_scenario(
             pac_power_kw=float(config.heat_pump.max_thermal_power_kw or 0.0),
         )
     else:
+        reduced_multiyear_btes_df = pd.DataFrame()
         reduced_trajectory_df = same_trajectory_df.copy()
     reference_trajectory_df = _reference_gas_trajectory_from(same_trajectory_df)
 
@@ -1755,6 +1771,10 @@ def run_hourly_scenario(
         spacing_m=float(config.btes.spacing_m),
         surface_insulation_considered=bool(config.btes.surface_insulation_considered),
     )
+    del multiyear_results
+    del no_solar_results
+    del reduced_results
+    gc.collect()
     public_savings = {
         key: value
         for key, value in savings.items()
@@ -1767,6 +1787,7 @@ def run_hourly_scenario(
         no_solar_hourly_df=no_solar_hourly_df,
         multiyear_btes_df=multiyear_btes_df,
         no_solar_multiyear_btes_df=no_solar_multiyear_btes_df,
+        reduced_multiyear_btes_df=reduced_multiyear_btes_df,
         annual_df=annual_df,
         hourly_by_month_df=hourly_by_month_df,
         savings=public_savings,

@@ -6,6 +6,7 @@ import streamlit as st
 from .charts import (
     _bar_chart,
     _line_chart,
+    _multiyear_btes_annual_temperature_comparison_chart,
     _multiyear_btes_flux_chart,
     _multiyear_btes_temperature_chart,
     _multiyear_btes_temperature_comparison_chart,
@@ -432,6 +433,8 @@ def render_hourly_results(
                     "Scénario réduit affiché à titre exploratoire : le calcul physique a été réalisé, "
                     "mais l'économie de sondes n'est pas validée comme équivalente aux critères de référence."
                 )
+            if str(savings.get("message", "")).strip():
+                st.caption(f"Statut économie de sondes : {savings['message']}")
             _render_kpi_section(
                 "Statut scénario C - réduction de sondes",
                 [
@@ -563,7 +566,12 @@ def render_hourly_results(
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
 
     elif result_section == "Multiannuel BTES":
-        _render_multiyear_tab(scenario, multiyear_btes_df, no_solar_multiyear_btes_df)
+        _render_multiyear_tab(
+            scenario,
+            multiyear_btes_df,
+            no_solar_multiyear_btes_df,
+            scenario.reduced_multiyear_btes_df,
+        )
 
     elif result_section == "Monotone horaire":
         _render_duration_tab(hourly_df)
@@ -713,6 +721,7 @@ def _render_multiyear_tab(
     scenario: ScenarioResult,
     multiyear_btes_df: pd.DataFrame,
     no_solar_multiyear_btes_df: pd.DataFrame,
+    reduced_multiyear_btes_df: pd.DataFrame,
 ) -> None:
     st.markdown("### Évolution multiannuelle du champ de sondes")
     if multiyear_btes_df.empty:
@@ -722,11 +731,27 @@ def _render_multiyear_tab(
     years_count = int(multiyear_btes_df["Annee"].max())
     st.caption(
         "Projection physique obtenue en répétant la même météo EPW et les mêmes besoins horaires "
-        f"sur {years_count} ans. Elle sert à visualiser la dérive thermique du champ ; "
-        "les tableaux économiques restent calculés sur les indicateurs annuels. "
-        "Les températures clés sont reprises dans le résumé technique."
+        f"sur {years_count} ans. La comparaison mensuelle montre les fluctuations saisonnières ; "
+        "la comparaison annuelle montre la dérive long terme des scénarios A, B et C."
     )
-    comparison_frames: list[pd.DataFrame] = []
+
+    monthly_frames = [
+        no_solar_multiyear_btes_df.assign(Scenario="A - Géothermie seule")
+        if not no_solar_multiyear_btes_df.empty
+        else pd.DataFrame(),
+        multiyear_btes_df.assign(Scenario="B - Géothermie avec recharge solaire"),
+        reduced_multiyear_btes_df.assign(Scenario="C - Recharge solaire et linéaire réduit")
+        if not reduced_multiyear_btes_df.empty
+        else pd.DataFrame(),
+    ]
+    non_empty_monthly_frames = [frame for frame in monthly_frames if not frame.empty]
+    monthly_comparison_df = (
+        pd.concat(non_empty_monthly_frames, ignore_index=True)
+        if non_empty_monthly_frames
+        else pd.DataFrame()
+    )
+
+    annual_frames: list[pd.DataFrame] = []
     trajectory_df = scenario.economic_trajectory_df
     if not trajectory_df.empty and {"Scenario", "Annee", "T_source_PAC_min (C)"}.issubset(trajectory_df.columns):
         labels = {
@@ -738,45 +763,46 @@ def _render_multiyear_tab(
             rows = trajectory_df[trajectory_df["Scenario"].astype(str) == raw_name].copy()
             if rows.empty:
                 continue
-            comparison_frames.append(
+            annual_frames.append(
                 pd.DataFrame(
                     {
-                        "Mois index": pd.to_numeric(rows["Annee"], errors="coerce") * 12.0,
-                        "Mois": "Année " + rows["Annee"].astype(int).astype(str),
+                        "Annee": pd.to_numeric(rows["Annee"], errors="coerce"),
                         "Scenario": label,
-                        "T source PAC fin (C)": pd.to_numeric(rows["T_source_PAC_min (C)"], errors="coerce"),
                         "T source PAC min (C)": pd.to_numeric(rows["T_source_PAC_min (C)"], errors="coerce"),
-                        "T source PAC max (C)": pd.to_numeric(rows["T_source_PAC_min (C)"], errors="coerce"),
-                        "Heures sous Tmin source": pd.to_numeric(rows.get("Heures limite source", 0.0), errors="coerce"),
+                        "Heures limite source": pd.to_numeric(rows.get("Heures limite source", 0.0), errors="coerce"),
                     }
                 )
             )
-    if not comparison_frames:
-        comparison_frames = [
-            no_solar_multiyear_btes_df.assign(Scenario="A - Géothermie seule")
-            if not no_solar_multiyear_btes_df.empty
-            else pd.DataFrame(),
-            multiyear_btes_df.assign(Scenario="B - Géothermie avec recharge solaire"),
-        ]
-    comparison_btes_df = pd.concat([frame for frame in comparison_frames if not frame.empty], ignore_index=True)
+    non_empty_annual_frames = [frame for frame in annual_frames if not frame.empty]
+    annual_comparison_df = (
+        pd.concat(non_empty_annual_frames, ignore_index=True)
+        if non_empty_annual_frames
+        else pd.DataFrame()
+    )
+
     chart_col_1, chart_col_2 = st.columns(2)
-    if not comparison_btes_df.empty:
+    if not monthly_comparison_df.empty:
         with chart_col_1:
-            st.markdown("### Comparaison")
-            st.altair_chart(_multiyear_btes_temperature_comparison_chart(comparison_btes_df), width="stretch")
+            st.markdown("### Fluctuations mensuelles - scénarios A, B et C")
+            st.altair_chart(_multiyear_btes_temperature_comparison_chart(monthly_comparison_df), width="stretch")
     else:
         with chart_col_1:
-            st.markdown("### Comparaison")
-            st.info("Comparaison géothermie seule indisponible.")
+            st.markdown("### Fluctuations mensuelles - scénarios A, B et C")
+            st.info("Comparaison mensuelle indisponible.")
     with chart_col_2:
-        st.markdown("### Température - géothermie et recharge solaire")
-        st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), width="stretch")
+        st.markdown("### Dérive annuelle - scénarios A, B et C")
+        if annual_comparison_df.empty:
+            st.info("Comparaison annuelle indisponible.")
+        else:
+            st.altair_chart(_multiyear_btes_annual_temperature_comparison_chart(annual_comparison_df), width="stretch")
     chart_col_3, chart_col_4 = st.columns(2)
     with chart_col_3:
-        st.markdown("### Flux mensuels - géothermie et recharge solaire")
-        st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), width="stretch")
+        st.markdown("### Températures détaillées - scénario B")
+        st.altair_chart(_multiyear_btes_temperature_chart(multiyear_btes_df), width="stretch")
     with chart_col_4:
-        st.markdown("### Données mensuelles")
+        st.markdown("### Flux mensuels - scénario B")
+        st.altair_chart(_multiyear_btes_flux_chart(multiyear_btes_df), width="stretch")
+    with st.expander("Données mensuelles - scénario B", expanded=False):
         st.dataframe(display_dataframe(multiyear_btes_df), width="stretch", hide_index=True)
 
 

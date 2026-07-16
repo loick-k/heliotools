@@ -330,7 +330,7 @@ def borefield_equivalent_savings(
     hourly_demand_override: dict[int, tuple[float, float]] | None = None,
     simulation_years: int = 1,
     min_scale: float = 0.05,
-    iterations: int = 8,
+    iterations: int = 6,
     search_mode: str = "expert",
     full_case_df: pd.DataFrame | None = None,
     full_case_metrics: dict[str, float] | None = None,
@@ -479,28 +479,28 @@ def borefield_equivalent_savings(
         and full_final["final_q_extraction_max_w_m"] <= config.btes.max_extraction_w_m + 1e-6
         and full_final["final_q_injection_max_w_m"] <= config.btes.max_injection_w_m + 1e-6
     )
-    if (
+    full_case_precheck_failed = (
         full_final["final_cop"] + 1e-9 < required_final_cop
         or full_final["final_bt_pac_kwh"] + tolerance_bt < required_final_bt
         or full_final["final_bt_coverage"] + 1e-9 < required_final_coverage
         or full_final["final_source_limited_hours"] > required_source_limited_hours + 1e-9
         or not full_final_valid
-    ):
-        return {
-            "found": False,
-            "scale": 1.0,
-            "reference_length_m": base_length_m,
-            "equivalent_length_m": base_length_m,
-            "equivalent_boreholes": full_boreholes,
-            "saved_length_m": 0.0,
-            "saved_fraction": 0.0,
-            "equivalent_cop": full_cop,
-            "equivalent_bt_pac_kwh": full_bt,
-            "estimated_length_m": base_length_m,
-            "verified_length_m": base_length_m,
-            "savings_simulations_count": simulations_count,
-            **{f"equivalent_{key}": value for key, value in full_final.items()},
-        }
+    )
+    if full_case_precheck_failed and simulation_cache is not None:
+        simulation_cache.record_event(
+            "borefield_savings:precheck",
+            "Champ complet non valide selon les criteres stricts ; recherche reduite lancee a titre exploratoire",
+            {
+                "Mode simulation": "borefield_savings",
+                "Sondes": int(full_boreholes),
+                "Lineaire sondes (ml)": float(base_length_m),
+                "Heures sous Tmin": float(full_final.get("final_hours_under_tmin", 0.0)),
+                "Heures sous Tmin GMI": float(full_final.get("final_hours_under_gmi_tmin", 0.0)),
+                "Heures sur Tmax GMI": float(full_final.get("final_hours_over_gmi_tmax", 0.0)),
+                "T source min (C)": float(full_final.get("final_t_source_min_c", 0.0)),
+                "Simulations lancees": 0,
+            },
+        )
 
     def final_ok(final_metrics: dict[str, float]) -> bool:
         return (
@@ -675,7 +675,15 @@ def borefield_equivalent_savings(
         "equivalent_boreholes": best_boreholes if real_savings else full_boreholes,
         "saved_length_m": saved_length,
         "saved_fraction": saved_length / max(1e-9, base_length_m),
-        "message": "Reduction de sondes validee" if real_savings else "Aucune réduction de sondes validée",
+        "message": (
+            "Reduction de sondes validee"
+            if real_savings
+            else (
+                "Calcul reduit exploratoire realise ; aucune reduction validee car le champ complet ne respecte pas les criteres stricts."
+                if full_case_precheck_failed
+                else "Aucune réduction de sondes validée"
+            )
+        ),
         "equivalent_cop": best_cop,
         "equivalent_bt_pac_kwh": best_bt,
         "estimated_length_m": equivalent_length,

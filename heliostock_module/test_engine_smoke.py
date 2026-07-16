@@ -1509,36 +1509,17 @@ def test_run_hourly_scenario_reuses_reduced_borefield_dataframe(monkeypatch):
             for item in weather
         ]
 
-    reduced_df = _hourly_results_to_dataframe(
-        [
-            _fake_hourly_result(
-                simulation_year=year,
-                hour_index=item.hour_index,
-                month=item.month,
-                day=item.day,
-                hour=item.hour,
-                demand_ht_kwh=10.0,
-                demand_bt_kwh=20.0,
-                heat_bt_from_pac_kwh=18.0,
-                btes_extracted_by_pac_kwh=13.5,
-                electricity_compressor_kwh=4.5,
-            )
-            for year in range(1, 3)
-            for item in weather
-        ]
-    )
-
     def fake_borefield_equivalent_savings(**kwargs):
-        assert kwargs["include_hourly_df"] is True
+        assert kwargs["include_hourly_df"] is False
         return {
             "found": True,
+            "simulated": True,
             "equivalent_length_m": 500.0,
             "equivalent_boreholes": 5,
             "saved_length_m": 500.0,
             "saved_fraction": 0.5,
             "equivalent_cop": 4.0,
             "equivalent_bt_pac_kwh": 36.0,
-            "_equivalent_hourly_df": reduced_df,
         }
 
     monkeypatch.setattr(scenarios_module, "simulate_hourly", fake_simulate_hourly)
@@ -1570,7 +1551,7 @@ def test_run_hourly_scenario_reuses_reduced_borefield_dataframe(monkeypatch):
         run_reduced_borefield=True,
     )
 
-    assert sorted(calls) == [(0.0, 10), (500.0, 10)]
+    assert sorted(calls) == [(0.0, 10), (500.0, 5), (500.0, 10)]
     assert "_equivalent_hourly_df" not in result.savings
     assert result.economic_borefield_length_m == 500.0
 
@@ -1608,27 +1589,8 @@ def test_run_hourly_scenario_displays_unvalidated_reduced_candidate(monkeypatch)
             for item in weather
         ]
 
-    candidate_df = _hourly_results_to_dataframe(
-        [
-            _fake_hourly_result(
-                simulation_year=year,
-                hour_index=item.hour_index,
-                month=item.month,
-                day=item.day,
-                hour=item.hour,
-                demand_ht_kwh=10.0,
-                demand_bt_kwh=20.0,
-                heat_bt_from_pac_kwh=16.0,
-                btes_extracted_by_pac_kwh=12.0,
-                electricity_compressor_kwh=4.0,
-            )
-            for year in range(1, 3)
-            for item in weather
-        ]
-    )
-
     def fake_borefield_equivalent_savings(**kwargs):
-        assert kwargs["include_hourly_df"] is True
+        assert kwargs["include_hourly_df"] is False
         return {
             "found": False,
             "simulated": True,
@@ -1642,7 +1604,6 @@ def test_run_hourly_scenario_displays_unvalidated_reduced_candidate(monkeypatch)
             "saved_fraction": 0.0,
             "equivalent_cop": 4.0,
             "equivalent_bt_pac_kwh": 32.0,
-            "_candidate_hourly_df": candidate_df,
             "message": "Aucune réduction de sondes validée",
         }
 
