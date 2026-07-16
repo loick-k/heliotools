@@ -744,6 +744,28 @@ def render_hourly_results(
             "vue par la PAC. La température de paroi forage est affichée séparément."
         )
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
+        if "Jour annee" in hourly_df and not hourly_df.empty:
+            max_day = max(1, int(float(hourly_df["Jour annee"].max())))
+            zoom_max_start = max(1, max_day - 6)
+            zoom_start_day = st.slider(
+                "Zoom 7 jours - jour de début",
+                min_value=1,
+                max_value=zoom_max_start,
+                value=1,
+                step=1,
+                key=f"temperature_zoom_start_{calculation_id}",
+                help="Sélectionne le premier jour de la fenêtre observée. Le graphique zoomé couvre 7 jours.",
+            )
+            zoom_end_day = min(max_day, int(zoom_start_day) + 7)
+            zoom_df = hourly_df[
+                (hourly_df["Jour annee"] >= float(zoom_start_day - 1))
+                & (hourly_df["Jour annee"] < float(zoom_end_day))
+            ]
+            st.markdown(f"### Zoom températures - jours {zoom_start_day} à {zoom_end_day}")
+            if zoom_df.empty:
+                st.info("Aucune donnée horaire disponible sur cette fenêtre.")
+            else:
+                st.altair_chart(_temperature_chart(zoom_df), width="stretch")
 
     elif result_section == "Multiannuel BTES":
         _render_multiyear_tab(
