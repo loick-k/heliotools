@@ -656,6 +656,7 @@ def render_hourly_results(
                 [
                     ("Production solaire totale", f"{solar_useful_kwh / 1000:.0f} MWh"),
                     ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+                    ("Production solaire injectée BTES", f"{total_to_btes / 1000:.0f} MWh"),
                     ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
                     ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                     ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),

@@ -21,6 +21,8 @@ import pandas as pd
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
+MODULE_DIR = Path(__file__).resolve().parents[1]
+HELIOSTOCK_NOTICE = MODULE_DIR / "NOTICE_MODELE_HELIOSTOCK.md"
 HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
@@ -930,6 +932,22 @@ def render_portal_sidebar() -> str:
                 "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
                 "et le dernier résultat calculé."
             )
+            if HELIOSTOCK_NOTICE.exists():
+                st.divider()
+                st.markdown("### Notice HelioStock")
+                notice_text = HELIOSTOCK_NOTICE.read_text(encoding="utf-8")
+                st.download_button(
+                    "Télécharger la notice",
+                    data=notice_text.encode("utf-8"),
+                    file_name=HELIOSTOCK_NOTICE.name,
+                    mime="text/markdown",
+                    width="stretch",
+                )
+                with st.expander("Aperçu de la notice", expanded=False):
+                    preview = notice_text[:2500]
+                    st.markdown(preview)
+                    if len(notice_text) > len(preview):
+                        st.caption("Aperçu limité. Télécharge la notice pour lire la version complète.")
 
     return app_name
 
