@@ -274,9 +274,9 @@ def render_hourly_results(
     reduced_first_row = _trajectory_first_row(scenario.economic_trajectory_df, "Geothermie + solaire sondes reduites")
     initial_borefield_cop = _row_float(same_borefield_row, "COP PAC moyen", mean_cop)
     initial_borefield_elec_mwh = _row_float(same_borefield_row, "Electricite PAC (MWh/an)", total_elec / 1000.0)
-    reduced_borefield_available = (
+    reduced_borefield_available = reduced_final_row is not None or (
         (bool(savings["found"]) or bool(savings.get("simulated", False)))
-        and (reduced_borefield_row is not None or reduced_final_row is not None)
+        and reduced_borefield_row is not None
     )
     reduced_borefield_length_m = _row_float(
         reduced_borefield_row,
@@ -683,8 +683,8 @@ def render_hourly_results(
             _render_kpi_section(
                 "Appoint gaz",
                 [
-                    ("Conso appoint gaz année 1", _fmt_mwh(_row_float(reduced_first_row, "Appoint gaz total (MWh)", 0.0) if scenario_c_simulated else None)),
-                    ("Conso appoint gaz année finale", _fmt_mwh(_row_float(reduced_final_row, "Appoint gaz total (MWh)", 0.0) if scenario_c_simulated else None)),
+                    ("Conso appoint gaz année 1", _fmt_mwh(_row_float(reduced_first_row, "Appoint gaz total (MWh)", 0.0) if reduced_first_row is not None else None)),
+                    ("Conso appoint gaz année finale", _fmt_mwh(_row_float(reduced_final_row, "Appoint gaz total (MWh)", 0.0) if reduced_final_row is not None else None)),
                     ("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW"),
                 ],
                 tone="gas",
