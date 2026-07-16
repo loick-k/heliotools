@@ -12,5 +12,12 @@
     "success": true,
     "reason": "login",
     "role": "admin"
+  },
+  {
+    "timestamp": "2026-07-16T20:48:28",
+    "email": "rgenet@nrg-conseils.com",
+    "success": true,
+    "reason": "login",
+    "role": "user"
   }
 ]
