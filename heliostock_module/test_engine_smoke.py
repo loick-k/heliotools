@@ -125,7 +125,10 @@ def test_ui_results_hides_irrelevant_blocks_by_demand_scope():
     assert 'result_sections.append("Paramétrique solaire")' in source
     assert "Solaire thermique" in source
     assert "PAC géothermie" in source
-    assert "Pic appoint gaz appelé" in source
+    assert "Scénario A - Géothermie seule" in source
+    assert "Scénario B - Géothermie avec recharge solaire BT // Solaire thermique HT" in source
+    assert "Scénario C - Géothermie avec recharge solaire BT et linéaire de sondes réduites // Solaire thermique HT" in source
+    assert "Appoint gaz" in source
 
 
 def test_gitignore_keeps_caches_and_local_secrets_out_of_repo():
@@ -1217,9 +1220,9 @@ def test_warning_can_trigger_above_predesign_ratio_without_hard_cap():
 
 def test_annual_kwh_per_m_reporting():
     source = (Path(__file__).resolve().parent / "heliostock" / "ui_results.py").read_text(encoding="utf-8")
-    assert "extraction_kwh_per_m_year = final_btes_extraction_mwh * 1000.0 / full_length_m" in source
-    assert "injection_kwh_per_m_year = final_btes_injection_mwh * 1000.0 / full_length_m" in source
-    assert "Énergie extraite sol" in source
+    assert "def _final_btes_energy_per_m" in source
+    assert "return float(final_rows[column].sum()) * 1000.0 / max(1e-9, length_m)" in source
+    assert "Énergie extraite du sol" in source
     assert "Énergie injectée BTES" in source
 
 
