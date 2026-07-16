@@ -145,7 +145,10 @@ def render_hourly_results(
     )
     initial_borefield_cop = _row_float(same_borefield_row, "COP PAC moyen", mean_cop)
     initial_borefield_elec_mwh = _row_float(same_borefield_row, "Electricite PAC (MWh/an)", total_elec / 1000.0)
-    reduced_borefield_available = bool(savings["found"]) and reduced_borefield_row is not None
+    reduced_borefield_available = (
+        (bool(savings["found"]) or bool(savings.get("simulated", False)))
+        and reduced_borefield_row is not None
+    )
     reduced_borefield_length_m = _row_float(
         reduced_borefield_row,
         "Lineaire sondes (ml)",
@@ -321,10 +324,10 @@ def render_hourly_results(
                 ("q injection max", "n.d."),
             ]
 
-        cop = _row_float(row, "COP PAC moyen", fallback_cop)
-        elec_mwh = _row_float(row, "Electricite PAC (MWh/an)", fallback_elec_mwh)
+        cop = _row_float(final_row, "COP moyen", _row_float(row, "COP PAC moyen", fallback_cop))
+        elec_mwh = _row_float(final_row, "Electricite PAC (MWh)", _row_float(row, "Electricite PAC (MWh/an)", fallback_elec_mwh))
         pac_mwh = _row_float(final_row, "Chaleur PAC BT (MWh)", fallback_pac_mwh)
-        coverage_pct = _row_float(row, "Couverture PAC BT (%)", _row_float(final_row, "Couverture PAC BT (%)", 0.0))
+        coverage_pct = _row_float(final_row, "Couverture PAC BT (%)", _row_float(row, "Couverture PAC BT (%)", 0.0))
         full_power_h = _row_float(final_row, "Heures equivalentes PAC BT", pac_mwh * 1000.0 / max(1e-9, pac_nominal_power_kw))
         backup_mwh = _row_float(final_row, "Appoint gaz total (MWh)", 0.0)
         t_source_min_c = _row_float(final_row, "T_source_PAC_min (C)", _row_float(row, "T source min annee finale (C)", 0.0))
@@ -335,8 +338,8 @@ def render_hourly_results(
         return [
             ("Pmax besoin BT", f"{peak_bt_power_kw:.0f} kW"),
             ("Linéaire sondes", f"{length_m:.0f} ml"),
-            ("COP PAC moyen", f"{cop:.1f}" if cop > 0.0 else "n.d."),
-            ("Électricité PAC", f"{elec_mwh:.0f} MWh/an"),
+            ("COP machine PAC", f"{cop:.1f}" if cop > 0.0 else "n.d."),
+            ("Électricité PAC totale", f"{elec_mwh:.0f} MWh/an"),
             ("Chaleur PAC BT", f"{pac_mwh:.0f} MWh"),
             ("Couverture PAC BT", f"{coverage_pct:.0f} %"),
             ("Heures pleine puissance PAC", f"{full_power_h:.0f} h/an"),
@@ -361,6 +364,10 @@ def render_hourly_results(
                 fallback_pac_mwh=no_solar_total_pac / 1000.0,
                 available=no_solar_cop > 0.0,
             ),
+            caption=(
+                "Indicateurs techniques de l'année finale. COP machine PAC = chaleur BT produite par la PAC "
+                "/ électricité du compresseur uniquement."
+            ),
             tone="pac",
         )
         if show_solar_blocks:
@@ -373,6 +380,10 @@ def render_hourly_results(
                     fallback_cop=mean_cop,
                     fallback_elec_mwh=total_elec / 1000.0,
                     fallback_pac_mwh=total_pac / 1000.0,
+                ),
+                caption=(
+                    "Indicateurs techniques de l'année finale. L'électricité PAC totale inclut compresseur, "
+                    "pompes/auxiliaires et veille/régulation."
                 ),
                 tone="pac",
             )
@@ -387,8 +398,17 @@ def render_hourly_results(
                     fallback_pac_mwh=0.0,
                     available=reduced_borefield_available,
                 ),
+                caption=(
+                    "Indicateurs techniques de l'année finale pour le champ réduit simulé. "
+                    "La réduction économique reste validée uniquement si les critères d'équivalence sont respectés."
+                ),
                 tone="pac",
             )
+            if bool(savings.get("simulated", False)) and not bool(savings["found"]):
+                st.caption(
+                    "Scénario réduit affiché à titre exploratoire : le calcul physique a été réalisé, "
+                    "mais l'économie de sondes n'est pas validée comme équivalente aux critères de référence."
+                )
 
         full_length_m = max(1e-9, float(scenario.full_borefield_length_m))
         extraction_kwh_per_m_year = final_btes_extraction_mwh * 1000.0 / full_length_m
@@ -447,13 +467,16 @@ def render_hourly_results(
                 ("Forfait pompes + auxiliaires PAC", f"{total_auxiliaries / 1000.0:.1f} MWh/an"),
                 ("Veille/régulation", f"{total_standby / 1000.0:.1f} MWh/an"),
                 ("Électricité totale PAC", f"{total_elec / 1000.0:.1f} MWh/an"),
-                ("COP machine", f"{mean_cop:.1f}"),
-                ("SPF PAC complet", f"{spf_pac_total:.1f}"),
-                ("SPF système simplifié", f"{spf_system:.1f}"),
+                ("COP machine PAC", f"{mean_cop:.1f}"),
+                ("SPF PAC avec auxiliaires", f"{spf_pac_total:.1f}"),
+                ("SPF système PAC + solaire HT", f"{spf_system:.1f}"),
             ],
             caption=(
                 "Ces indicateurs correspondent au scénario principal affiché : "
                 + ("géothermie avec recharge solaire et linéaire initial." if show_solar_blocks else "géothermie seule sur le besoin BT.")
+                + " COP machine PAC = chaleur BT PAC / électricité compresseur. "
+                + "SPF PAC avec auxiliaires = chaleur BT PAC / électricité totale PAC. "
+                + "SPF système PAC + solaire HT = (chaleur BT PAC + solaire HT utile) / électricité totale suivie."
             ),
             tone="pac",
         )
@@ -495,7 +518,7 @@ def render_hourly_results(
         key=f"result_section_{calculation_id}",
     )
 
-    if result_section.startswith("Analyse"):
+    if result_section in {"Analyse solaire et géothermie", "Analyse géothermie"}:
         title = "Grandeurs solaires et géothermie horaire" if show_solar_blocks else "Grandeurs géothermie horaire"
         st.markdown(f"### {title} - année {scenario.simulation_year_displayed}")
         st.caption(

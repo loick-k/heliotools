@@ -1415,6 +1415,11 @@ def run_hourly_scenario(
     zero_solar_economics = _zero_solar_economics(economics)
     backup_power_kw = same_metrics["backup_power_kw"]
     full_borefield_length_m = float(config.btes.boreholes) * float(config.btes.depth_m)
+    candidate_borefield_length_m = (
+        float(savings.get("candidate_length_m", savings.get("equivalent_length_m", full_borefield_length_m)))
+        if run_reduced_borefield and bool(savings.get("simulated", False))
+        else full_borefield_length_m
+    )
     economic_borefield_length_m = (
         float(savings["equivalent_length_m"]) if bool(savings["found"]) else full_borefield_length_m
     )
@@ -1422,15 +1427,19 @@ def run_hourly_scenario(
     pac_power_kw = float(config.heat_pump.max_thermal_power_kw or 0.0)
     reference_heat_mwh = same_metrics["total_need_mwh"]
 
-    if run_reduced_borefield and bool(savings["found"]):
-        equivalent_hourly_df = savings.get("_equivalent_hourly_df")
-        if isinstance(equivalent_hourly_df, pd.DataFrame) and not equivalent_hourly_df.empty:
+    candidate_hourly_df = savings.get("_candidate_hourly_df") if run_reduced_borefield else None
+    equivalent_hourly_df = savings.get("_equivalent_hourly_df") if run_reduced_borefield else None
+    exploratory_reduced_available = run_reduced_borefield and bool(savings.get("simulated", False))
+    if run_reduced_borefield and (bool(savings["found"]) or exploratory_reduced_available):
+        reduced_source_df = candidate_hourly_df if isinstance(candidate_hourly_df, pd.DataFrame) and not candidate_hourly_df.empty else equivalent_hourly_df
+        if isinstance(reduced_source_df, pd.DataFrame) and not reduced_source_df.empty:
             _notify(progress, 88, "Reuse simulation multiannuelle avec sondes reduites...")
             reduced_results = []
-            reduced_metrics = _hourly_metrics(equivalent_hourly_df, annualization_years=multiyear_years)
+            reduced_metrics = _hourly_metrics(reduced_source_df, annualization_years=multiyear_years)
         else:
             _notify(progress, 88, "Simulation multiannuelle avec sondes reduites...")
-            reduced_boreholes = max(1, int(round(float(savings.get("equivalent_boreholes", config.btes.boreholes)))))
+            borehole_key = "candidate_boreholes" if exploratory_reduced_available and not bool(savings["found"]) else "equivalent_boreholes"
+            reduced_boreholes = max(1, int(round(float(savings.get(borehole_key, config.btes.boreholes)))))
             reduced_btes = replace(config.btes, boreholes=reduced_boreholes)
             reduced_config = replace(config, btes=reduced_btes)
             try:
@@ -1563,10 +1572,18 @@ def run_hourly_scenario(
         if run_geo_only
         else pd.DataFrame()
     )
-    equivalent_hourly_df_for_trajectory = savings.get("_equivalent_hourly_df") if run_reduced_borefield else None
+    equivalent_hourly_df_for_trajectory = None
+    if run_reduced_borefield:
+        candidate_df_for_trajectory = savings.get("_candidate_hourly_df")
+        equivalent_df_for_trajectory = savings.get("_equivalent_hourly_df")
+        equivalent_hourly_df_for_trajectory = (
+            candidate_df_for_trajectory
+            if isinstance(candidate_df_for_trajectory, pd.DataFrame) and not candidate_df_for_trajectory.empty
+            else equivalent_df_for_trajectory
+        )
     if (
         run_reduced_borefield
-        and bool(savings["found"])
+        and (bool(savings["found"]) or bool(savings.get("simulated", False)))
         and isinstance(equivalent_hourly_df_for_trajectory, pd.DataFrame)
         and not equivalent_hourly_df_for_trajectory.empty
     ):
@@ -1577,7 +1594,7 @@ def run_hourly_scenario(
             gmi_t_max_c=config.btes.gmi_t_max_c,
             gmi_check_enabled=config.btes.gmi_check_enabled,
         )
-    elif run_reduced_borefield and bool(savings["found"]) and reduced_results:
+    elif run_reduced_borefield and (bool(savings["found"]) or bool(savings.get("simulated", False))) and reduced_results:
         reduced_trajectory_df = _annual_metrics_trajectory_from_results(
             reduced_results,
             analysis_years=int(economics.analysis_years),
@@ -1679,7 +1696,7 @@ def run_hourly_scenario(
                 heat_costs=heat_costs,
                 metrics=reduced_metrics,
                 delivered_mwh=reference_heat_mwh,
-                borefield_length_m=economic_borefield_length_m,
+                borefield_length_m=candidate_borefield_length_m if bool(savings.get("simulated", False)) else economic_borefield_length_m,
                 saved_borefield_length_m=float(savings["saved_length_m"]) if bool(savings["found"]) else 0.0,
                 capex_net_eur=reduced_capex,
                 solar_area_m2=config.collector.area_m2,
