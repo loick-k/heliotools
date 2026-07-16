@@ -560,7 +560,11 @@ def render_hourly_results(
         _render_geothermal_interpretation("A", geo_only_final_row, btes_config=scenario.config.btes)
         _render_kpi_section(
             "Appoint gaz",
-            [("Appoint gaz année finale", _fmt_mwh(_row_float(geo_only_final_row, "Appoint gaz total (MWh)", 0.0)))],
+            [
+                ("Conso appoint gaz année 1", _fmt_mwh(_row_float(geo_only_first_row, "Appoint gaz total (MWh)", 0.0))),
+                ("Conso appoint gaz année finale", _fmt_mwh(_row_float(geo_only_final_row, "Appoint gaz total (MWh)", 0.0))),
+                ("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW"),
+            ],
             tone="gas",
         )
 
@@ -607,6 +611,7 @@ def render_hourly_results(
                 [
                     ("Conso appoint gaz année 1", _fmt_mwh(_row_float(same_first_row, "Appoint gaz total (MWh)", 0.0))),
                     ("Conso appoint gaz année finale", _fmt_mwh(_row_float(same_final_row, "Appoint gaz total (MWh)", 0.0))),
+                    ("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW"),
                 ],
                 tone="gas",
             )
@@ -653,6 +658,7 @@ def render_hourly_results(
                 [
                     ("Conso appoint gaz année 1", _fmt_mwh(_row_float(reduced_first_row, "Appoint gaz total (MWh)", 0.0) if scenario_c_simulated else None)),
                     ("Conso appoint gaz année finale", _fmt_mwh(_row_float(reduced_final_row, "Appoint gaz total (MWh)", 0.0) if scenario_c_simulated else None)),
+                    ("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW"),
                 ],
                 tone="gas",
             )
