@@ -127,6 +127,7 @@ def _render_geothermal_interpretation(
     source_limited_h = _row_float(final_row, "Heures limite source", 0.0)
     q_extract_w_m = _row_float(final_row, "q_extraction_W_m_max", 0.0)
     q_inject_w_m = _row_float(final_row, "q_injection_W_m_max", 0.0)
+    tmin_operationnelle_c = float(btes_config.t_min_c)
 
     warnings: list[str] = []
     infos: list[str] = []
@@ -141,7 +142,17 @@ def _render_geothermal_interpretation(
             "Le calcul reste affiché, mais la PAC est souvent au bord de sa limite source."
         )
     if source_limited_h > 0.0:
-        infos.append(f"La température source limite la PAC pendant {source_limited_h:.0f} h sur l'année affichée.")
+        infos.append(
+            f"Limitation source PAC : {source_limited_h:.0f} h sur l'année affichée. "
+            "Le critère est évalué heure par heure sur la température source utilisée pour le COP "
+            "`T_source_PAC_pour_COP_C`, calculée à partir de la température de paroi du forage avant extraction "
+            "et de la résistance thermique forage/fluide. La PAC est considérée limitée si la puissance extractible "
+            f"par le champ ne permet pas d'atteindre la puissance PAC demandée, ou si cette température source arrive "
+            f"au voisinage de la Tmin opérationnelle ({tmin_operationnelle_c:.1f} °C). "
+            "Conséquence : la chaleur BT fournie par la PAC est bridée et l'appoint gaz augmente. "
+            "`T_source_PAC_fin_heure_C` peut ensuite être plus basse après application de la charge horaire ; "
+            "elle sert plutôt au diagnostic de dérive thermique du champ."
+        )
     if q_extract_w_m >= float(btes_config.max_extraction_w_m) - 1e-6:
         warnings.append(
             f"La limite dure d'extraction est atteinte ({q_extract_w_m:.0f} W/ml). "
