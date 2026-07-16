@@ -309,7 +309,9 @@ def _base_return(
             "Reduction de sondes validee"
             if real_savings
             else (
-                "Recherche realisee ; aucun champ reduit n'a ete retenu pour affichage."
+                "Recherche realisee ; champ reduit affiche a titre exploratoire, sans validation economique."
+                if int(simulations_count) > 0 and candidate_length < base_length_m - 1e-6
+                else "Recherche realisee ; aucun champ reduit n'a ete retenu pour affichage."
                 if int(simulations_count) > 0
                 else "Aucune réduction de sondes validée"
             )
@@ -549,6 +551,11 @@ def borefield_equivalent_savings(
             return evaluated_by_boreholes[boreholes]
 
         results, cop, bt_pac, boreholes, final_metrics = run_length(test_length)
+        candidate_results = results
+        candidate_cop = cop
+        candidate_bt = bt_pac
+        candidate_boreholes = boreholes
+        candidate_final = final_metrics
         if final_ok(final_metrics):
             best_results = results
             best_cop, best_bt, best_boreholes, best_final = cop, bt_pac, boreholes, final_metrics
@@ -583,6 +590,19 @@ def borefield_equivalent_savings(
 
         larger_length = min(base_length_m, max(test_length * 1.20, test_length + config.btes.depth_m))
         results3, cop3, bt3, boreholes3, final3 = run_length(larger_length)
+        if boreholes3 < int(config.btes.boreholes) and (
+            candidate_boreholes >= int(config.btes.boreholes)
+            or final3["final_cop"] > candidate_final.get("final_cop", -math.inf) + 1e-9
+            or (
+                abs(final3["final_cop"] - candidate_final.get("final_cop", 0.0)) <= 1e-9
+                and final3["final_t_source_min_c"] > candidate_final.get("final_t_source_min_c", -math.inf)
+            )
+        ):
+            candidate_results = results3
+            candidate_cop = cop3
+            candidate_bt = bt3
+            candidate_boreholes = boreholes3
+            candidate_final = final3
         if final_ok(final3):
             df3 = pd.DataFrame()
             if include_hourly_df:
@@ -610,10 +630,10 @@ def borefield_equivalent_savings(
         return _base_return(
             found=False,
             base_length_m=base_length_m,
-            boreholes=full_boreholes,
-            equivalent_cop=full_cop,
-            equivalent_bt_pac_kwh=full_bt,
-            final_metrics=full_final,
+            boreholes=candidate_boreholes,
+            equivalent_cop=candidate_cop,
+            equivalent_bt_pac_kwh=candidate_bt,
+            final_metrics=candidate_final,
             estimated_length_m=estimated_length,
             simulations_count=simulations_count,
         )
@@ -638,7 +658,20 @@ def borefield_equivalent_savings(
         mid = (low + high) / 2.0
         results, cop, bt_pac, boreholes, final_metrics = run(mid)
         ok = final_ok(final_metrics)
-        if boreholes < candidate_boreholes:
+        is_reduced_candidate = boreholes < int(config.btes.boreholes)
+        is_first_reduced_candidate = candidate_boreholes >= int(config.btes.boreholes)
+        candidate_is_better = (
+            is_reduced_candidate
+            and (
+                is_first_reduced_candidate
+                or final_metrics["final_cop"] > candidate_final.get("final_cop", -math.inf) + 1e-9
+                or (
+                    abs(final_metrics["final_cop"] - candidate_final.get("final_cop", 0.0)) <= 1e-9
+                    and final_metrics["final_t_source_min_c"] > candidate_final.get("final_t_source_min_c", -math.inf)
+                )
+            )
+        )
+        if candidate_is_better:
             candidate_results = results
             candidate_uses_full_case_df = False
             candidate_cop = cop

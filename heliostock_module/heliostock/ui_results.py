@@ -84,6 +84,94 @@ def _trajectory_final_row(economic_trajectory_df: pd.DataFrame, scenario_name: s
     return rows.iloc[-1]
 
 
+def _render_geothermal_interpretation(
+    scenario_label: str,
+    final_row: pd.Series | None,
+    *,
+    btes_config,
+    savings: dict | None = None,
+) -> None:
+    st.caption(f"Interprétation - scénario {scenario_label}")
+    if final_row is None:
+        if savings is not None:
+            search_count = int(float(savings.get("savings_simulations_count", 0) or 0))
+            if search_count <= 0:
+                st.info("L'économie de sondes est désactivée ou n'a pas été lancée pour ce calcul.")
+            else:
+                st.warning(
+                    "La recherche d'économie de sondes a été lancée, mais aucun champ réduit physique "
+                    "n'a été conservé pour affichage."
+                )
+            return
+        st.info("Aucun résultat physique disponible pour ce scénario.")
+        return
+
+    t_source_min_c = _row_float(final_row, "T_source_PAC_min (C)", 0.0)
+    hours_under_tmin = _row_float(final_row, "Heures sous Tmin operationnelle", 0.0)
+    hours_gmi = _row_float(final_row, "Heures sous Tmin GMI", 0.0) + _row_float(final_row, "Heures sur Tmax GMI", 0.0)
+    source_limited_h = _row_float(final_row, "Heures limite source", 0.0)
+    q_extract_w_m = _row_float(final_row, "q_extraction_W_m_max", 0.0)
+    q_inject_w_m = _row_float(final_row, "q_injection_W_m_max", 0.0)
+
+    warnings: list[str] = []
+    infos: list[str] = []
+    if hours_gmi > 0.0:
+        warnings.append(
+            f"{hours_gmi:.0f} h hors critère GMI, avec T source min {t_source_min_c:.1f} °C. "
+            "À interpréter en priorité : augmenter le linéaire de sondes ou réduire la puissance/couverture PAC."
+        )
+    elif hours_under_tmin > 0.0:
+        warnings.append(
+            f"{hours_under_tmin:.0f} h sous le seuil opérationnel PAC. "
+            "Le calcul reste affiché, mais la PAC est souvent au bord de sa limite source."
+        )
+    if source_limited_h > 0.0:
+        infos.append(f"La température source limite la PAC pendant {source_limited_h:.0f} h sur l'année affichée.")
+    if q_extract_w_m >= float(btes_config.max_extraction_w_m) - 1e-6:
+        warnings.append(
+            f"La limite dure d'extraction est atteinte ({q_extract_w_m:.0f} W/ml). "
+            "La production PAC est bridée par le garde-fou de simulation."
+        )
+    elif q_extract_w_m > EXTRACTION_STRONG_WARNING_W_M:
+        warnings.append(f"Vigilance forte sur la pointe d'extraction : {q_extract_w_m:.0f} W/ml.")
+    elif q_extract_w_m > EXTRACTION_WARNING_W_M:
+        infos.append(f"Pointe d'extraction supérieure au ratio de prédimensionnement : {q_extract_w_m:.0f} W/ml.")
+    if q_inject_w_m >= float(btes_config.max_injection_w_m) - 1e-6:
+        warnings.append(
+            f"La limite dure d'injection est atteinte ({q_inject_w_m:.0f} W/ml). "
+            "Une partie du surplus solaire peut être bridée."
+        )
+    elif q_inject_w_m > INJECTION_STRONG_WARNING_W_M:
+        warnings.append(f"Vigilance forte sur la pointe d'injection : {q_inject_w_m:.0f} W/ml.")
+    elif q_inject_w_m > INJECTION_WARNING_W_M:
+        infos.append(f"Pointe d'injection élevée mais sous limite dure : {q_inject_w_m:.0f} W/ml.")
+
+    if savings is not None:
+        search_count = int(float(savings.get("savings_simulations_count", 0) or 0))
+        simulated = bool(savings.get("simulated", False))
+        validated = bool(savings.get("found", False))
+        if search_count <= 0:
+            infos.append("L'économie de sondes est désactivée ou n'a pas été lancée pour ce calcul.")
+        elif simulated and validated:
+            infos.append("Le scénario C est simulé physiquement et la réduction de sondes est validée économiquement.")
+        elif simulated:
+            warnings.append(
+                "Le scénario C est simulé physiquement et affiché à titre exploratoire, "
+                "mais le gain de sondes n'est pas retenu économiquement car les critères d'équivalence ne sont pas tous respectés."
+            )
+        else:
+            warnings.append(
+                "La recherche d'économie de sondes a été lancée, mais aucun champ réduit physique n'a été conservé pour affichage."
+            )
+
+    if warnings:
+        st.warning(" ".join(warnings))
+    elif infos:
+        st.info(" ".join(infos))
+    else:
+        st.success("Aucun point d'alerte majeur sur l'année affichée.")
+
+
 def render_hourly_results(
     *,
     scenario: ScenarioResult,
@@ -370,12 +458,6 @@ def render_hourly_results(
 
     if show_geothermal_blocks:
         st.markdown("#### PAC géothermie")
-        geo_only_hours_gmi = _row_float(geo_only_final_row, "Heures sous Tmin GMI", 0.0) + _row_float(
-            geo_only_final_row,
-            "Heures sur Tmax GMI",
-            0.0,
-        )
-        geo_only_t_source_min_c = _row_float(geo_only_final_row, "T_source_PAC_min (C)", 0.0)
         _render_kpi_section(
             "A - Géothermie seule",
             _scenario_pac_metrics(
@@ -393,14 +475,7 @@ def render_hourly_results(
             ),
             tone="pac",
         )
-        if geo_only_hours_gmi > 0.0:
-            st.warning(
-                "Référence géothermie seule non conforme au critère GMI "
-                f"({geo_only_hours_gmi:.0f} h hors plage, T source min {geo_only_t_source_min_c:.1f} °C). "
-                "L'économie de sondes du scénario C doit être lue avec prudence : le champ de référence est déjà "
-                "trop sollicité. Conseil : augmenter le linéaire de sondes en priorité, ou réduire la puissance PAC "
-                "appelée/sa couverture BT si le besoin peut accepter davantage d'appoint."
-            )
+        _render_geothermal_interpretation("A", geo_only_final_row, btes_config=scenario.config.btes)
         if show_solar_blocks:
             scenario_c_simulated = bool(savings.get("simulated", False))
             scenario_c_validated = bool(savings.get("found", False))
@@ -458,6 +533,7 @@ def render_hourly_results(
                 ),
                 tone="pac",
             )
+            _render_geothermal_interpretation("B", same_final_row, btes_config=scenario.config.btes)
             scenario_c_metrics = _scenario_pac_metrics(
                 row=reduced_borefield_row,
                 final_row=reduced_final_row,
@@ -485,16 +561,7 @@ def render_hourly_results(
                 ),
                 tone="pac",
             )
-            if bool(savings.get("simulated", False)) and not bool(savings["found"]):
-                st.caption(
-                    "Scénario réduit affiché à titre exploratoire : le calcul physique a été réalisé, "
-                    "mais l'économie de sondes n'est pas validée comme équivalente aux critères de référence."
-                )
-            elif scenario_c_search_launched and not scenario_c_simulated:
-                st.caption(
-                    "La recherche d'économie de sondes a été lancée, mais aucun champ réduit n'a été retenu "
-                    "comme scénario C affichable. Dans ce cas, les KPI physiques du scénario C restent non déterminés."
-                )
+            _render_geothermal_interpretation("C", reduced_final_row, btes_config=scenario.config.btes, savings=savings)
             if str(savings.get("message", "")).strip():
                 st.caption(f"Statut économie de sondes : {savings['message']}")
 
