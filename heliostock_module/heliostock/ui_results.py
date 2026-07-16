@@ -560,12 +560,13 @@ def render_hourly_results(
         )
 
     elif result_section == "Monotone horaire":
-        _render_duration_tab(hourly_df)
+        _render_duration_tab(hourly_df, scenario=scenario)
 
     elif result_section == "Analyses mensuelles":
         _render_monthly_tab(
             annual_df=annual_df,
             hourly_by_month_df=hourly_by_month_df,
+            scenario=scenario,
         )
 
     elif result_section.endswith("conomie"):
@@ -792,14 +793,16 @@ def _render_multiyear_tab(
         st.dataframe(display_dataframe(multiyear_btes_df), width="stretch", hide_index=True)
 
 
-def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
-    st.markdown("### Monotones de charge")
+def _render_duration_tab(hourly_df: pd.DataFrame, *, scenario: ScenarioResult) -> None:
+    st.markdown("### Monotones de charge - scénario B")
     st.caption(
-        "Les monotones sont triees par besoin decroissant et affichees en mix empile. "
-        "La monotone synchronisee multi-courbes 8760 h a ete retiree pour accelerer l'affichage."
+        "Scénario affiché : B - Géothermie avec recharge solaire et linéaire initial, "
+        f"année {scenario.simulation_year_displayed}. "
+        "Les monotones sont triées par besoin décroissant et affichées en mix empilé. "
+        "La monotone synchronisée multi-courbes 8760 h a été retirée pour accélérer l'affichage."
     )
 
-    st.markdown("### Mix global trie par besoin total")
+    st.markdown("### Mix global trié par besoin total - scénario B")
     global_stack_df = _stacked_coverage_duration_dataframe(hourly_df, mode="GLOBAL")
     st.altair_chart(
         _stacked_coverage_duration_chart(
@@ -811,14 +814,14 @@ def _render_duration_tab(hourly_df: pd.DataFrame) -> None:
 
     c_ht, c_bt = st.columns(2)
     with c_ht:
-        st.markdown("### Mix HT trie par besoin HT")
+        st.markdown("### Mix HT trié par besoin HT - scénario B")
         ht_stack_df = _stacked_coverage_duration_dataframe(hourly_df, mode="HT")
         st.altair_chart(
             _stacked_coverage_duration_chart(ht_stack_df, title="Besoin HT = solaire thermique + appoint"),
             width="stretch",
         )
     with c_bt:
-        st.markdown("### Mix BT trie par besoin BT")
+        st.markdown("### Mix BT trié par besoin BT - scénario B")
         bt_stack_df = _stacked_coverage_duration_dataframe(hourly_df, mode="BT")
         st.altair_chart(
             _stacked_coverage_duration_chart(bt_stack_df, title="Besoin BT = géothermie PAC + appoint"),
@@ -830,8 +833,14 @@ def _render_monthly_tab(
     *,
     annual_df: pd.DataFrame,
     hourly_by_month_df: pd.DataFrame,
+    scenario: ScenarioResult,
 ) -> None:
-    st.markdown("### Bilan annuel, calculé depuis les 8760 heures")
+    st.markdown("### Analyses mensuelles - scénario B")
+    st.caption(
+        "Scénario affiché : B - Géothermie avec recharge solaire et linéaire initial, "
+        f"année {scenario.simulation_year_displayed}. Les graphiques mensuels ne représentent pas les scénarios A ou C."
+    )
+    st.markdown("### Bilan annuel - scénario B, calculé depuis les 8760 heures")
     st.dataframe(display_dataframe(annual_df[["Poste", "MWh/an"]]), width="stretch", hide_index=True)
 
     coverage_rate_df = hourly_by_month_df[["Mois", "Taux couverture solaire HT (%)"]].rename(
@@ -849,14 +858,14 @@ def _render_monthly_tab(
 
     chart_a, chart_b = st.columns(2)
     with chart_a:
-        st.markdown("### Couverture solaire HT")
+        st.markdown("### Couverture solaire HT - scénario B")
         st.altair_chart(_percent_bar_chart(coverage_rate_df, y_title="Couverture solaire HT (%)"), width="stretch")
         st.caption(
             "La priorité HT est appliquée au pas horaire via le ballon solaire journalier. "
             "Une injection BTES mensuelle peut donc coexister avec un taux HT inférieur à 100 %."
         )
     with chart_b:
-        st.markdown("### Flux sous-sol")
+        st.markdown("### Flux sous-sol - scénario B")
         st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
         st.caption(
             "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire."
@@ -864,13 +873,13 @@ def _render_monthly_tab(
 
     chart_c, chart_d = st.columns(2)
     with chart_c:
-        st.markdown("### Production solaire ECS et injection BTES")
+        st.markdown("### Production solaire ECS et injection BTES - scénario B")
         st.altair_chart(
             _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Injection BTES (MWh)"])),
             width="stretch",
         )
     with chart_d:
-        st.markdown("### Couverture besoin HT")
+        st.markdown("### Couverture besoin HT - scénario B")
         st.altair_chart(
             _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Appoint HT (MWh)"])),
             width="stretch",
@@ -878,7 +887,7 @@ def _render_monthly_tab(
 
     chart_e, _chart_empty = st.columns(2)
     with chart_e:
-        st.markdown("### Couverture besoin BT")
+        st.markdown("### Couverture besoin BT - scénario B")
         st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
 
 
