@@ -627,6 +627,9 @@ class PdfReport:
         width: float,
         columns: list[str] | None = None,
         max_rows: int = 12,
+        col_weights: list[float] | None = None,
+        font_size: float = 7,
+        row_height: float = 11,
     ) -> float:
         if not rows:
             self.canvas.setFillColorRGB(*MUTED_COLOR)
@@ -634,19 +637,28 @@ class PdfReport:
             self.canvas.drawString(x, y, "Aucune donnée.")
             return y - 14
         columns = columns or list(rows[0].keys())
-        col_w = width / max(1, len(columns))
+        if col_weights and len(col_weights) == len(columns) and sum(col_weights) > 0:
+            total_weight = sum(col_weights)
+            col_widths = [width * weight / total_weight for weight in col_weights]
+        else:
+            col_widths = [width / max(1, len(columns))] * len(columns)
+        col_x = [x]
+        for col_width in col_widths[:-1]:
+            col_x.append(col_x[-1] + col_width)
         self.canvas.setFillColorRGB(*TEXT_COLOR)
-        self.canvas.setFont("Helvetica-Bold", 7)
+        self.canvas.setFont("Helvetica-Bold", font_size)
         for idx, column in enumerate(columns):
-            self.canvas.drawString(x + idx * col_w, y, _safe_text(column)[:28])
+            max_chars = max(8, int(col_widths[idx] / max(font_size * 0.55, 1)))
+            self.canvas.drawString(col_x[idx], y, _safe_text(column)[:max_chars])
         y -= 12
         self.canvas.setStrokeColorRGB(*GRID_COLOR)
         self.canvas.line(x, y + 5, x + width, y + 5)
-        self.canvas.setFont("Helvetica", 7)
+        self.canvas.setFont("Helvetica", font_size)
         for row in rows[:max_rows]:
             for idx, column in enumerate(columns):
-                self.canvas.drawString(x + idx * col_w, y, _safe_text(row.get(column, ""))[:30])
-            y -= 11
+                max_chars = max(8, int(col_widths[idx] / max(font_size * 0.5, 1)))
+                self.canvas.drawString(col_x[idx], y, _safe_text(row.get(column, ""))[:max_chars])
+            y -= row_height
         if len(rows) > max_rows:
             self.canvas.setFillColorRGB(*MUTED_COLOR)
             self.canvas.drawString(x, y, f"... {len(rows) - max_rows} ligne(s) supplémentaire(s)")
