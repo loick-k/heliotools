@@ -10,6 +10,8 @@ from heliostock.opportunity_notes.opportunity_model import (
     compute_opportunity_results,
 )
 from heliostock.opportunity_notes.pdf_export import build_opportunity_note_pdf
+from pypdf import PdfReader
+from io import BytesIO
 
 
 def test_opportunity_note_pdf_export_builds_from_default_results():
@@ -36,3 +38,8 @@ def test_opportunity_note_pdf_export_builds_from_default_results():
 
     assert payload.startswith(b"%PDF")
     assert len(payload) > 5000
+    text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(payload)).pages)
+    assert "Répartition annuelle des besoins" in text
+    assert "ECS utile / bouclage" in text
+    assert "ECS utile / bouclage / chauffage" in text
+    assert "Chauffage estimé" in text

@@ -285,6 +285,7 @@ def draw_pie_chart(
         return
     chart = data[[label_col, value_col]].copy().head(max_items)
     chart[value_col] = chart[value_col].map(_numeric)
+    chart = chart[chart[value_col] > 0.0].copy()
     total = chart[value_col].sum()
     if total <= 0:
         canvas.setFont("Helvetica", 9)
@@ -695,6 +696,32 @@ class PdfReport:
             self.canvas.drawCentredString(bx + bar_w / 2, y - 9, _safe_text(row.get(label_col, ""))[:7])
         if y_label:
             self.canvas.drawString(plot_x, y + height - 5, _safe_text(y_label))
+
+    def pie_chart(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        x: float,
+        y: float,
+        radius: float,
+        title: str,
+        label_col: str,
+        value_col: str,
+        colors: list[tuple[float, float, float]] | None = None,
+        max_items: int = 7,
+    ) -> None:
+        draw_pie_chart(
+            self.canvas,
+            pd.DataFrame(rows),
+            x=x,
+            y=y,
+            radius=radius,
+            title=title,
+            label_col=label_col,
+            value_col=value_col,
+            colors=colors or CHART_COLORS,
+            max_items=max_items,
+        )
 
     def line_chart(
         self,

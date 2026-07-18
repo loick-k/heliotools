@@ -3,8 +3,6 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-import pandas as pd
-
 from ..common.pdf import PdfReport, _fmt_number
 from .cesc_economic_model import CescEconomicInputs, CescEconomicResults, build_yearly_cashflow_projection
 from .opportunity_model import LoopInputs, NeedsInputs, OpportunityResults, SizingInputs, SiteInputs
@@ -35,6 +33,7 @@ def _monthly_rows(results: OpportunityResults) -> list[dict[str, Any]]:
             "Volume moyen (L/j)": _fmt_number(row.average_l_day_60c, 0),
             "Besoin utile (MWh)": _fmt_number(row.useful_energy_mwh, 1),
             "Bouclage (MWh)": _fmt_number(row.loop_losses_mwh, 1),
+            "Chauffage (MWh)": _fmt_number(row.heating_after_boiler_mwh, 1),
             "Total ECS (MWh)": _fmt_number(row.total_ecs_energy_mwh, 1),
         }
         for row in results.monthly_needs
@@ -84,6 +83,21 @@ def _cost_table_rows(results: CescEconomicResults) -> list[dict[str, Any]]:
     ]
 
 
+def _ecs_pie_rows(results: OpportunityResults) -> list[dict[str, Any]]:
+    return [
+        {"Poste": "Besoin utile ECS", "MWh": results.annual_useful_energy_mwh},
+        {"Poste": "Bouclage sanitaire", "MWh": results.annual_loop_losses_mwh},
+    ]
+
+
+def _ecs_heating_pie_rows(results: OpportunityResults) -> list[dict[str, Any]]:
+    return [
+        {"Poste": "Besoin utile ECS", "MWh": results.annual_useful_energy_mwh},
+        {"Poste": "Bouclage sanitaire", "MWh": results.annual_loop_losses_mwh},
+        {"Poste": "Chauffage estimé", "MWh": results.annual_heating_after_boiler_mwh},
+    ]
+
+
 def build_opportunity_note_pdf(
     *,
     site_inputs: SiteInputs,
@@ -110,10 +124,10 @@ def build_opportunity_note_pdf(
             ("Volume ECS annuel", f"{_fmt_number(opportunity_results.annual_volume_l_60c / 1000.0, 1)} m3/an"),
             ("Besoin utile ECS", f"{_fmt_number(opportunity_results.annual_useful_energy_mwh, 1)} MWh/an"),
             ("Bouclage sanitaire", f"{_fmt_number(opportunity_results.annual_loop_losses_mwh, 1)} MWh/an"),
+            ("Chauffage estimé", f"{_fmt_number(opportunity_results.annual_heating_after_boiler_mwh, 1)} MWh/an"),
             ("Besoin ECS + bouclage", f"{_fmt_number(opportunity_results.annual_total_ecs_energy_mwh, 1)} MWh/an"),
             ("Surface capteurs", f"{_fmt_number(opportunity_results.collectors.surface_m2, 1)} m2"),
             ("Stockage proposé", f"{_fmt_number(opportunity_results.storage.total_volume_l, 0)} L"),
-            ("Production solaire", f"{_fmt_number(economic_results.annual_production_mwh, 1)} MWh/an"),
             ("Coût chaleur solaire", _eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1)),
         ],
         x=34,
@@ -143,14 +157,33 @@ def build_opportunity_note_pdf(
     )
     report.draw_footer()
 
-    y = report.start_page(title="Note d'opportunité - besoins et prédimensionnement")
+    report.start_page(title="Note d'opportunité - besoins et prédimensionnement")
     half_w = (report.page_width - 84) / 2
+    report.section_title("Répartition annuelle des besoins", x=34, y=report.page_height - 92)
+    report.pie_chart(
+        _ecs_pie_rows(opportunity_results),
+        x=52,
+        y=report.page_height - 298,
+        radius=68,
+        title="ECS utile / bouclage",
+        label_col="Poste",
+        value_col="MWh",
+    )
+    report.pie_chart(
+        _ecs_heating_pie_rows(opportunity_results),
+        x=70 + half_w,
+        y=report.page_height - 298,
+        radius=68,
+        title="ECS utile / bouclage / chauffage",
+        label_col="Poste",
+        value_col="MWh",
+    )
     report.line_chart(
         _monthly_chart_rows(opportunity_results),
         x=34,
-        y=report.page_height - 330,
+        y=165,
         width=half_w,
-        height=220,
+        height=165,
         x_col="Mois",
         y_cols=[("Besoin utile ECS", "Besoin utile ECS"), ("ECS + bouclage", "ECS + bouclage")],
         title="Besoin mensuel ECS",
@@ -158,34 +191,34 @@ def build_opportunity_note_pdf(
     )
     report.bar_chart(
         [
-            {"Poste": "Besoin utile", "MWh": opportunity_results.annual_useful_energy_mwh},
+            {"Poste": "ECS utile", "MWh": opportunity_results.annual_useful_energy_mwh},
             {"Poste": "Bouclage", "MWh": opportunity_results.annual_loop_losses_mwh},
-            {"Poste": "Production solaire", "MWh": opportunity_results.estimated_solar_production_mwh_year},
+            {"Poste": "Chauffage", "MWh": opportunity_results.annual_heating_after_boiler_mwh},
+            {"Poste": "Solaire", "MWh": opportunity_results.estimated_solar_production_mwh_year},
         ],
         x=50 + half_w,
-        y=report.page_height - 330,
+        y=165,
         width=half_w,
-        height=220,
+        height=165,
         label_col="Poste",
         value_col="MWh",
         title="Bilan annuel simplifié",
         y_label="MWh/an",
     )
-    y = report.page_height - 360
-    y = report.section_title("Tableau mensuel", x=34, y=y)
+    y = report.section_title("Tableau mensuel", x=34, y=145)
     report.table(
         _monthly_rows(opportunity_results),
         x=34,
         y=y,
         width=report.page_width - 68,
-        columns=["Mois", "Volume moyen (L/j)", "Besoin utile (MWh)", "Bouclage (MWh)", "Total ECS (MWh)"],
+        columns=["Mois", "Volume moyen (L/j)", "Besoin utile (MWh)", "Bouclage (MWh)", "Chauffage (MWh)", "Total ECS (MWh)"],
         max_rows=12,
     )
     report.draw_footer()
 
     y = report.start_page(title="Note d'opportunité - économie")
     y = report.section_title("Indicateurs économiques", x=34, y=y)
-    y = report.kpi_grid(
+    report.kpi_grid(
         [
             ("Investissement", _eur(economic_results.investment_cost_eur, 0)),
             ("Aides", f"{_eur(economic_results.aid_total_eur, 0)} ({_percent(economic_results.aid_rate, 0)})"),
