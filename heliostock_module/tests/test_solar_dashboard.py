@@ -181,3 +181,12 @@ def test_satellite_map_adds_city_labels_overlay():
     assert "Esri.WorldBoundariesAndPlaces" in source
     assert 'name="Noms des villes"' in source
     assert "folium.LayerControl" in source
+
+
+def test_map_uses_individual_points_and_labels_instead_of_clusters():
+    source = (MODULE_ROOT / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
+
+    assert "MarkerCluster" not in source
+    assert "folium.CircleMarker(" in source
+    assert "folium.DivIcon(" in source
+    assert "def _map_short_label" in source
