@@ -19,6 +19,8 @@ from itertools import combinations_with_replacement
 from math import ceil
 from typing import Any
 
+from ..collector_library import DEFAULT_COLLECTOR_NAME, get_collector_reference
+
 
 CP_WHLK = 1.163
 CP_EAU_WH_L_K_SOLO = 1.1615
@@ -149,7 +151,7 @@ STANDARD_TANK_SIZES_L: tuple[int, ...] = (
     5000,
 )
 
-DEFAULT_COLLECTOR_UNIT_AREA_M2 = 2.32
+DEFAULT_COLLECTOR_UNIT_AREA_M2 = get_collector_reference(DEFAULT_COLLECTOR_NAME).area_m2
 DEFAULT_TARGET_STORAGE_RATIO_L_M2 = 60.0
 MIN_STORAGE_RATIO_L_M2 = 50.0
 MAX_STORAGE_RATIO_L_M2 = 70.0
@@ -212,6 +214,7 @@ class NeedsInputs:
 @dataclass(frozen=True)
 class SizingInputs:
     cold_water_temperatures_c: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_COLD_WATER_TEMPERATURES_C))
+    collector_name: str = DEFAULT_COLLECTOR_NAME
     collector_unit_area_m2: float = DEFAULT_COLLECTOR_UNIT_AREA_M2
     target_storage_ratio_l_m2: float = DEFAULT_TARGET_STORAGE_RATIO_L_M2
     max_tank_count: int = 3
@@ -273,8 +276,11 @@ class MonthlyNeed:
     cold_water_temperature_c: float
     useful_energy_kwh: float
     useful_energy_mwh: float
+    gas_consumption_kwh: float
     gas_baseload_kwh: float
     global_ecs_after_boiler_kwh: float
+    heating_after_boiler_kwh: float
+    heating_after_boiler_mwh: float
     loop_losses_kwh: float
     loop_losses_mwh: float
     total_ecs_energy_kwh: float
@@ -329,6 +335,7 @@ class OpportunityResults:
     annual_useful_energy_mwh: float
     annual_loop_losses_mwh: float
     annual_total_ecs_energy_mwh: float
+    annual_heating_after_boiler_mwh: float
     gas_summer_baseload_daily_kwh: float
     reference_unit_count: float
     solo_reference_volume_l_day_per_unit: float
@@ -345,6 +352,7 @@ class OpportunityResults:
             "annual_useful_energy_mwh": self.annual_useful_energy_mwh,
             "annual_loop_losses_mwh": self.annual_loop_losses_mwh,
             "annual_total_ecs_energy_mwh": self.annual_total_ecs_energy_mwh,
+            "annual_heating_after_boiler_mwh": self.annual_heating_after_boiler_mwh,
             "gas_summer_baseload_daily_kwh": self.gas_summer_baseload_daily_kwh,
             "reference_unit_count": self.reference_unit_count,
             "solo_reference_volume_l_day_per_unit": self.solo_reference_volume_l_day_per_unit,
@@ -495,8 +503,11 @@ def _build_base_monthly_needs(
                 cold_water_temperature_c=t_ef,
                 useful_energy_kwh=useful_energy_kwh,
                 useful_energy_mwh=useful_energy_kwh / 1000.0,
+                gas_consumption_kwh=0.0,
                 gas_baseload_kwh=0.0,
                 global_ecs_after_boiler_kwh=0.0,
+                heating_after_boiler_kwh=0.0,
+                heating_after_boiler_mwh=0.0,
                 loop_losses_kwh=0.0,
                 loop_losses_mwh=0.0,
                 total_ecs_energy_kwh=useful_energy_kwh,
@@ -642,11 +653,15 @@ def build_monthly_needs(
     )
 
     for row in base_rows:
+        gas_consumption_kwh = 0.0
         gas_baseload_kwh = 0.0
         global_after_boiler_kwh = 0.0
+        heating_after_boiler_kwh = 0.0
         if loop.method == "Analyse factures gaz":
+            gas_consumption_kwh = max(0.0, loop.gas_monthly_kwh.get(row.month, 0.0))
             gas_baseload_kwh = gas_baseload_daily_kwh * row.days
             global_after_boiler_kwh = gas_baseload_kwh * boiler_efficiency
+            heating_after_boiler_kwh = max(0.0, gas_consumption_kwh - gas_baseload_kwh) * boiler_efficiency
             loop_losses_kwh = loop_losses_daily_kwh_from_gas * row.days
         elif loop.method == "Hypothèses SOLO 2018":
             loop_losses_kwh = _solo_loop_loss_kwh(row, loop, text_min_annuel_c)
@@ -663,8 +678,11 @@ def build_monthly_needs(
                 cold_water_temperature_c=row.cold_water_temperature_c,
                 useful_energy_kwh=row.useful_energy_kwh,
                 useful_energy_mwh=row.useful_energy_mwh,
+                gas_consumption_kwh=gas_consumption_kwh,
                 gas_baseload_kwh=gas_baseload_kwh,
                 global_ecs_after_boiler_kwh=global_after_boiler_kwh,
+                heating_after_boiler_kwh=heating_after_boiler_kwh,
+                heating_after_boiler_mwh=heating_after_boiler_kwh / 1000.0,
                 loop_losses_kwh=loop_losses_kwh,
                 loop_losses_mwh=loop_losses_kwh / 1000.0,
                 total_ecs_energy_kwh=total_ecs_kwh,
@@ -783,6 +801,7 @@ def compute_opportunity_results(
     annual_useful_energy_mwh = sum(row.useful_energy_mwh for row in monthly)
     annual_loop_losses_mwh = sum(row.loop_losses_mwh for row in monthly)
     annual_total_ecs_energy_mwh = sum(row.total_ecs_energy_mwh for row in monthly)
+    annual_heating_after_boiler_mwh = sum(row.heating_after_boiler_mwh for row in monthly)
     reference_unit_count = estimate_reference_unit_count(site, needs)
     solo_reference_volume_l_day_per_unit = compute_solo_reference_volume_l_day_per_unit(
         average_daily_l,
@@ -798,6 +817,7 @@ def compute_opportunity_results(
         annual_useful_energy_mwh=annual_useful_energy_mwh,
         annual_loop_losses_mwh=annual_loop_losses_mwh,
         annual_total_ecs_energy_mwh=annual_total_ecs_energy_mwh,
+        annual_heating_after_boiler_mwh=annual_heating_after_boiler_mwh,
         gas_summer_baseload_daily_kwh=_gas_summer_baseload_daily_kwh(loop),
         reference_unit_count=reference_unit_count,
         solo_reference_volume_l_day_per_unit=solo_reference_volume_l_day_per_unit,

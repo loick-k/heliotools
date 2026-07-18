@@ -39,7 +39,6 @@ from .opportunity_model import (
     CP_WHLK,
     DATA_SOURCES,
     DAYS_BY_MONTH,
-    DEFAULT_COLLECTOR_UNIT_AREA_M2,
     DEFAULT_LOOP_AMBIENT_TEMPERATURES_C,
     DEFAULT_MONTHLY_COEFFICIENTS,
     DEFAULT_PRODUCTIVITY_KWH_M2_YEAR,
@@ -63,6 +62,7 @@ from .opportunity_model import (
     dict_to_site_inputs,
 )
 from .pdf_export import build_opportunity_note_pdf
+from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..epw_reader import read_epw_hourly_weather_from_zip
 from ..ui_inputs import DEFAULT_EPW_REGIONS
@@ -86,13 +86,13 @@ COLD_WATER_MODES: tuple[str, ...] = (
 def eur(value: float | None, digits: int = 0) -> str:
     if value is None:
         return "-"
-    return f"{value:,.{digits}f} â‚¬".replace(",", " ").replace(".", ",")
+    return f"{value:,.{digits}f} €".replace(",", " ").replace(".", ",")
 
 
 def eur_mwh(value: float | None, digits: int = 1) -> str:
     if value is None:
         return "-"
-    return f"{value:,.{digits}f} â‚¬/MWh".replace(",", " ").replace(".", ",")
+    return f"{value:,.{digits}f} €/MWh".replace(",", " ").replace(".", ",")
 
 
 def number(value: float | None, digits: int = 1) -> str:
@@ -381,6 +381,7 @@ def monthly_needs_dataframe(results) -> pd.DataFrame:
                 "Tef (°C)": row.cold_water_temperature_c,
                 "Besoin utile (MWh)": row.useful_energy_mwh,
                 "Bouclage sanitaire (MWh)": row.loop_losses_mwh,
+                "Chauffage estimé (MWh)": row.heating_after_boiler_mwh,
                 "Besoin total ECS + bouclage (MWh)": row.total_ecs_energy_mwh,
             }
             for row in results.monthly_needs
@@ -394,12 +395,14 @@ def loop_dataframe(results) -> pd.DataFrame:
             {
                 "Mois": row.month,
                 "Jours": row.days,
+                "Conso gaz facturée (kWh/mois)": row.gas_consumption_kwh,
                 "Facture gaz talon estimée (kWh/mois)": row.gas_baseload_kwh,
                 "Énergie ECS globale après rendement chaudière (kWh/mois)": row.global_ecs_after_boiler_kwh,
                 "Besoin utile ECS (kWh/j)": row.useful_energy_kwh / row.days if row.days else 0.0,
                 "Besoin utile ECS (kWh/mois)": row.useful_energy_kwh,
                 "Bouclage sanitaire estimé (kWh/j)": row.loop_losses_kwh / row.days if row.days else 0.0,
                 "Bouclage sanitaire estimé (kWh/mois)": row.loop_losses_kwh,
+                "Chauffage estimé après rendement chaudière (kWh/mois)": row.heating_after_boiler_kwh,
             }
             for row in results.monthly_needs
         ]
@@ -472,6 +475,14 @@ def render_loop_chart(results):
             hovertemplate="%{x}<br>%{y:,.2f} MWh<extra></extra>",
         )
     )
+    fig.add_trace(
+        go.Bar(
+            x=[row.month for row in rows],
+            y=[row.heating_after_boiler_mwh for row in rows],
+            name="Chauffage estimé",
+            hovertemplate="%{x}<br>%{y:,.2f} MWh<extra></extra>",
+        )
+    )
     fig.update_layout(
         barmode="stack",
         height=360,
@@ -512,11 +523,40 @@ def render_ecs_loop_pie_chart(results):
     return fig
 
 
+def render_ecs_loop_heating_pie_chart(results):
+    if go is None:
+        return None
+    useful = max(0.0, float(results.annual_useful_energy_mwh or 0.0))
+    loop = max(0.0, float(results.annual_loop_losses_mwh or 0.0))
+    heating = max(0.0, float(results.annual_heating_after_boiler_mwh or 0.0))
+    if useful + loop + heating <= 0:
+        return None
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=["Besoin utile ECS", "Bouclage sanitaire", "Chauffage estimé"],
+                values=[useful, loop, heating],
+                hole=0.35,
+                sort=False,
+                textinfo="label+percent",
+                hovertemplate="%{label}<br>%{value:,.1f} MWh/an<br>%{percent}<extra></extra>",
+            )
+        ]
+    )
+    fig.update_layout(
+        title="Répartition annuelle ECS utile / bouclage / chauffage",
+        height=340,
+        margin={"l": 10, "r": 20, "t": 55, "b": 20},
+        legend={"orientation": "h", "yanchor": "bottom", "y": -0.05, "xanchor": "center", "x": 0.5},
+    )
+    return fig
+
+
 def build_heat_cost_breakdown_rows(results) -> list[dict[str, float | str]]:
     return [
-        {"Poste": "P1' - Auxiliaires électriques", "Famille": "P1'", "Coût chaleur (â‚¬/MWh)": results.heat_cost_p1_eur_mwh or 0.0},
-        {"Poste": "P2 - Suivi et maintenance", "Famille": "P2", "Coût chaleur (â‚¬/MWh)": results.heat_cost_p2_eur_mwh or 0.0},
-        {"Poste": "P4 - Investissement net aidé", "Famille": "P4", "Coût chaleur (â‚¬/MWh)": results.heat_cost_p4_eur_mwh or 0.0},
+        {"Poste": "P1' - Auxiliaires électriques", "Famille": "P1'", "Coût chaleur (€/MWh)": results.heat_cost_p1_eur_mwh or 0.0},
+        {"Poste": "P2 - Suivi et maintenance", "Famille": "P2", "Coût chaleur (€/MWh)": results.heat_cost_p2_eur_mwh or 0.0},
+        {"Poste": "P4 - Investissement net aidé", "Famille": "P4", "Coût chaleur (€/MWh)": results.heat_cost_p4_eur_mwh or 0.0},
     ]
 
 
@@ -529,22 +569,22 @@ def render_heat_cost_breakdown_plotly(results):
     x_max = max(total_cost, reference_cost, 1.0) * 1.25
     fig = go.Figure()
     for row in rows:
-        value = float(row["Coût chaleur (â‚¬/MWh)"])
+        value = float(row["Coût chaleur (€/MWh)"])
         fig.add_trace(
             go.Bar(
                 y=["Coût chaleur solaire"],
                 x=[value],
                 name=str(row["Poste"]),
                 orientation="h",
-                text=[f"{value:.1f} â‚¬/MWh"],
+                text=[f"{value:.1f} €/MWh"],
                 textposition="inside",
-                hovertemplate="%{fullData.name}<br>%{x:.1f} â‚¬/MWh<extra></extra>",
+                hovertemplate="%{fullData.name}<br>%{x:.1f} €/MWh<extra></extra>",
             )
         )
     fig.add_vline(
         x=reference_cost,
         line_dash="dash",
-        annotation_text=f"Référence moyenne : {reference_cost:.1f} â‚¬/MWh",
+        annotation_text=f"Référence moyenne : {reference_cost:.1f} €/MWh",
         annotation_position="top right",
     )
     fig.update_layout(
@@ -552,10 +592,10 @@ def render_heat_cost_breakdown_plotly(results):
         height=300,
         margin={"l": 10, "r": 20, "t": 60, "b": 40},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
-        xaxis_title="Coût de la chaleur (â‚¬/MWh utile)",
+        xaxis_title="Coût de la chaleur (€/MWh utile)",
         yaxis_title=None,
     )
-    fig.update_xaxes(range=[0, x_max], ticksuffix=" â‚¬/MWh")
+    fig.update_xaxes(range=[0, x_max], ticksuffix=" €/MWh")
     fig.update_yaxes(showticklabels=False)
     return fig
 
@@ -575,24 +615,24 @@ def render_cumulative_cashflow_plotly(cashflow_rows: list[dict[str, float | int]
     fig.add_trace(
         go.Scatter(
             x=years,
-            y=[float(row["Flux cumulé moyen (â‚¬)"]) for row in cashflow_rows],
+            y=[float(row["Flux cumulé moyen (€)"]) for row in cashflow_rows],
             name="Flux cumulé moyen/lissé",
             mode="lines+markers",
-            hovertemplate="Année %{x}<br>%{y:,.0f} â‚¬<extra></extra>",
+            hovertemplate="Année %{x}<br>%{y:,.0f} €<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=years,
-            y=[float(row["Flux cumulé inflation annuelle (â‚¬)"]) for row in cashflow_rows],
+            y=[float(row["Flux cumulé inflation annuelle (€)"]) for row in cashflow_rows],
             name="Flux cumulé avec inflation annuelle",
             mode="lines+markers",
-            hovertemplate="Année %{x}<br>%{y:,.0f} â‚¬<extra></extra>",
+            hovertemplate="Année %{x}<br>%{y:,.0f} €<extra></extra>",
         )
     )
     fig.add_hline(y=0, line_dash="dash", annotation_text="Retour à zéro", annotation_position="bottom right")
-    payback_avg = first_positive_year(cashflow_rows, "Flux cumulé moyen (â‚¬)")
-    payback_inflation = first_positive_year(cashflow_rows, "Flux cumulé inflation annuelle (â‚¬)")
+    payback_avg = first_positive_year(cashflow_rows, "Flux cumulé moyen (€)")
+    payback_inflation = first_positive_year(cashflow_rows, "Flux cumulé inflation annuelle (€)")
     if payback_avg is not None:
         fig.add_vline(x=payback_avg, line_dash="dot", annotation_text=f"Retour moyen : {payback_avg} ans")
     if payback_inflation is not None and payback_inflation != payback_avg:
@@ -601,11 +641,11 @@ def render_cumulative_cashflow_plotly(cashflow_rows: list[dict[str, float | int]
         height=390,
         margin={"l": 10, "r": 20, "t": 45, "b": 40},
         xaxis_title="Année",
-        yaxis_title="Flux cumulé (â‚¬)",
+        yaxis_title="Flux cumulé (€)",
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
     )
-    fig.update_yaxes(ticksuffix=" â‚¬")
+    fig.update_yaxes(ticksuffix=" €")
     return fig
 
 
@@ -1142,12 +1182,6 @@ def render_opportunity_notes_app() -> None:
             gas_rows = pd.DataFrame(
                 [{"Mois": month, "Conso gaz facturée (kWh/mois)": float(gas_monthly_kwh.get(month, 0.0))} for month in MONTH_NAMES]
             )
-            gas_rows = add_excel_paste_box(
-                gas_rows,
-                "Conso gaz facturée (kWh/mois)",
-                key=f"{project_ui_key}_gas_invoices",
-                label="factures gaz mensuelles",
-            )
             edited_gas = st.data_editor(
                 gas_rows,
                 hide_index=True,
@@ -1206,12 +1240,6 @@ def render_opportunity_notes_app() -> None:
                             {"Mois": month, "Pertes bouclage (kWh/j)": float(solo_losses_monthly_kwh_day.get(month, 0.0))}
                             for month in MONTH_NAMES
                         ]
-                    )
-                    losses_rows = add_excel_paste_box(
-                        losses_rows,
-                        "Pertes bouclage (kWh/j)",
-                        key=f"{project_ui_key}_loop_losses",
-                        label="pertes de bouclage mensuelles",
                     )
                     edited_losses = st.data_editor(
                         losses_rows,
@@ -1330,12 +1358,6 @@ def render_opportunity_notes_app() -> None:
                         for month in MONTH_NAMES
                     ]
                 )
-                loop_temp_rows = add_excel_paste_box(
-                    loop_temp_rows,
-                    "Température mensuelle utilisée (°C)",
-                    key=f"{project_ui_key}_loop_temps",
-                    label="températures mensuelles bouclage",
-                )
                 edited_loop_temp = st.data_editor(
                     loop_temp_rows,
                     hide_index=True,
@@ -1377,11 +1399,31 @@ def render_opportunity_notes_app() -> None:
         st.subheader("Paramètres de prédimensionnement")
         col_a, col_b, col_c = st.columns(3)
         with col_a:
+            collector_names = list(COLLECTOR_LIBRARY.keys())
+            saved_collector_name = sizing_default.collector_name if sizing_default.collector_name in COLLECTOR_LIBRARY else DEFAULT_COLLECTOR_NAME
+            collector_name = st.selectbox(
+                "Bibliothèque capteur",
+                options=collector_names,
+                index=collector_names.index(saved_collector_name),
+                key=f"{project_ui_key}_collector_name",
+            )
+            collector_ref = get_collector_reference(collector_name)
+            st.caption(
+                f"Capteur retenu : {collector_ref.manufacturer} {collector_ref.model}, "
+                f"surface unitaire {collector_ref.area_m2:.2f} m²."
+            )
+            collector_unit_area_default = (
+                float(sizing_default.collector_unit_area_m2)
+                if sizing_default.collector_name == collector_name and sizing_default.collector_unit_area_m2
+                else float(collector_ref.area_m2)
+            )
             collector_unit_area = st.number_input(
                 "Surface unitaire capteur (m²)",
                 min_value=0.1,
-                value=float(sizing_default.collector_unit_area_m2 or DEFAULT_COLLECTOR_UNIT_AREA_M2),
+                value=collector_unit_area_default,
                 step=0.01,
+                key=f"{project_ui_key}_collector_unit_area_{safe_slug(collector_name)}",
+                help="Valeur initialisée depuis la bibliothèque capteurs. À modifier seulement si la fiche technique retenue diffère.",
             )
         with col_b:
             target_ratio = st.number_input(
@@ -1404,6 +1446,7 @@ def render_opportunity_notes_app() -> None:
     
     sizing_inputs = SizingInputs(
         cold_water_temperatures_c=cold_water_temperatures,
+        collector_name=str(collector_name),
         collector_unit_area_m2=float(collector_unit_area),
         target_storage_ratio_l_m2=float(target_ratio),
         max_tank_count=int(max_tank_count),
@@ -1441,16 +1484,18 @@ def render_opportunity_notes_app() -> None:
     
     with tab_loop:
         st.markdown("### Résultat bouclage")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         col1.metric("Besoin utile ECS", f"{number(opportunity_results.annual_useful_energy_mwh, 1)} MWh/an")
         col2.metric("Bouclage sanitaire", f"{number(opportunity_results.annual_loop_losses_mwh, 1)} MWh/an")
         col3.metric("Besoin ECS + bouclage", f"{number(opportunity_results.annual_total_ecs_energy_mwh, 1)} MWh/an")
+        col4.metric("Chauffage estimé", f"{number(opportunity_results.annual_heating_after_boiler_mwh, 1)} MWh/an")
         if loop_method == "Analyse factures gaz":
             loop_daily_kwh = opportunity_results.annual_loop_losses_mwh * 1000.0 / 365.0 if opportunity_results.annual_loop_losses_mwh > 0 else 0.0
             st.info(
                 f"Talon gaz estival retenu : {number(opportunity_results.gas_summer_baseload_daily_kwh, 1)} kWh/j gaz, "
                 f"avec un rendement chaudière de {number(loop_inputs.boiler_efficiency * 100, 0)} %. "
-                f"Bouclage retenu : {number(loop_daily_kwh, 1)} kWh/j, soit une valeur journalière constante multipliée par le nombre de jours de chaque mois."
+                f"Bouclage retenu : {number(loop_daily_kwh, 1)} kWh/j, soit une valeur journalière constante multipliée par le nombre de jours de chaque mois. "
+                "Le chauffage estimé correspond à la part de facture gaz située au-dessus de ce talon, après application du rendement chaudière."
             )
         elif loop_method == "Hypothèses SOLO 2018":
             if opportunity_results.reference_unit_count > 0:
@@ -1466,9 +1511,13 @@ def render_opportunity_notes_app() -> None:
                     f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 0)} L/j à 60 °C. "
                     "Aucune unité de référence n'est renseignée, donc l'outil utilise la consommation journalière totale comme valeur de repli."
                 )
+        pie_col1, pie_col2 = st.columns(2)
         fig_pie = render_ecs_loop_pie_chart(opportunity_results)
         if fig_pie is not None:
-            st.plotly_chart(fig_pie, width="stretch")
+            pie_col1.plotly_chart(fig_pie, width="stretch")
+        fig_pie_heating = render_ecs_loop_heating_pie_chart(opportunity_results)
+        if fig_pie_heating is not None:
+            pie_col2.plotly_chart(fig_pie_heating, width="stretch")
     
         fig_loop = render_loop_chart(opportunity_results)
         if fig_loop is not None:
@@ -1487,7 +1536,7 @@ def render_opportunity_notes_app() -> None:
         st.write(
             "**Capteurs proposés :** "
             f"{opportunity_results.collectors.collector_count} capteurs × "
-            f"{opportunity_results.collectors.collector_unit_area_m2:.2f} m² = "
+            f"{sizing_inputs.collector_name} ({opportunity_results.collectors.collector_unit_area_m2:.2f} m²) = "
             f"{opportunity_results.collectors.surface_m2:.2f} m²"
         )
         st.caption(
@@ -1531,7 +1580,7 @@ def render_opportunity_notes_app() -> None:
             )
         with col_b:
             reference_energy_cost = st.number_input(
-                "Coût énergie référence (â‚¬/MWh)",
+                "Coût énergie référence (€/MWh)",
                 min_value=0.0,
                 value=float(economic_default.get("reference_energy_cost_eur_mwh", 75.0)),
                 step=5.0,
@@ -1544,7 +1593,7 @@ def render_opportunity_notes_app() -> None:
             years = st.number_input("Durée d'analyse (ans)", min_value=1, value=int(economic_default.get("years", 20)), step=1)
         with col_c:
             works_cost = st.number_input(
-                "Coût travaux installation (â‚¬HT/m²)",
+                "Coût travaux installation (€HT/m²)",
                 min_value=0.0,
                 value=float(economic_default.get("works_cost_eur_m2", 1563.0)),
                 step=50.0,
@@ -1564,13 +1613,13 @@ def render_opportunity_notes_app() -> None:
                     "Auxiliaires électriques (% prod.)", value=float(economic_default.get("auxiliary_ratio_percent", 3.0)), step=0.5
                 ) / 100.0
                 electricity_cost = st.number_input(
-                    "Coût électricité auxiliaire (â‚¬/MWh)", value=float(economic_default.get("electricity_cost_eur_mwh", 200.0)), step=10.0
+                    "Coût électricité auxiliaire (€/MWh)", value=float(economic_default.get("electricity_cost_eur_mwh", 200.0)), step=10.0
                 )
             with col_2:
                 maintenance_cost = st.number_input(
-                    "Maintenance (â‚¬/m².an)", value=float(economic_default.get("maintenance_cost_eur_m2_year", 22.0)), step=1.0
+                    "Maintenance (€/m².an)", value=float(economic_default.get("maintenance_cost_eur_m2_year", 22.0)), step=1.0
                 )
-                fae_cost = st.number_input("FAE (â‚¬HT)", value=float(economic_default.get("fae_cost_eur", 4929.0)), step=100.0)
+                fae_cost = st.number_input("FAE (€HT)", value=float(economic_default.get("fae_cost_eur", 4929.0)), step=100.0)
             with col_3:
                 fae_aid_rate = st.number_input(
                     "Taux aide FAE (%)", value=float(economic_default.get("fae_aid_rate_percent", 70.0)), step=5.0
@@ -1598,7 +1647,7 @@ def render_opportunity_notes_app() -> None:
         economic_results = compute_cesc_economic_model(economic_inputs)
     
         st.caption(
-            f"Forfait ADEME appliqué : {ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY[economic_typology]:,.0f} â‚¬/MWh.an".replace(
+            f"Forfait ADEME appliqué : {ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY[economic_typology]:,.0f} €/MWh.an".replace(
                 ",", " "
             )
         )
@@ -1681,7 +1730,7 @@ def render_opportunity_notes_app() -> None:
     **Bouclage sanitaire estimé :** {opportunity_results.annual_loop_losses_mwh:.1f} MWh/an.  
     **Besoin ECS total avec bouclage :** {opportunity_results.annual_total_ecs_energy_mwh:.1f} MWh/an.  
     
-    **Prédimensionnement proposé :** {opportunity_results.storage.label}, avec {opportunity_results.collectors.collector_count} capteurs de {opportunity_results.collectors.collector_unit_area_m2:.2f} m², soit {opportunity_results.collectors.surface_m2:.2f} m².  
+    **Prédimensionnement proposé :** {opportunity_results.storage.label}, avec {opportunity_results.collectors.collector_count} capteurs {sizing_inputs.collector_name} de {opportunity_results.collectors.collector_unit_area_m2:.2f} m², soit {opportunity_results.collectors.surface_m2:.2f} m².  
     **Ratio V/S :** {opportunity_results.collectors.storage_ratio_l_m2:.1f} L/m².  
     **Productivité provisoire :** {sizing_inputs.productivity_kwh_m2_year:.0f} kWh/m².an, à remplacer ensuite par le calcul SOLO 2018.
     """

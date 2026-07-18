@@ -5,6 +5,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from .collector_library import COLLECTOR_LIBRARY
+
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
@@ -73,24 +75,6 @@ DEFAULT_EPW_REGIONS = {
     }
     for region in ["Bretagne", "Pays de la Loire"]
 }
-
-COLLECTOR_LIBRARY = {
-    "SunOptimo 245V": {
-        "manufacturer": "SunOptimo",
-        "model": "245V",
-        "eta0": 0.824,
-        "a1_w_m2_k": 2.905,
-        "a2_w_m2_k2": 0.030,
-    },
-    "Generique plan vitré": {
-        "manufacturer": "Générique",
-        "model": "Plan vitré",
-        "eta0": 0.750,
-        "a1_w_m2_k": 3.500,
-        "a2_w_m2_k2": 0.015,
-    },
-}
-
 
 @dataclass(frozen=True)
 class FixedSolarAssumptions:

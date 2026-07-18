@@ -129,6 +129,7 @@ def build_opportunity_note_pdf(
             {"Paramètre": "Nature du bâtiment", "Valeur": site_inputs.building_state},
             {"Paramètre": "Source de besoin ECS", "Valeur": site_inputs.data_source},
             {"Paramètre": "Méthode bouclage", "Valeur": loop_inputs.method},
+            {"Paramètre": "Capteur solaire", "Valeur": sizing_inputs.collector_name},
             {"Paramètre": "Productivité solaire", "Valeur": f"{_fmt_number(sizing_inputs.productivity_kwh_m2_year, 0)} kWh/m2.an"},
             {"Paramètre": "Ratio V/S cible", "Valeur": f"{_fmt_number(sizing_inputs.target_storage_ratio_l_m2, 0)} L/m2"},
             {"Paramètre": "Coût énergie référence", "Valeur": _eur_mwh(economic_inputs.reference_energy_cost_eur_mwh, 1)},

@@ -343,14 +343,14 @@ def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
         collector_name = st.selectbox("Bibliothèque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0, key="solar_collector_name")
         collector_ref = COLLECTOR_LIBRARY[collector_name]
         st.caption(
-            f"Capteur sélectionné : fabricant {collector_ref['manufacturer']} - modèle {collector_ref['model']}. "
+            f"Capteur sélectionné : fabricant {collector_ref.manufacturer} - modèle {collector_ref.model}. "
             "Les coefficients restent modifiables ci-dessous."
         )
         c1, c2, c3, c4 = st.columns(4)
         area_m2 = c1.number_input("Surface capteurs (m²)", min_value=1.0, value=500.0, step=50.0, key="solar_area_m2")
-        eta0 = c2.number_input("eta0", min_value=0.0, max_value=1.0, value=float(collector_ref["eta0"]), step=0.001, format="%.3f", key="solar_eta0")
-        a1 = c3.number_input("a1 (W/m2.K)", min_value=0.0, value=float(collector_ref["a1_w_m2_k"]), step=0.001, format="%.3f", key="solar_a1")
-        a2 = c4.number_input("a2 (W/m2.K2)", min_value=0.0, value=float(collector_ref["a2_w_m2_k2"]), step=0.001, format="%.3f", key="solar_a2")
+        eta0 = c2.number_input("eta0", min_value=0.0, max_value=1.0, value=float(collector_ref.eta0), step=0.001, format="%.3f", key="solar_eta0")
+        a1 = c3.number_input("a1 (W/m2.K)", min_value=0.0, value=float(collector_ref.a1_w_m2_k), step=0.001, format="%.3f", key="solar_a1")
+        a2 = c4.number_input("a2 (W/m2.K2)", min_value=0.0, value=float(collector_ref.a2_w_m2_k2), step=0.001, format="%.3f", key="solar_a2")
 
         solar_fixed = FixedSolarAssumptions()
         c9, c10, c11 = st.columns(3)
