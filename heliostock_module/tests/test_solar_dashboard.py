@@ -99,6 +99,60 @@ def test_solar_dashboard_overview_pdf_uses_filtered_values(monkeypatch):
     assert b"Projet B" not in pdf
 
 
+def test_solar_dashboard_overview_pdf_tolerates_missing_cumulative_column(monkeypatch):
+    fake_folium = types.ModuleType("folium")
+    fake_folium.Map = object
+    fake_folium.Marker = object
+    fake_folium.Popup = object
+    fake_folium.Icon = object
+    fake_folium_plugins = types.ModuleType("folium.plugins")
+    fake_folium_plugins.MarkerCluster = object
+    fake_px = types.ModuleType("plotly.express")
+    fake_plotly = types.ModuleType("plotly")
+    fake_plotly.express = fake_px
+    fake_pyairtable = types.ModuleType("pyairtable")
+    fake_pyairtable.Api = object
+    fake_streamlit_folium = types.ModuleType("streamlit_folium")
+    fake_streamlit_folium.st_folium = lambda *args, **kwargs: None
+    fake_streamlit = types.ModuleType("streamlit")
+    fake_streamlit.cache_data = lambda *args, **kwargs: (lambda fn: fn)
+    fake_streamlit.secrets = {}
+    fake_streamlit.sidebar = types.SimpleNamespace()
+    fake_streamlit.column_config = types.SimpleNamespace(LinkColumn=lambda *args, **kwargs: None)
+    monkeypatch.setitem(sys.modules, "folium", fake_folium)
+    monkeypatch.setitem(sys.modules, "folium.plugins", fake_folium_plugins)
+    monkeypatch.setitem(sys.modules, "plotly", fake_plotly)
+    monkeypatch.setitem(sys.modules, "plotly.express", fake_px)
+    monkeypatch.setitem(sys.modules, "pyairtable", fake_pyairtable)
+    monkeypatch.setitem(sys.modules, "streamlit_folium", fake_streamlit_folium)
+    monkeypatch.setitem(sys.modules, "streamlit", fake_streamlit)
+    solar_dashboard_module = importlib.import_module("heliostock.solar_thermal_dashboard")
+
+    broken_table = pd.DataFrame({"Année de mise en service": [2024], "Nombre": [1]})
+
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen import canvas as pdf_canvas
+    from io import BytesIO
+
+    buffer = BytesIO()
+    width, height = landscape(A4)
+    canvas = pdf_canvas.Canvas(buffer, pagesize=(width, height))
+
+    solar_dashboard_module._draw_line_chart(
+        canvas,
+        broken_table,
+        x=34,
+        y=92,
+        width=360,
+        height=175,
+        title="Évolution cumulée du nombre d'installations",
+        x_col="Année de mise en service",
+        y_col="Cumulé",
+    )
+    canvas.save()
+    assert buffer.getvalue().startswith(b"%PDF")
+
+
 def test_solar_dashboard_text_has_no_common_mojibake_sequences():
     source = (MODULE_ROOT / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
     forbidden = ["\u00f0", "\u00c3", "\u00c2", "\u00ef\u00b8", "\u00e2\u201a\u00ac"]

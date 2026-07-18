@@ -273,6 +273,8 @@ def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
     evolution_cumulee = installations_par_annee.copy()
     if not evolution_cumulee.empty:
         evolution_cumulee["Cumulé"] = evolution_cumulee["Nombre"].cumsum()
+    elif "Cumulé" not in evolution_cumulee.columns:
+        evolution_cumulee["Cumulé"] = pd.Series(dtype="float64")
     surface_par_annee = (
         df_f.dropna(subset=["Année de mise en service", "Superficie (m²)"])
         .groupby("Année de mise en service")["Superficie (m²)"]
@@ -283,6 +285,8 @@ def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
     surface_cumulee = surface_par_annee.copy()
     if not surface_cumulee.empty:
         surface_cumulee["Surface cumulée (m²)"] = surface_cumulee["Superficie (m²)"].cumsum()
+    elif "Surface cumulée (m²)" not in surface_cumulee.columns:
+        surface_cumulee["Surface cumulée (m²)"] = pd.Series(dtype="float64")
     superficie_secteur = df_f.dropna(subset=["Superficie (m²)"]).copy()
     if not superficie_secteur.empty:
         superficie_secteur["Secteur"] = superficie_secteur["Secteur"].fillna("Non renseigné")
