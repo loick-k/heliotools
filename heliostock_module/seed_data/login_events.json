@@ -19,5 +19,12 @@
     "success": true,
     "reason": "login",
     "role": "admin"
+  },
+  {
+    "timestamp": "2026-07-18T19:09:49",
+    "email": "rgenet@nrg-conseils.fr",
+    "success": false,
+    "reason": "invalid_credentials",
+    "role": ""
   }
 ]
