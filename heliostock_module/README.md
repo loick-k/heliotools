@@ -57,14 +57,15 @@ Les projets sauvegardes contiennent les hypotheses d'interface autorisees, le fi
 l'utilisateur l'a charge, et eventuellement le dernier resultat calcule dans un cache local associe au projet.
 
 Sur Streamlit Cloud, le stockage local peut etre perdu lors d'un reboot. HelioTools peut donc dupliquer les projets
-HelioStock dans un fichier JSON versionne sur GitHub. Configurer les secrets :
+dans des fichiers JSON versionnes sur GitHub, separes par application. Configurer les secrets :
 
 - `GITHUB_BACKUP_REPO` : depot cible, par exemple `loick-k/heliotools` ;
 - `GITHUB_BACKUP_BRANCH` : branche cible, par exemple `main` ;
 - `GITHUB_BACKUP_TOKEN` : token GitHub avec droit d'ecriture sur le depot ;
-- `GITHUB_BACKUP_PROJECTS_PATH` : chemin du JSON projets, par defaut `seed_data/heliostock_projects.json`.
+- `GITHUB_BACKUP_PROJECTS_PATH` : chemin du JSON projets HelioStock, par defaut `seed_data/heliostock_projects.json` ;
+- `GITHUB_BACKUP_HELIONOP_PROJECTS_PATH` : chemin du JSON projets HelioNOP, par defaut `seed_data/helionop_projects.json`.
 
-Ce JSON conserve les parametres projet et le fichier Excel de besoins horaires encode en base64. Localement, les
+Le JSON HelioStock conserve les parametres projet et le fichier Excel de besoins horaires encode en base64. Localement, les
 fichiers annexes HelioStock sont ranges dans un dossier explicite associe au projet :
 
 - `inputs/besoins_horaires.xlsx` pour le fichier Excel importe ;

@@ -66,10 +66,13 @@ from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_c
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..epw_reader import read_epw_hourly_weather_from_zip
 from ..ui_inputs import DEFAULT_EPW_REGIONS
+from .. import ui_portal
 
 APP_KEY = "helionop"
 APP_LABEL = "HelioNOP"
 PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)
+DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/helionop_projects.json"
+PROJECTS_SESSION_CACHE_KEY = "helionop_projects_cache"
 ECS_PROFILE_INPUT_MODES: tuple[str, ...] = (
     "Profil L/jour moyen",
     "Volume m³/mois",
@@ -346,7 +349,100 @@ def empty_project_payload() -> dict[str, Any]:
     }
 
 
+def _backup_projects_path_setting() -> str:
+    return (
+        ui_portal._secret_value("GITHUB_BACKUP_HELIONOP_PROJECTS_PATH")
+        or ui_portal._secret_value("GITHUB_BACKUP_PROJECTS_PATH_HELIONOP")
+        or DEFAULT_BACKUP_PROJECTS_PATH
+    )
+
+
+def _resolve_backup_projects_path():
+    configured = Path(_backup_projects_path_setting())
+    if configured.is_absolute():
+        return configured
+    candidates = [
+        Path.cwd() / configured,
+        Path(__file__).resolve().parents[2] / configured,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _project_backup_slug(project: dict[str, Any]) -> str:
+    slug = str(project.get("slug", "") or "").strip()
+    if slug:
+        return safe_slug(slug, fallback="projet_helionop")
+    owner = safe_slug(str(project.get("owner_email", "") or "anonymous"), fallback="anonymous")
+    project_id = str(project.get("project_id", "") or "")[:8]
+    name = safe_slug(str(project.get("name", "") or "Projet HelioNOP"), fallback="projet_helionop")
+    suffix = f"_{project_id}" if project_id else ""
+    return f"{owner}_{name}{suffix}"[:120]
+
+
+def _load_project_backups() -> list[dict[str, Any]]:
+    cached = st.session_state.get(PROJECTS_SESSION_CACHE_KEY)
+    if isinstance(cached, list):
+        return [dict(project) for project in cached if isinstance(project, dict)]
+
+    github_projects = ui_portal._github_read_json_list(_backup_projects_path_setting())
+    if github_projects:
+        ui_portal._write_json_list(_resolve_backup_projects_path(), github_projects)
+        st.session_state[PROJECTS_SESSION_CACHE_KEY] = github_projects
+        return github_projects
+
+    projects = ui_portal._read_json_list(_resolve_backup_projects_path())
+    if projects:
+        st.session_state[PROJECTS_SESSION_CACHE_KEY] = projects
+    return projects
+
+
+def _save_project_backups(projects: list[dict[str, Any]]) -> None:
+    clean_projects = [dict(project) for project in projects if isinstance(project, dict)]
+    st.session_state[PROJECTS_SESSION_CACHE_KEY] = clean_projects
+    ui_portal._write_json_list(_resolve_backup_projects_path(), clean_projects)
+    ui_portal._github_write_json_list(
+        _backup_projects_path_setting(),
+        clean_projects,
+        message="chore: update helionop projects backup",
+    )
+
+
+def _restore_projects_from_backup() -> None:
+    for project in _load_project_backups():
+        payload = dict(project.get("payload", project)) if isinstance(project, dict) else {}
+        if not payload or str(payload.get("app_key", APP_KEY)) != APP_KEY:
+            continue
+        owner_email = normalize_email(str(payload.get("owner_email", "")))
+        if not owner_email:
+            continue
+        project_id = str(payload.get("project_id", "") or uuid.uuid4())
+        name = str(payload.get("name") or payload.get("site", {}).get("project_name") or "Projet HelioNOP")
+        PROJECT_STORE.ensure_owner_dir(owner_email)
+        path = PROJECT_STORE.project_path(owner_email=owner_email, project_id=project_id, project_name=name)
+        if not path.exists():
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _upsert_project_backup(*, path, payload: dict[str, Any]) -> None:
+    backup_item = {
+        "slug": path.with_suffix("").name,
+        "saved_at": now_iso(),
+        "owner_email": payload.get("owner_email", ""),
+        "project_id": payload.get("project_id", ""),
+        "name": payload.get("name", path.stem),
+        "payload": payload,
+    }
+    slug = _project_backup_slug(backup_item)
+    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    projects.append(backup_item)
+    _save_project_backups(projects)
+
+
 def list_project_files():
+    _restore_projects_from_backup()
     return PROJECT_STORE.list_projects(owner_email=current_owner_email())
 
 
@@ -358,12 +454,16 @@ def save_project(payload: dict[str, Any]):
     payload = dict(payload)
     site = payload.get("site", {}) if isinstance(payload.get("site"), dict) else {}
     project_name = str(site.get("project_name") or payload.get("name") or "Nouveau projet")
-    return PROJECT_STORE.save_project(
+    path = PROJECT_STORE.save_project(
         payload=payload,
         owner_email=current_owner_email(),
         project_name=project_name,
         project_id=str(payload.get("project_id", "")) or None,
     )
+    saved_payload = PROJECT_STORE.load_project(path=path, owner_email=current_owner_email())
+    _upsert_project_backup(path=path, payload=saved_payload)
+    return path
+
 
 
 def init_session() -> None:

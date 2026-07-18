@@ -208,6 +208,19 @@ def test_opportunity_notes_app_access_is_configurable_and_callable():
     assert "PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)" in app_source
 
 
+def test_helionop_projects_are_restored_from_github_backup():
+    app_source = _source("heliostock/opportunity_notes/streamlit_opportunity_app.py")
+
+    assert 'DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/helionop_projects.json"' in app_source
+    assert "GITHUB_BACKUP_HELIONOP_PROJECTS_PATH" in app_source
+    assert "def _restore_projects_from_backup" in app_source
+    assert "def _upsert_project_backup" in app_source
+    assert "ui_portal._github_read_json_list(_backup_projects_path_setting())" in app_source
+    assert "ui_portal._github_write_json_list(" in app_source
+    assert "_restore_projects_from_backup()" in app_source
+    assert "_upsert_project_backup(path=path, payload=saved_payload)" in app_source
+
+
 def test_helioeco_app_is_registered_in_portal():
     portal_source = _source("heliostock/ui_portal.py")
     demo_source = _source("demo_app.py")
