@@ -1205,11 +1205,15 @@ def render_solar_thermal_dashboard() -> None:
         else:
             st.caption(
                 "Localisation approximative au niveau de la ville "
-                "(geo.api.gouv.fr, gratuit). Pour une localisation précise et "
-                "gratuite, utilisez le script Apps Script fourni "
-                "(geocoder_airtable.gs) pour écrire Latitude/Longitude dans "
-                "Airtable."
+                "(geo.api.gouv.fr, gratuit), car aucune coordonnée précise "
+                "Latitude/Longitude n'est disponible dans les données filtrées."
             )
+        st.info(
+            "Pour recalculer les coordonnées précises, lance le projet Google Apps Script "
+            "`Database Airtable Streamlit`, fonction `geocodeInstallationsAirtable`. "
+            "Le script écrit les champs `Latitude` et `Longitude` dans Airtable. "
+            "Après exécution, clique sur `Rafraîchir les données` dans HelioTools."
+        )
 
         recherche = st.text_input(
             "Rechercher une installation (nom de l'application, ville ou département)"
