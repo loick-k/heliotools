@@ -94,7 +94,8 @@ def test_solar_dashboard_overview_pdf_uses_filtered_values(monkeypatch):
     assert metrics["Superficie totale"] == "100 m²"
     assert metrics["Production annuelle totale"] == "80 MWh"
     assert len(pdf) > 8000
-    assert b"Projet A" in pdf
+    assert b"Surface" in pdf
+    assert b"Aper" not in pdf
     assert b"Projet B" not in pdf
 
 

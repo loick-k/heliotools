@@ -35,6 +35,30 @@ from .dashboard_data_cleaning import group_small_categories, join_values, to_flo
 DEFAULT_BASE_ID = "appjauiOQySQq9PBz"
 DEFAULT_TABLE_ID = "tblU1ec0gGyWq9YN8"  # table "BDD STH"
 GEOCODING_MAX_WORKERS = 6
+CHART_COLORS = [
+    "#F2A000",
+    "#0072B2",
+    "#D55E00",
+    "#009E73",
+    "#CC79A7",
+    "#56B4E9",
+    "#6B7280",
+    "#E69F00",
+    "#5B4AB0",
+    "#8CB369",
+]
+PDF_CHART_COLORS = [
+    (0.95, 0.63, 0.0),
+    (0.0, 0.45, 0.7),
+    (0.84, 0.37, 0.0),
+    (0.0, 0.62, 0.45),
+    (0.8, 0.47, 0.65),
+    (0.34, 0.71, 0.91),
+    (0.42, 0.45, 0.5),
+    (0.9, 0.62, 0.0),
+    (0.36, 0.29, 0.69),
+    (0.55, 0.7, 0.41),
+]
 
 # Tables liées utilisées pour résoudre les champs de type "lien vers un
 # enregistrement" (Ville, Secteurs, Type d'installation, Etat) en libellés
@@ -245,6 +269,16 @@ def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
     evolution_cumulee = installations_par_annee.copy()
     if not evolution_cumulee.empty:
         evolution_cumulee["Cumulé"] = evolution_cumulee["Nombre"].cumsum()
+    surface_par_annee = (
+        df_f.dropna(subset=["Année de mise en service", "Superficie (m²)"])
+        .groupby("Année de mise en service")["Superficie (m²)"]
+        .sum()
+        .reset_index()
+        .sort_values("Année de mise en service")
+    )
+    surface_cumulee = surface_par_annee.copy()
+    if not surface_cumulee.empty:
+        surface_cumulee["Surface cumulée (m²)"] = surface_cumulee["Superficie (m²)"].cumsum()
     superficie_secteur = df_f.dropna(subset=["Superficie (m²)"]).copy()
     if not superficie_secteur.empty:
         superficie_secteur["Secteur"] = superficie_secteur["Secteur"].fillna("Non renseigné")
@@ -265,6 +299,8 @@ def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "Répartition par état": etat_counts,
         "Évolution cumulée": evolution_cumulee,
         "Nouvelles installations par année": installations_par_annee,
+        "Surface installée par année": surface_par_annee,
+        "Surface cumulée": surface_cumulee,
         "Superficie par secteur": superficie_secteur,
         "Superficie vs production annuelle": scatter_data,
     }
@@ -444,6 +480,48 @@ def _draw_bar_chart(
         canvas.drawCentredString(bx + bar_w / 2, y + bh + 3, _fmt_number(value))
 
 
+def _draw_horizontal_bar_chart(
+    canvas,
+    data: pd.DataFrame,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    title: str,
+    label_col: str,
+    value_col: str,
+    colors: list[tuple[float, float, float]],
+    value_suffix: str = "",
+    max_items: int = 8,
+) -> None:
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(x, y + height + 16, title)
+    chart = data[[label_col, value_col]].copy().head(max_items)
+    if chart.empty:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + height / 2, "Aucune donnée.")
+        return
+    chart[value_col] = chart[value_col].map(_pdf_numeric)
+    max_value = max(chart[value_col].max(), 1.0)
+    label_w = min(142, width * 0.43)
+    bar_x = x + label_w + 8
+    bar_w_max = width - label_w - 46
+    row_h = min(18, height / max(len(chart), 1))
+    canvas.setFont("Helvetica", 8)
+    for row_idx, (_, row) in enumerate(chart.iterrows()):
+        cy = y + height - (row_idx + 1) * row_h + 4
+        value = _pdf_numeric(row[value_col])
+        bar_w = bar_w_max * value / max_value
+        canvas.setFillColorRGB(0.32, 0.34, 0.42)
+        canvas.drawRightString(x + label_w, cy + 2, _pdf_short_label(row[label_col], 28))
+        canvas.setFillColorRGB(*colors[row_idx % len(colors)])
+        canvas.roundRect(bar_x, cy, bar_w, 8, 2, fill=1, stroke=0)
+        canvas.setFillColorRGB(0.32, 0.34, 0.42)
+        canvas.drawString(bar_x + bar_w + 4, cy + 1, _fmt_number(value, 0, value_suffix))
+
+
 def _draw_line_chart(
     canvas,
     data: pd.DataFrame,
@@ -455,6 +533,7 @@ def _draw_line_chart(
     title: str,
     x_col: str,
     y_col: str,
+    y_axis_label: str = "",
 ) -> None:
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 11)
@@ -469,9 +548,12 @@ def _draw_line_chart(
     min_x, max_x = chart[x_col].min(), chart[x_col].max()
     max_y = max(chart[y_col].max(), 1.0)
     canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
+    canvas.setFillColorRGB(0.38, 0.4, 0.48)
+    canvas.setFont("Helvetica", 7)
     for step in range(5):
         gy = y + (height * step / 4)
         canvas.line(x + 28, gy, x + width, gy)
+        canvas.drawRightString(x + 24, gy - 3, _fmt_number(max_y * step / 4))
     points = []
     for _, row in chart.iterrows():
         px = x + 32 if max_x == min_x else x + 32 + (width - 36) * (row[x_col] - min_x) / (max_x - min_x)
@@ -486,6 +568,8 @@ def _draw_line_chart(
         canvas.circle(px, py, 2.2, fill=1, stroke=0)
     canvas.setFillColorRGB(0.38, 0.4, 0.48)
     canvas.setFont("Helvetica", 7)
+    if y_axis_label:
+        canvas.drawString(x + 28, y + height + 3, y_axis_label)
     canvas.drawString(x + 28, y - 10, _fmt_number(min_x))
     canvas.drawRightString(x + width, y - 10, _fmt_number(max_x))
 
@@ -556,11 +640,15 @@ def _draw_scatter_chart(
     max_x = max(chart["Superficie (m²)"].map(_pdf_numeric).max(), 1.0)
     max_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).max(), 1.0)
     canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
+    canvas.setFillColorRGB(0.38, 0.4, 0.48)
+    canvas.setFont("Helvetica", 7)
     for step in range(5):
         gx = x + 28 + (width - 36) * step / 4
         gy = y + height * step / 4
         canvas.line(x + 28, gy, x + width, gy)
         canvas.line(gx, y, gx, y + height)
+        canvas.drawRightString(x + 24, gy - 3, _fmt_number(max_y * step / 4))
+        canvas.drawCentredString(gx, y - 11, _fmt_number(max_x * step / 4))
     canvas.setFillColorRGB(0.0, 0.7, 0.62)
     for _, row in chart.head(120).iterrows():
         px = x + 28 + (width - 36) * _pdf_numeric(row["Superficie (m²)"]) / max_x
@@ -568,9 +656,8 @@ def _draw_scatter_chart(
         canvas.circle(px, py, 2.4, fill=1, stroke=0)
     canvas.setFillColorRGB(0.38, 0.4, 0.48)
     canvas.setFont("Helvetica", 7)
-    canvas.drawString(x + 28, y - 11, "Superficie (m²)")
-    canvas.drawRightString(x + width, y - 11, _fmt_number(max_x, suffix="m²"))
-    canvas.drawString(x + 28, y + height + 3, _fmt_number(max_y, suffix="MWh"))
+    canvas.drawCentredString(x + width / 2, y - 24, "Surface de capteurs installée (m²)")
+    canvas.drawString(x + 28, y + height + 3, "Production annuelle (MWh/an)")
 
 
 def _overview_pdf_bytes(
@@ -586,15 +673,6 @@ def _overview_pdf_bytes(
     canvas = pdf_canvas.Canvas(buffer, pagesize=(page_width, page_height), pageCompression=0)
     generated_at = datetime.now().strftime("%d/%m/%Y à %H:%M")
     chart_tables = _overview_export_tables(df_f)
-    palette = [
-        (0.96, 0.64, 0.0),
-        (0.0, 0.45, 0.78),
-        (0.94, 0.19, 0.18),
-        (0.0, 0.68, 0.58),
-        (0.38, 0.33, 0.75),
-        (0.55, 0.61, 0.68),
-        (0.96, 0.79, 0.28),
-    ]
 
     page = 1
     _draw_pdf_header(
@@ -631,16 +709,17 @@ def _overview_pdf_bytes(
         value_col="Nombre",
         color=(0.96, 0.64, 0.0),
     )
-    _draw_pie_chart(
+    _draw_horizontal_bar_chart(
         canvas,
         chart_tables["Répartition par secteur"],
         x=456,
-        y=104,
-        radius=78,
+        y=92,
+        width=346,
+        height=175,
         title="Répartition par secteur",
         label_col="Secteur",
         value_col="Nombre",
-        colors=palette,
+        colors=PDF_CHART_COLORS,
     )
     _draw_pdf_footer(canvas, page_number=page, width=page_width)
     canvas.showPage()
@@ -653,16 +732,17 @@ def _overview_pdf_bytes(
         width=page_width,
         height=page_height,
     )
-    _draw_pie_chart(
+    _draw_horizontal_bar_chart(
         canvas,
         chart_tables["Répartition par état"],
         x=34,
-        y=344,
-        radius=68,
+        y=322,
+        width=345,
+        height=165,
         title="Répartition par état",
         label_col="Etat",
         value_col="Nombre",
-        colors=palette,
+        colors=PDF_CHART_COLORS,
     )
     _draw_line_chart(
         canvas,
@@ -674,30 +754,32 @@ def _overview_pdf_bytes(
         title="Évolution cumulée du nombre d'installations",
         x_col="Année de mise en service",
         y_col="Cumulé",
+        y_axis_label="Nombre cumulé d'installations",
     )
     _draw_bar_chart(
         canvas,
-        chart_tables["Nouvelles installations par année"],
+        chart_tables["Surface installée par année"],
         x=34,
         y=82,
         width=360,
         height=170,
-        title="Nouvelles installations par année",
+        title="Surface installée par année",
         label_col="Année de mise en service",
-        value_col="Nombre",
+        value_col="Superficie (m²)",
         color=(0.18, 0.53, 0.67),
         max_items=18,
     )
-    _draw_pie_chart(
+    _draw_line_chart(
         canvas,
-        chart_tables["Superficie par secteur"],
-        x=456,
-        y=94,
-        radius=74,
-        title="Superficie (m²) par secteur",
-        label_col="Secteur",
-        value_col="Superficie (m²)",
-        colors=palette,
+        chart_tables["Surface cumulée"],
+        x=440,
+        y=82,
+        width=350,
+        height=170,
+        title="Surface cumulée installée",
+        x_col="Année de mise en service",
+        y_col="Surface cumulée (m²)",
+        y_axis_label="Surface cumulée (m²)",
     )
     _draw_pdf_footer(canvas, page_number=page, width=page_width)
     canvas.showPage()
@@ -705,40 +787,33 @@ def _overview_pdf_bytes(
     page += 1
     _draw_pdf_header(
         canvas,
-        title="Détails filtrés",
-        subtitle="Nuage de points et premières lignes du jeu de données filtré",
+        title="Surfaces et production",
+        subtitle="Analyse des surfaces installées et de la production annuelle - mêmes filtres que l'écran",
         width=page_width,
         height=page_height,
+    )
+    _draw_horizontal_bar_chart(
+        canvas,
+        chart_tables["Superficie par secteur"],
+        x=34,
+        y=314,
+        width=360,
+        height=180,
+        title="Superficie par secteur",
+        label_col="Secteur",
+        value_col="Superficie (m²)",
+        colors=PDF_CHART_COLORS,
+        value_suffix="m²",
     )
     _draw_scatter_chart(
         canvas,
         chart_tables["Superficie vs production annuelle"],
-        x=34,
+        x=440,
         y=312,
-        width=450,
+        width=350,
         height=190,
-        title="Superficie vs production annuelle",
+        title="Production annuelle selon la surface installée",
     )
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(34, 274, "Aperçu des installations filtrées")
-    preview_cols = [
-        col
-        for col in ["Application", "Ville", "Département", "Secteur", "Superficie (m²)", "Production annuelle (MWh)"]
-        if col in df_f.columns
-    ]
-    preview = df_f[preview_cols].head(18) if preview_cols else pd.DataFrame()
-    ty = 256
-    canvas.setFont("Helvetica", 7)
-    canvas.setFillColorRGB(0.32, 0.34, 0.42)
-    for line in _table_lines(preview, max_rows=18):
-        for wrapped in _wrap_text(line, width=155):
-            canvas.drawString(34, ty, wrapped)
-            ty -= 9
-            if ty < 34:
-                break
-        if ty < 34:
-            break
     _draw_pdf_footer(canvas, page_number=page, width=page_width)
     canvas.save()
     return buffer.getvalue()
@@ -887,7 +962,9 @@ def render_solar_thermal_dashboard() -> None:
                 y="Nombre",
                 title="Installations par département",
                 color_discrete_sequence=["#f4a300"],
+                labels={"Nombre": "Nombre d'installations"},
             )
+            fig_dep.update_layout(showlegend=False)
             st.plotly_chart(fig_dep, width="stretch")
 
         with col_b:
@@ -898,14 +975,17 @@ def render_solar_thermal_dashboard() -> None:
             secteur_counts = group_small_categories(
                 secteur_counts, "Secteur", "Nombre", seuil_pct=3.0
             )
-            fig_secteur = px.pie(
+            fig_secteur = px.bar(
                 secteur_counts,
-                names="Secteur",
-                values="Nombre",
+                x="Nombre",
+                y="Secteur",
+                orientation="h",
+                color="Secteur",
                 title="Répartition par secteur",
-                hole=0.4,
+                color_discrete_sequence=CHART_COLORS,
+                labels={"Nombre": "Nombre d'installations", "Secteur": "Secteur"},
             )
-            fig_secteur.update_traces(textposition="inside", textinfo="percent+label")
+            fig_secteur.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
             st.plotly_chart(fig_secteur, width="stretch")
 
         col_e, col_f = st.columns(2)
@@ -918,14 +998,17 @@ def render_solar_thermal_dashboard() -> None:
             etat_counts = group_small_categories(
                 etat_counts, "Etat", "Nombre", seuil_pct=3.0
             )
-            fig_etat = px.pie(
+            fig_etat = px.bar(
                 etat_counts,
-                names="Etat",
-                values="Nombre",
+                x="Nombre",
+                y="Etat",
+                orientation="h",
+                color="Etat",
                 title="Répartition par état",
-                hole=0.4,
+                color_discrete_sequence=CHART_COLORS,
+                labels={"Nombre": "Nombre d'installations", "Etat": "État"},
             )
-            fig_etat.update_traces(textposition="inside", textinfo="percent+label")
+            fig_etat.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
             st.plotly_chart(fig_etat, width="stretch")
 
         with col_f:
@@ -944,6 +1027,10 @@ def render_solar_thermal_dashboard() -> None:
                     y="Cumulé",
                     markers=True,
                     title="Évolution cumulée du nombre d'installations",
+                    labels={
+                        "Année de mise en service": "Année de mise en service",
+                        "Cumulé": "Nombre cumulé d'installations",
+                    },
                 )
                 st.plotly_chart(fig_evol, width="stretch")
             else:
@@ -966,7 +1053,12 @@ def render_solar_thermal_dashboard() -> None:
                     y="Nombre",
                     title="Nouvelles installations par année",
                     color_discrete_sequence=["#2E86AB"],
+                    labels={
+                        "Année de mise en service": "Année de mise en service",
+                        "Nombre": "Nombre de nouvelles installations",
+                    },
                 )
+                fig_annee.update_layout(showlegend=False)
                 st.plotly_chart(fig_annee, width="stretch")
             else:
                 st.info("Pas assez de données d'année pour ce graphique.")
@@ -985,21 +1077,68 @@ def render_solar_thermal_dashboard() -> None:
                 superficie_secteur = group_small_categories(
                     superficie_secteur, "Secteur", "Superficie (m²)", seuil_pct=3.0
                 )
-                fig_superficie_secteur = px.pie(
+                fig_superficie_secteur = px.bar(
                     superficie_secteur,
-                    names="Secteur",
-                    values="Superficie (m²)",
+                    x="Superficie (m²)",
+                    y="Secteur",
+                    orientation="h",
+                    color="Secteur",
                     title="Superficie (m²) par secteur",
-                    hole=0.4,
+                    color_discrete_sequence=CHART_COLORS,
+                    labels={"Superficie (m²)": "Surface de capteurs installée (m²)", "Secteur": "Secteur"},
                 )
-                fig_superficie_secteur.update_traces(
-                    textposition="inside", textinfo="percent+label"
-                )
+                fig_superficie_secteur.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
                 st.plotly_chart(fig_superficie_secteur, width="stretch")
             else:
                 st.info("Pas assez de données de superficie pour ce graphique.")
 
-        st.subheader("Superficie vs Production annuelle")
+        col_i, col_j = st.columns(2)
+
+        with col_i:
+            surface_par_annee = (
+                df_f.dropna(subset=["Année de mise en service", "Superficie (m²)"])
+                .groupby("Année de mise en service")["Superficie (m²)"]
+                .sum()
+                .reset_index()
+                .sort_values("Année de mise en service")
+            )
+            if not surface_par_annee.empty:
+                fig_surface_annee = px.bar(
+                    surface_par_annee,
+                    x="Année de mise en service",
+                    y="Superficie (m²)",
+                    title="Surface installée par année",
+                    color_discrete_sequence=["#009E73"],
+                    labels={
+                        "Année de mise en service": "Année de mise en service",
+                        "Superficie (m²)": "Surface installée dans l'année (m²)",
+                    },
+                )
+                fig_surface_annee.update_layout(showlegend=False)
+                st.plotly_chart(fig_surface_annee, width="stretch")
+            else:
+                st.info("Pas assez de données de superficie annuelle pour ce graphique.")
+
+        with col_j:
+            surface_cumulee = surface_par_annee.copy() if "surface_par_annee" in locals() else pd.DataFrame()
+            if not surface_cumulee.empty:
+                surface_cumulee["Surface cumulée (m²)"] = surface_cumulee["Superficie (m²)"].cumsum()
+                fig_surface_cumulee = px.line(
+                    surface_cumulee,
+                    x="Année de mise en service",
+                    y="Surface cumulée (m²)",
+                    markers=True,
+                    title="Surface cumulée installée",
+                    labels={
+                        "Année de mise en service": "Année de mise en service",
+                        "Surface cumulée (m²)": "Surface cumulée de capteurs (m²)",
+                    },
+                )
+                st.plotly_chart(fig_surface_cumulee, width="stretch")
+            else:
+                st.info("Pas assez de données de superficie annuelle pour tracer la surface cumulée.")
+
+        st.subheader("Production annuelle selon la surface installée")
         scatter_df = df_f.dropna(subset=["Superficie (m²)", "Production annuelle (MWh)"])
         if not scatter_df.empty:
             fig_scatter = px.scatter(
@@ -1009,6 +1148,11 @@ def render_solar_thermal_dashboard() -> None:
                 color="Secteur",
                 hover_name="Ville",
                 hover_data=["Application", "Année de mise en service"],
+                labels={
+                    "Superficie (m²)": "Surface de capteurs installée (m²)",
+                    "Production annuelle (MWh)": "Production solaire annuelle (MWh/an)",
+                    "Secteur": "Secteur",
+                },
             )
             st.plotly_chart(fig_scatter, width="stretch")
         else:

@@ -208,6 +208,19 @@ def render_heliostock_hourly() -> pd.DataFrame:
             "Des parametres ont ete modifies depuis. Relance le calcul pour mettre a jour les resultats."
         )
     scenario = last_result["scenario"]
+    from .heliostock_pdf_export import build_heliostock_overview_pdf
+
+    st.download_button(
+        "Télécharger la synthèse HelioStock en PDF",
+        data=build_heliostock_overview_pdf(
+            scenario,
+            calculation_id=calculation_id,
+            calculated_at=calculated_at,
+        ),
+        file_name=f"heliostock_synthese_{calculation_id}.pdf",
+        mime="application/pdf",
+        width="stretch",
+    )
     display_context = last_result.get("display_context", {})
     stored_hourly_profile_df = display_context.get("hourly_profile_df", pd.DataFrame())
     if not isinstance(stored_hourly_profile_df, pd.DataFrame):
