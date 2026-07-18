@@ -542,6 +542,10 @@ def _draw_line_chart(
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 11)
     canvas.drawString(x, y + height + 16, title)
+    if x_col not in data.columns or y_col not in data.columns:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + height / 2, "Aucune donnée.")
+        return
     chart = data[[x_col, y_col]].dropna().copy()
     if chart.empty:
         canvas.setFont("Helvetica", 9)
@@ -740,13 +744,12 @@ def _overview_pdf_bytes(
         value_col="Nombre",
         color=(0.96, 0.64, 0.0),
     )
-    _draw_horizontal_bar_chart(
+    _draw_pie_chart(
         canvas,
         chart_tables["Répartition par secteur"],
         x=456,
         y=92,
-        width=346,
-        height=175,
+        radius=74,
         title="Répartition par secteur",
         label_col="Secteur",
         value_col="Nombre",
@@ -763,13 +766,12 @@ def _overview_pdf_bytes(
         width=page_width,
         height=page_height,
     )
-    _draw_horizontal_bar_chart(
+    _draw_pie_chart(
         canvas,
         chart_tables["Répartition par état"],
         x=34,
         y=322,
-        width=345,
-        height=165,
+        radius=70,
         title="Répartition par état",
         label_col="Etat",
         value_col="Nombre",
@@ -823,18 +825,16 @@ def _overview_pdf_bytes(
         width=page_width,
         height=page_height,
     )
-    _draw_horizontal_bar_chart(
+    _draw_pie_chart(
         canvas,
         chart_tables["Superficie par secteur"],
         x=34,
         y=314,
-        width=360,
-        height=180,
+        radius=74,
         title="Superficie par secteur",
         label_col="Secteur",
         value_col="Superficie (m²)",
         colors=PDF_CHART_COLORS,
-        value_suffix="m²",
     )
     _draw_scatter_chart(
         canvas,
