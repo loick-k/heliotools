@@ -15,8 +15,6 @@ import json
 import re
 import uuid
 from dataclasses import asdict
-from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -61,8 +59,12 @@ from .opportunity_model import (
     dict_to_sizing_inputs,
     dict_to_site_inputs,
 )
+from .pdf_export import build_opportunity_note_pdf
+from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 
-PROJECTS_DIR = Path.home() / ".heliotools" / "opportunity_notes" / "projects"
+APP_KEY = "helionop"
+APP_LABEL = "HelioNOP"
+PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)
 
 
 def eur(value: float | None, digits: int = 0) -> str:
@@ -197,23 +199,24 @@ def percent(value: float | None, digits: int = 1) -> str:
 
 
 def slugify(text: str) -> str:
-    text = text.strip().lower()
-    text = re.sub(r"[^a-z0-9àâäéèêëïîôöùûüçñ]+", "-", text)
-    text = text.strip("-")
-    return text[:60] or "projet"
+    return safe_slug(text)
 
 
-def now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
-
-
-def ensure_projects_dir() -> None:
-    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+def current_owner_email() -> str:
+    user = st.session_state.get("user")
+    if isinstance(user, dict):
+        return normalize_email(str(user.get("email", "")))
+    return ""
 
 
 def empty_project_payload() -> dict[str, Any]:
     return {
+        "schema_version": 1,
+        "app_key": APP_KEY,
+        "app_label": APP_LABEL,
         "project_id": str(uuid.uuid4()),
+        "name": "Nouveau projet",
+        "owner_email": current_owner_email(),
         "created_at": now_iso(),
         "updated_at": now_iso(),
         "site": asdict(SiteInputs()),
@@ -224,35 +227,24 @@ def empty_project_payload() -> dict[str, Any]:
     }
 
 
-def project_file_path(project_id: str, project_name: str) -> Path:
-    return PROJECTS_DIR / f"{slugify(project_name)}_{project_id[:8]}.json"
+def list_project_files():
+    return PROJECT_STORE.list_projects(owner_email=current_owner_email())
 
 
-def list_project_files() -> list[Path]:
-    ensure_projects_dir()
-    return sorted(PROJECTS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+def load_project(path) -> dict[str, Any]:
+    return PROJECT_STORE.load_project(path=path, owner_email=current_owner_email())
 
 
-def load_project(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
-def save_project(payload: dict[str, Any]) -> Path:
-    ensure_projects_dir()
+def save_project(payload: dict[str, Any]):
     payload = dict(payload)
-    payload["updated_at"] = now_iso()
-    payload.setdefault("project_id", str(uuid.uuid4()))
-    payload.setdefault("created_at", payload["updated_at"])
-    site = payload.get("site", {})
-    project_name = site.get("project_name") or "Nouveau projet"
-
-    # Supprime les anciens fichiers du même projet si le nom a changé.
-    for old_file in PROJECTS_DIR.glob(f"*_{payload['project_id'][:8]}.json"):
-        old_file.unlink(missing_ok=True)
-
-    path = project_file_path(payload["project_id"], project_name)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return path
+    site = payload.get("site", {}) if isinstance(payload.get("site"), dict) else {}
+    project_name = str(site.get("project_name") or payload.get("name") or "Nouveau projet")
+    return PROJECT_STORE.save_project(
+        payload=payload,
+        owner_email=current_owner_email(),
+        project_name=project_name,
+        project_id=str(payload.get("project_id", "")) or None,
+    )
 
 
 def init_session() -> None:
@@ -517,23 +509,23 @@ def render_opportunity_notes_app() -> None:
     
         project_files = list_project_files()
         project_labels = []
-        project_by_label: dict[str, Path] = {}
-        for path in project_files:
+        project_by_label = {}
+        for project_file in project_files:
             try:
-                data = load_project(path)
+                data = project_file.payload
                 site = data.get("site", {})
-                name = site.get("project_name", path.stem)
+                name = site.get("project_name") or data.get("name") or project_file.name
                 airtable_id = site.get("airtable_id", "")
-                updated = data.get("updated_at", "")
+                updated = data.get("updated_at", "") or project_file.updated_at
                 label = f"{name}"
                 if airtable_id:
                     label += f" | Airtable {airtable_id}"
                 if updated:
                     label += f" - {updated}"
             except Exception:
-                label = path.stem
+                label = project_file.path.stem
             project_labels.append(label)
-            project_by_label[label] = path
+            project_by_label[label] = project_file.path
     
         selected_project_label = st.selectbox("Projet enregistré", options=["-"] + project_labels, index=0)
         col_load, col_new = st.columns(2)
@@ -1443,7 +1435,12 @@ def render_opportunity_notes_app() -> None:
     }
     
     current_payload = {
+        "schema_version": 1,
+        "app_key": APP_KEY,
+        "app_label": APP_LABEL,
         "project_id": payload.get("project_id", str(uuid.uuid4())),
+        "name": site_inputs.project_name or "Nouveau projet",
+        "owner_email": current_owner_email(),
         "created_at": payload.get("created_at", now_iso()),
         "updated_at": now_iso(),
         "site": asdict(site_inputs),
@@ -1486,6 +1483,20 @@ def render_opportunity_notes_app() -> None:
             data=json.dumps(current_payload, ensure_ascii=False, indent=2).encode("utf-8"),
             file_name=f"{slugify(site_inputs.project_name)}.json",
             mime="application/json",
+        )
+        st.download_button(
+            "Télécharger la note d'opportunité en PDF",
+            data=build_opportunity_note_pdf(
+                site_inputs=site_inputs,
+                needs_inputs=needs_inputs,
+                sizing_inputs=sizing_inputs,
+                loop_inputs=loop_inputs,
+                economic_inputs=economic_inputs,
+                opportunity_results=opportunity_results,
+                economic_results=economic_results,
+            ),
+            file_name=f"{slugify(site_inputs.project_name)}_note_opportunite.pdf",
+            mime="application/pdf",
         )
         with st.expander("Voir le JSON complet", expanded=False):
             st.code(json.dumps(current_payload, ensure_ascii=False, indent=2), language="json")

@@ -70,5 +70,5 @@ elif selected_app == ui_portal.APP_OPPORTUNITY_LABEL:
         )
         st.caption(str(exc))
     except Exception:
-        _show_startup_error("La note d'opportunité solaire thermique a rencontré une erreur.")
+        _show_startup_error("HelioNOP a rencontré une erreur.")
 

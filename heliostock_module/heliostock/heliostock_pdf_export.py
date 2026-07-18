@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from .common.pdf import draw_report_footer, draw_report_header
 from .scenario_outputs import ScenarioResult
 
 
@@ -89,20 +90,11 @@ def _economic_row(df: pd.DataFrame, scenario_name: str) -> pd.Series | None:
 
 
 def _draw_header(canvas, *, title: str, subtitle: str, width: float, height: float) -> None:
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 18)
-    canvas.drawString(34, height - 38, title)
-    canvas.setFont("Helvetica", 9)
-    canvas.setFillColorRGB(0.47, 0.49, 0.55)
-    canvas.drawString(34, height - 56, subtitle)
-    canvas.setStrokeColorRGB(0.88, 0.9, 0.94)
-    canvas.line(34, height - 68, width - 34, height - 68)
+    draw_report_header(canvas, title=title, subtitle=subtitle, width=width, height=height)
 
 
 def _draw_footer(canvas, *, page_number: int, width: float) -> None:
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColorRGB(0.55, 0.57, 0.64)
-    canvas.drawRightString(width - 34, 24, f"Page {page_number}")
+    draw_report_footer(canvas, page_number=page_number, width=width)
 
 
 def _draw_section_title(canvas, title: str, *, x: float, y: float) -> float:

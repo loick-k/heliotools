@@ -19,6 +19,8 @@ from urllib import request as urlrequest
 import streamlit as st
 import pandas as pd
 
+from .common.project_store import normalize_email, now_iso, safe_slug
+
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 MODULE_DIR = Path(__file__).resolve().parents[1]
@@ -48,7 +50,7 @@ APP_HOME_LABEL = "Accueil HelioTools"
 APP_HELIOSTOCK_LABEL = "HelioStock"
 APP_ADMIN_LABEL = "Administration HelioTools"
 APP_DASHBOARD_LABEL = "Dashboard solaire thermique"
-APP_OPPORTUNITY_LABEL = "Note d'opportunité solaire thermique"
+APP_OPPORTUNITY_LABEL = "HelioNOP"
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -403,7 +405,7 @@ def _backup_users_configured() -> bool:
 
 
 def _email_normalise(email: str) -> str:
-    return str(email or "").strip().lower()
+    return normalize_email(email)
 
 
 def _load_users() -> list[dict[str, Any]]:
@@ -662,43 +664,8 @@ def _clear_project_session_state() -> None:
         st.session_state.pop(key, None)
 
 
-def _render_user_admin_panel() -> None:
-    with st.expander("Utilisateurs", expanded=False):
-        users = _load_users()
-        if users:
-            st.caption(f"{len(users)} compte(s) enregistré(s)")
-            for user in users[-8:]:
-                status = "actif" if user.get("active", True) is not False else "désactivé"
-                st.write(f"- {user.get('email', '')} · {user.get('role', 'user')} · {status}")
-        else:
-            st.caption("Aucun utilisateur enregistré.")
-
-        with st.form("form_create_portal_user"):
-            email = st.text_input("Email utilisateur", key="portal_new_user_email")
-            name = st.text_input("Nom utilisateur", key="portal_new_user_name")
-            role = st.selectbox("Rôle", options=["user", "admin"], key="portal_new_user_role")
-            password = st.text_input("Mot de passe temporaire", type="password", key="portal_new_user_password")
-            submitted = st.form_submit_button("Créer l'utilisateur")
-        if submitted:
-            try:
-                _create_user(email=email, name=name, password=password, role=role)
-                st.success("Utilisateur créé.")
-                st.rerun()
-            except ValueError as exc:
-                st.error(str(exc))
-
-        events = _read_json_list(LOGIN_EVENTS_FILE)
-        if events:
-            st.caption("Dernières connexions")
-            for event in events[-5:][::-1]:
-                outcome = "OK" if event.get("success") else "KO"
-                st.write(f"- {event.get('timestamp', '')} · {outcome} · {event.get('email', '')}")
-
-
 def _safe_project_slug(name: str) -> str:
-    slug = re.sub(r"[^A-Za-z0-9_.-]+", "_", name.strip())
-    slug = slug.strip("._-")
-    return slug[:80] or "projet_heliostock"
+    return safe_slug(name, fallback="projet_heliostock")
 
 
 def _owned_project_slug(name: str) -> str:
@@ -889,12 +856,12 @@ def _project_payload(name: str) -> dict[str, Any]:
         "name": name.strip() or "Projet HelioStock",
         "owner_email": _current_user_email(),
         "created_by_email": _current_user_email(),
-        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "saved_at": now_iso(),
         "app": "HelioStock",
         "widget_values": widget_values,
         "has_demand_excel": bool(st.session_state.get("heliostock_demand_file_bytes")),
         "has_cached_result": bool(st.session_state.get("heliostock_last_result")),
-        "note": "Le fichier Excel de besoins horaires et le dernier resultat calcule sont stockes avec le projet.",
+        "note": "Le fichier Excel de besoins horaires et le dernier résultat calculé sont stockés avec le projet.",
     }
 
 
@@ -1052,8 +1019,8 @@ def render_heliotools_home_page() -> None:
                 ),
                 (
                     APP_OPPORTUNITY_LABEL,
-                    "Préparation de notes d'opportunité solaire thermique.",
-                    "Ouvrir les notes",
+                    "Réalisation de notes d'opportunité solaire thermique.",
+                    "Ouvrir HelioNOP",
                 ),
                 (
                     APP_ADMIN_LABEL,

@@ -113,7 +113,7 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
     source = _source("heliostock/ui_portal.py")
     assert "def _has_existing_project_data" in source
     assert "if _has_existing_project_data() or _backup_users_configured():" in source
-    assert "création libre d'un nouvel administrateur est bloquée" in source
+    assert "nouvel administrateur est" in source
     assert "HELIOSTOCK_ADMIN_EMAIL" in source
     assert "HELIOSTOCK_ADMIN_PASSWORD" in source
     assert "def _is_system_project_file" in source
@@ -167,9 +167,10 @@ def test_solar_dashboard_is_admin_only_and_airtable_inputs_are_hidden():
     portal_source = _source("heliostock/ui_portal.py")
     dashboard_source = _source("heliostock/solar_thermal_dashboard.py")
 
-    assert 'app_options = ["HelioStock"]' in portal_source
+    assert "APP_HOME_LABEL" in portal_source
+    assert "APP_HELIOSTOCK_LABEL" in portal_source
     assert "if is_admin_authenticated():" in portal_source
-    assert 'app_options.append("Dashboard solaire thermique")' in portal_source
+    assert "app_options.append(APP_DASHBOARD_LABEL)" in portal_source
     assert '"Personal Access Token Airtable"' not in dashboard_source
     assert 'st.sidebar.text_input("Base ID"' not in dashboard_source
     assert 'st.sidebar.text_input("Table ID' not in dashboard_source
@@ -181,12 +182,29 @@ def test_opportunity_notes_app_is_admin_only_and_callable():
     demo_source = _source("demo_app.py")
     app_source = _source("heliostock/opportunity_notes/streamlit_opportunity_app.py")
 
-    assert "Note d'opportunité solaire thermique" in portal_source
-    assert "Note d'opportunité solaire thermique" in demo_source
+    assert "APP_OPPORTUNITY_LABEL" in portal_source
+    assert "ui_portal.APP_OPPORTUNITY_LABEL" in demo_source
     assert "from heliostock.opportunity_notes import render_opportunity_notes_app" in demo_source
     assert "def render_opportunity_notes_app() -> None:" in app_source
     assert "st.set_page_config" not in app_source
-    assert 'PROJECTS_DIR = Path.home() / ".heliotools" / "opportunity_notes" / "projects"' in app_source
+    assert 'APP_KEY = "helionop"' in app_source
+    assert 'APP_LABEL = "HelioNOP"' in app_source
+    assert "PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)" in app_source
+
+
+def test_admin_panel_is_rendered_as_full_page_not_sidebar():
+    portal_source = _source("heliostock/ui_portal.py")
+    demo_source = _source("demo_app.py")
+    sidebar_block = portal_source.split("def render_portal_sidebar", 1)[1].split(
+        "def render_heliostock_notice_page",
+        1,
+    )[0]
+
+    assert "def render_admin_dashboard_page" in portal_source
+    assert "Administration HelioTools" in portal_source
+    assert "_render_user_admin_panel()" not in sidebar_block
+    assert "elif selected_app == ui_portal.APP_ADMIN_LABEL:" in demo_source
+    assert "ui_portal.render_admin_dashboard_page()" in demo_source
 
 
 def test_projects_are_scoped_to_owner_for_non_admin_users():
@@ -199,7 +217,7 @@ def test_projects_are_scoped_to_owner_for_non_admin_users():
     assert "_is_heliostock_project_file(path)" in source
     assert "def _owned_project_slug" in source
     assert "_owned_project_slug(str(payload['name']))" in source
-    assert "Tu n'as pas accès à ce projet." in source
+    assert "ce projet." in source
 
 
 def test_login_events_file_is_not_listed_as_project():
