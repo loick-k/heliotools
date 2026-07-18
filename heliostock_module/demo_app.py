@@ -29,17 +29,14 @@ selected_app = ui_portal.render_portal_sidebar()
 
 if selected_app == "HelioStock":
     try:
-        from heliostock.streamlit_module import render_heliostock_hourly
+        if st.session_state.get("heliostock_view", "solver") == "notice":
+            ui_portal.render_heliostock_notice_page()
+        else:
+            from heliostock.streamlit_module import render_heliostock_hourly
 
-        render_heliostock_hourly()
+            render_heliostock_hourly()
     except Exception:
         _show_startup_error("HelioStock n'a pas pu démarrer.")
-
-elif selected_app == "Notice HelioStock":
-    try:
-        ui_portal.render_heliostock_notice_page()
-    except Exception:
-        _show_startup_error("La notice HelioStock n'a pas pu s'afficher.")
 
 elif selected_app == "Dashboard solaire thermique":
     try:

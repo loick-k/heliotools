@@ -192,7 +192,7 @@ def build_heliostock_overview_pdf(
         [
             ("Surface solaire", _fmt_number(scenario.config.collector.area_m2, 0, "m²")),
             ("Volume stockage solaire", _fmt_number(storage_m3, 0, "m³")),
-            ("Puissance PAC géothermie", _fmt_number(scenario.config.heat_pump.nominal_power_kw, 0, "kW")),
+            ("Puissance PAC géothermie", _fmt_number(scenario.config.heat_pump.max_thermal_power_kw, 0, "kW")),
             ("Linéaire sondes", _fmt_number(scenario.full_borefield_length_m, 0, "ml")),
         ],
         x=34,
@@ -217,8 +217,10 @@ def build_heliostock_overview_pdf(
         y=y,
         width=page_width - 68,
     )
-    _draw_footer(canvas, page_number=1, width=page_width)
+    page_number = 1
+    _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
+    page_number += 1
 
     _draw_header(canvas, title="HelioStock - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
     y = page_height - 92
@@ -227,12 +229,14 @@ def build_heliostock_overview_pdf(
         y = _draw_kpi_grid(canvas, _scenario_metrics(scenario, scenario_name), x=34, y=y, width=page_width - 68)
         y -= 4
         if y < 120:
-            _draw_footer(canvas, page_number=2, width=page_width)
+            _draw_footer(canvas, page_number=page_number, width=page_width)
             canvas.showPage()
+            page_number += 1
             _draw_header(canvas, title="HelioStock - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
             y = page_height - 92
-    _draw_footer(canvas, page_number=2, width=page_width)
+    _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
+    page_number += 1
 
     _draw_header(canvas, title="HelioStock - économie multiannuelle", subtitle=subtitle, width=page_width, height=page_height)
     y = page_height - 92
@@ -253,6 +257,6 @@ def build_heliostock_overview_pdf(
         y=y,
         width=page_width - 68,
     )
-    _draw_footer(canvas, page_number=3, width=page_width)
+    _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.save()
     return buffer.getvalue()

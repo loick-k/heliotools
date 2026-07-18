@@ -896,8 +896,6 @@ def render_portal_sidebar() -> str:
                 _render_user_admin_panel()
             st.divider()
         app_options = ["HelioStock"]
-        if HELIOSTOCK_NOTICE.exists():
-            app_options.append("Notice HelioStock")
         if is_admin_authenticated():
             app_options.append("Dashboard solaire thermique")
             app_options.append("Note d'opportunité solaire thermique")
@@ -908,43 +906,66 @@ def render_portal_sidebar() -> str:
         )
 
         if app_name == "HelioStock":
-            st.markdown("### Projets")
-            project_files = _project_files()
-            if project_files:
-                labels = [_project_label(path) for path in project_files]
-                selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
-                selected_index = labels.index(selected_label)
-                selected_path = project_files[selected_index]
-                c1, c2 = st.columns(2)
-                if c1.button("Charger", width="stretch"):
-                    _load_project(selected_path)
-                    st.success("Projet chargé.")
-                    st.rerun()
-                if c2.button("Supprimer", width="stretch"):
-                    demand_path, result_path = _project_sidecar_paths(selected_path)
-                    demand_path.unlink(missing_ok=True)
-                    result_path.unlink(missing_ok=True)
-                    selected_path.unlink(missing_ok=True)
-                    st.session_state.pop("heliostock_current_project_name", None)
-                    st.rerun()
-            else:
-                st.info("Aucun projet sauvegardé.")
-
-            st.caption(
-                "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
-                "et le dernier résultat calculé."
+            st.markdown("### HelioStock")
+            st.markdown(
+                """
+                <style>
+                [data-testid="stSidebar"] div.stButton > button {
+                    border-radius: 999px;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
             )
-
-        elif app_name == "Notice HelioStock" and HELIOSTOCK_NOTICE.exists():
-            st.markdown("### Notice HelioStock")
-            notice_text = HELIOSTOCK_NOTICE.read_text(encoding="utf-8")
-            st.download_button(
-                "Télécharger la notice",
-                data=notice_text.encode("utf-8"),
-                file_name=HELIOSTOCK_NOTICE.name,
-                mime="text/markdown",
+            current_view = st.session_state.get("heliostock_view", "solver")
+            if current_view not in {"solver", "notice"}:
+                current_view = "solver"
+            solver_col, notice_col = st.columns(2)
+            if solver_col.button(
+                "Solveur HelioStock",
+                key="heliostock_view_solver",
+                type="primary" if current_view == "solver" else "secondary",
                 width="stretch",
-            )
+            ):
+                st.session_state["heliostock_view"] = "solver"
+                st.rerun()
+            if notice_col.button(
+                "Notice HelioStock",
+                key="heliostock_view_notice",
+                type="primary" if current_view == "notice" else "secondary",
+                width="stretch",
+                disabled=not HELIOSTOCK_NOTICE.exists(),
+            ):
+                st.session_state["heliostock_view"] = "notice"
+                st.rerun()
+
+            if current_view == "solver":
+                st.markdown("### Projets")
+                project_files = _project_files()
+                if project_files:
+                    labels = [_project_label(path) for path in project_files]
+                    selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
+                    selected_index = labels.index(selected_label)
+                    selected_path = project_files[selected_index]
+                    c1, c2 = st.columns(2)
+                    if c1.button("Charger", width="stretch"):
+                        _load_project(selected_path)
+                        st.success("Projet chargé.")
+                        st.rerun()
+                    if c2.button("Supprimer", width="stretch"):
+                        demand_path, result_path = _project_sidecar_paths(selected_path)
+                        demand_path.unlink(missing_ok=True)
+                        result_path.unlink(missing_ok=True)
+                        selected_path.unlink(missing_ok=True)
+                        st.session_state.pop("heliostock_current_project_name", None)
+                        st.rerun()
+                else:
+                    st.info("Aucun projet sauvegardé.")
+
+                st.caption(
+                    "Les projets sauvegardent les paramètres, le fichier Excel de besoins "
+                    "et le dernier résultat calculé."
+                )
 
     return app_name
 

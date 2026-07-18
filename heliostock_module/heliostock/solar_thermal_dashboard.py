@@ -637,27 +637,43 @@ def _draw_scatter_chart(
         canvas.setFont("Helvetica", 9)
         canvas.drawString(x, y + height / 2, "Aucune donnée.")
         return
-    max_x = max(chart["Superficie (m²)"].map(_pdf_numeric).max(), 1.0)
+    chart = chart[chart["Superficie (m²)"].map(_pdf_numeric) > 0].copy()
+    if chart.empty:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + height / 2, "Aucune donnée avec une surface strictement positive.")
+        return
+    min_x = max(chart["Superficie (m²)"].map(_pdf_numeric).min(), 1.0)
+    max_x = max(chart["Superficie (m²)"].map(_pdf_numeric).max(), min_x)
+    log_min = math.floor(math.log10(min_x))
+    log_max = math.ceil(math.log10(max_x))
+    tick_values = [10**power for power in range(log_min, log_max + 1)]
+    if not tick_values:
+        tick_values = [min_x, max_x]
     max_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).max(), 1.0)
     canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
     canvas.setFillColorRGB(0.38, 0.4, 0.48)
     canvas.setFont("Helvetica", 7)
     for step in range(5):
-        gx = x + 28 + (width - 36) * step / 4
         gy = y + height * step / 4
         canvas.line(x + 28, gy, x + width, gy)
-        canvas.line(gx, y, gx, y + height)
         canvas.drawRightString(x + 24, gy - 3, _fmt_number(max_y * step / 4))
-        canvas.drawCentredString(gx, y - 11, _fmt_number(max_x * step / 4))
+    log_span = max(log_max - log_min, 1e-9)
+    for tick in tick_values:
+        gx = x + 28 + (width - 36) * (math.log10(tick) - log_min) / log_span
+        canvas.line(gx, y, gx, y + height)
+        canvas.drawCentredString(gx, y - 11, _fmt_number(tick))
     canvas.setFillColorRGB(0.0, 0.7, 0.62)
     for _, row in chart.head(120).iterrows():
-        px = x + 28 + (width - 36) * _pdf_numeric(row["Superficie (m²)"]) / max_x
+        surface = max(_pdf_numeric(row["Superficie (m²)"]), min_x)
+        px = x + 28 + (width - 36) * (math.log10(surface) - log_min) / log_span
         py = y + height * _pdf_numeric(row["Production annuelle (MWh)"]) / max_y
         canvas.circle(px, py, 2.4, fill=1, stroke=0)
     canvas.setFillColorRGB(0.38, 0.4, 0.48)
     canvas.setFont("Helvetica", 7)
-    canvas.drawCentredString(x + width / 2, y - 24, "Surface de capteurs installée (m²)")
+    canvas.drawCentredString(x + width / 2, y - 24, "Surface de capteurs installée (m², axe logarithmique)")
     canvas.drawString(x + 28, y + height + 3, "Production annuelle (MWh/an)")
+    canvas.setFillColorRGB(0.5, 0.52, 0.58)
+    canvas.drawString(x + 28, y - 36, "Axe X logarithmique : les grandes installations ne compriment pas les petits projets.")
 
 
 def _overview_pdf_bytes(
@@ -1140,23 +1156,42 @@ def render_solar_thermal_dashboard() -> None:
 
         st.subheader("Production annuelle selon la surface installée")
         scatter_df = df_f.dropna(subset=["Superficie (m²)", "Production annuelle (MWh)"])
+        scatter_df = scatter_df[scatter_df["Superficie (m²)"].map(to_float) > 0].copy()
         if not scatter_df.empty:
+            min_surface = max(float(scatter_df["Superficie (m²)"].map(to_float).min()), 1.0)
+            max_surface = max(float(scatter_df["Superficie (m²)"].map(to_float).max()), min_surface)
+            log_min = math.floor(math.log10(min_surface))
+            log_max = math.ceil(math.log10(max_surface))
+            surface_ticks = [10**power for power in range(log_min, log_max + 1)]
             fig_scatter = px.scatter(
                 scatter_df,
                 x="Superficie (m²)",
                 y="Production annuelle (MWh)",
                 color="Secteur",
+                log_x=True,
                 hover_name="Ville",
                 hover_data=["Application", "Année de mise en service"],
                 labels={
-                    "Superficie (m²)": "Surface de capteurs installée (m²)",
+                    "Superficie (m²)": "Surface de capteurs installée (m², axe logarithmique)",
                     "Production annuelle (MWh)": "Production solaire annuelle (MWh/an)",
                     "Secteur": "Secteur",
                 },
             )
+            fig_scatter.update_xaxes(
+                tickmode="array",
+                tickvals=surface_ticks,
+                ticktext=[f"{tick:g}" for tick in surface_ticks],
+                title_text="Surface de capteurs installée (m², axe logarithmique)",
+            )
+            fig_scatter.update_yaxes(title_text="Production solaire annuelle (MWh/an)")
             st.plotly_chart(fig_scatter, width="stretch")
+            st.caption(
+                "Axe X logarithmique : chaque graduation correspond à un changement d'ordre de grandeur "
+                "(10, 100, 1 000, 10 000 m²...). Cela rend lisibles les petites et moyennes installations "
+                "même lorsqu'un très grand projet est présent."
+            )
         else:
-            st.info("Pas assez de données pour ce graphique.")
+            st.info("Pas assez de données avec une surface strictement positive pour ce graphique.")
 
     # --- Carte -------------------------------------------------------------
     elif section == "Carte":
