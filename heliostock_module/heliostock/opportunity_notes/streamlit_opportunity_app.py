@@ -16,6 +16,7 @@ import re
 import uuid
 from io import BytesIO, StringIO
 from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
