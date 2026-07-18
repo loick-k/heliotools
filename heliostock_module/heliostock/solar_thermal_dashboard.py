@@ -12,6 +12,8 @@ Lancement local :
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from io import BytesIO
+import math
 from urllib.parse import quote_plus
 
 import folium
@@ -288,24 +290,6 @@ def _active_filters_summary(
     ]
 
 
-def _pdf_escape(value: object) -> bytes:
-    raw = str(value).encode("cp1252", errors="replace")
-    escaped = bytearray()
-    for byte in raw:
-        if byte in (40, 41, 92):
-            escaped.extend(b"\\" + bytes([byte]))
-        elif byte < 32 or byte > 126:
-            escaped.extend(f"\\{byte:03o}".encode("ascii"))
-        else:
-            escaped.append(byte)
-    return bytes(escaped)
-
-
-def _pdf_line_command(text: str, *, x: int, y: int, size: int = 9, bold: bool = False) -> bytes:
-    font = "F2" if bold else "F1"
-    return b"BT /" + font.encode("ascii") + b" " + str(size).encode("ascii") + b" Tf " + str(x).encode("ascii") + b" " + str(y).encode("ascii") + b" Td (" + _pdf_escape(text) + b") Tj ET\n"
-
-
 def _wrap_text(text: str, width: int = 105) -> list[str]:
     words = str(text).split()
     lines: list[str] = []
@@ -336,56 +320,257 @@ def _table_lines(df: pd.DataFrame, *, max_rows: int = 35) -> list[str]:
     return lines
 
 
-def _simple_pdf_from_lines(lines: list[tuple[str, int, bool]]) -> bytes:
-    page_width, page_height = 595, 842
-    pages: list[bytes] = []
-    current: list[bytes] = []
-    y = 800
-    for text, size, bold in lines:
-        if y < 46:
-            pages.append(b"".join(current))
-            current = []
-            y = 800
-        current.append(_pdf_line_command(text, x=42, y=y, size=size, bold=bold))
-        y -= max(11, size + 4)
-    if current:
-        pages.append(b"".join(current))
+def _pdf_numeric(value: object) -> float:
+    try:
+        if pd.isna(value):
+            return 0.0
+    except (TypeError, ValueError):
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
 
-    objects: list[bytes] = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>",
-    ]
-    page_object_ids: list[int] = []
-    for content in pages:
-        page_id = len(objects) + 1
-        content_id = len(objects) + 2
-        page_object_ids.append(page_id)
-        objects.append(
-            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_width} {page_height}] "
-            f"/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents {content_id} 0 R >>".encode("ascii")
-        )
-        objects.append(b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"endstream")
-    kids = " ".join(f"{page_id} 0 R" for page_id in page_object_ids)
-    objects[1] = f"<< /Type /Pages /Kids [{kids}] /Count {len(page_object_ids)} >>".encode("ascii")
 
-    payload = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets = [0]
-    for object_id, obj in enumerate(objects, start=1):
-        offsets.append(len(payload))
-        payload.extend(f"{object_id} 0 obj\n".encode("ascii"))
-        payload.extend(obj)
-        payload.extend(b"\nendobj\n")
-    xref_offset = len(payload)
-    payload.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
-    payload.extend(b"0000000000 65535 f \n")
-    for offset in offsets[1:]:
-        payload.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
-    payload.extend(
-        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii")
-    )
-    return bytes(payload)
+def _pdf_short_label(value: object, max_chars: int = 26) -> str:
+    try:
+        if pd.notna(value) and float(value).is_integer():
+            label = str(int(float(value)))
+            return label if len(label) <= max_chars else f"{label[: max_chars - 1]}…"
+    except (TypeError, ValueError):
+        pass
+    label = str(value or "Non renseigné")
+    return label if len(label) <= max_chars else f"{label[: max_chars - 1]}…"
+
+
+def _draw_pdf_header(canvas, *, title: str, subtitle: str, width: float, height: float) -> None:
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 18)
+    canvas.drawString(34, height - 38, title)
+    canvas.setFont("Helvetica", 9)
+    canvas.setFillColorRGB(0.47, 0.49, 0.55)
+    canvas.drawString(34, height - 56, subtitle)
+    canvas.setStrokeColorRGB(0.88, 0.9, 0.94)
+    canvas.line(34, height - 68, width - 34, height - 68)
+
+
+def _draw_pdf_footer(canvas, *, page_number: int, width: float) -> None:
+    canvas.setFont("Helvetica", 8)
+    canvas.setFillColorRGB(0.55, 0.57, 0.64)
+    canvas.drawRightString(width - 34, 24, f"Page {page_number}")
+
+
+def _draw_wrapped_pdf_text(
+    canvas,
+    text: str,
+    *,
+    x: float,
+    y: float,
+    max_chars: int,
+    leading: float = 11,
+    font: str = "Helvetica",
+    size: int = 8,
+) -> float:
+    canvas.setFont(font, size)
+    for line in _wrap_text(text, width=max_chars):
+        canvas.drawString(x, y, line)
+        y -= leading
+    return y
+
+
+def _draw_kpi_cards(canvas, metrics: list[tuple[str, str]], *, x: float, y: float, width: float) -> float:
+    cols = min(4, max(1, len(metrics)))
+    gap = 10
+    card_w = (width - gap * (cols - 1)) / cols
+    card_h = 54
+    for idx, (label, value) in enumerate(metrics):
+        col = idx % cols
+        row = idx // cols
+        cx = x + col * (card_w + gap)
+        cy = y - row * (card_h + 10)
+        canvas.setFillColorRGB(0.97, 0.98, 1.0)
+        canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
+        canvas.roundRect(cx, cy - card_h, card_w, card_h, 7, fill=1, stroke=1)
+        canvas.setFillColorRGB(0.45, 0.47, 0.53)
+        canvas.setFont("Helvetica", 8)
+        canvas.drawString(cx + 10, cy - 16, label)
+        canvas.setFillColorRGB(0.18, 0.19, 0.25)
+        canvas.setFont("Helvetica-Bold", 16)
+        canvas.drawString(cx + 10, cy - 40, value)
+    rows = math.ceil(len(metrics) / cols)
+    return y - rows * (card_h + 10)
+
+
+def _draw_bar_chart(
+    canvas,
+    data: pd.DataFrame,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    title: str,
+    label_col: str,
+    value_col: str,
+    color: tuple[float, float, float],
+    max_items: int = 10,
+) -> None:
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(x, y + height + 16, title)
+    chart = data[[label_col, value_col]].copy().head(max_items)
+    if chart.empty:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + height / 2, "Aucune donnée.")
+        return
+    chart[value_col] = chart[value_col].map(_pdf_numeric)
+    max_value = max(chart[value_col].max(), 1.0)
+    canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
+    for step in range(5):
+        gy = y + (height * step / 4)
+        canvas.line(x + 28, gy, x + width, gy)
+    bar_area_w = width - 36
+    bar_w = min(22, max(8, bar_area_w / max(len(chart), 1) * 0.56))
+    slot = bar_area_w / max(len(chart), 1)
+    canvas.setFont("Helvetica", 7)
+    for idx, row in chart.iterrows():
+        value = _pdf_numeric(row[value_col])
+        bx = x + 32 + idx * slot + (slot - bar_w) / 2
+        bh = height * value / max_value
+        canvas.setFillColorRGB(*color)
+        canvas.rect(bx, y, bar_w, bh, fill=1, stroke=0)
+        canvas.setFillColorRGB(0.38, 0.4, 0.48)
+        canvas.drawCentredString(bx + bar_w / 2, y - 9, _pdf_short_label(row[label_col], 10))
+        canvas.drawCentredString(bx + bar_w / 2, y + bh + 3, _fmt_number(value))
+
+
+def _draw_line_chart(
+    canvas,
+    data: pd.DataFrame,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    title: str,
+    x_col: str,
+    y_col: str,
+) -> None:
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(x, y + height + 16, title)
+    chart = data[[x_col, y_col]].dropna().copy()
+    if chart.empty:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + height / 2, "Aucune donnée.")
+        return
+    chart[x_col] = chart[x_col].map(_pdf_numeric)
+    chart[y_col] = chart[y_col].map(_pdf_numeric)
+    min_x, max_x = chart[x_col].min(), chart[x_col].max()
+    max_y = max(chart[y_col].max(), 1.0)
+    canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
+    for step in range(5):
+        gy = y + (height * step / 4)
+        canvas.line(x + 28, gy, x + width, gy)
+    points = []
+    for _, row in chart.iterrows():
+        px = x + 32 if max_x == min_x else x + 32 + (width - 36) * (row[x_col] - min_x) / (max_x - min_x)
+        py = y + height * row[y_col] / max_y
+        points.append((px, py))
+    canvas.setStrokeColorRGB(0.0, 0.42, 0.8)
+    canvas.setLineWidth(1.5)
+    for start, end in zip(points, points[1:]):
+        canvas.line(start[0], start[1], end[0], end[1])
+    canvas.setFillColorRGB(0.0, 0.42, 0.8)
+    for px, py in points:
+        canvas.circle(px, py, 2.2, fill=1, stroke=0)
+    canvas.setFillColorRGB(0.38, 0.4, 0.48)
+    canvas.setFont("Helvetica", 7)
+    canvas.drawString(x + 28, y - 10, _fmt_number(min_x))
+    canvas.drawRightString(x + width, y - 10, _fmt_number(max_x))
+
+
+def _draw_pie_chart(
+    canvas,
+    data: pd.DataFrame,
+    *,
+    x: float,
+    y: float,
+    radius: float,
+    title: str,
+    label_col: str,
+    value_col: str,
+    colors: list[tuple[float, float, float]],
+    max_items: int = 7,
+) -> None:
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(x, y + radius * 2 + 16, title)
+    chart = data[[label_col, value_col]].copy().head(max_items)
+    if chart.empty:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + radius, "Aucune donnée.")
+        return
+    chart[value_col] = chart[value_col].map(_pdf_numeric)
+    total = chart[value_col].sum()
+    if total <= 0:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + radius, "Aucune donnée.")
+        return
+    start = 90
+    for idx, row in chart.iterrows():
+        extent = 360 * _pdf_numeric(row[value_col]) / total
+        canvas.setFillColorRGB(*colors[idx % len(colors)])
+        canvas.wedge(x, y, x + radius * 2, y + radius * 2, start, extent, fill=1, stroke=0)
+        start += extent
+    legend_x = x + radius * 2 + 18
+    legend_y = y + radius * 2 - 4
+    canvas.setFont("Helvetica", 8)
+    for idx, row in chart.iterrows():
+        pct = 100 * _pdf_numeric(row[value_col]) / total
+        ly = legend_y - idx * 13
+        canvas.setFillColorRGB(*colors[idx % len(colors)])
+        canvas.rect(legend_x, ly - 7, 7, 7, fill=1, stroke=0)
+        canvas.setFillColorRGB(0.32, 0.34, 0.42)
+        canvas.drawString(legend_x + 10, ly - 7, f"{_pdf_short_label(row[label_col], 22)} - {pct:.0f} %")
+
+
+def _draw_scatter_chart(
+    canvas,
+    data: pd.DataFrame,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    title: str,
+) -> None:
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(x, y + height + 16, title)
+    chart = data.dropna(subset=["Superficie (m²)", "Production annuelle (MWh)"]).copy()
+    if chart.empty:
+        canvas.setFont("Helvetica", 9)
+        canvas.drawString(x, y + height / 2, "Aucune donnée.")
+        return
+    max_x = max(chart["Superficie (m²)"].map(_pdf_numeric).max(), 1.0)
+    max_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).max(), 1.0)
+    canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
+    for step in range(5):
+        gx = x + 28 + (width - 36) * step / 4
+        gy = y + height * step / 4
+        canvas.line(x + 28, gy, x + width, gy)
+        canvas.line(gx, y, gx, y + height)
+    canvas.setFillColorRGB(0.0, 0.7, 0.62)
+    for _, row in chart.head(120).iterrows():
+        px = x + 28 + (width - 36) * _pdf_numeric(row["Superficie (m²)"]) / max_x
+        py = y + height * _pdf_numeric(row["Production annuelle (MWh)"]) / max_y
+        canvas.circle(px, py, 2.4, fill=1, stroke=0)
+    canvas.setFillColorRGB(0.38, 0.4, 0.48)
+    canvas.setFont("Helvetica", 7)
+    canvas.drawString(x + 28, y - 11, "Superficie (m²)")
+    canvas.drawRightString(x + width, y - 11, _fmt_number(max_x, suffix="m²"))
+    canvas.drawString(x + 28, y + height + 3, _fmt_number(max_y, suffix="MWh"))
 
 
 def _overview_pdf_bytes(
@@ -393,27 +578,170 @@ def _overview_pdf_bytes(
     df_f: pd.DataFrame,
     filters: list[tuple[str, str]],
 ) -> bytes:
-    lines: list[tuple[str, int, bool]] = [
-        ("Dashboard solaire thermique - vue d'ensemble", 16, True),
-        (f"Export généré le {datetime.now().strftime('%d/%m/%Y à %H:%M')}", 9, False),
-        ("", 9, False),
-        ("Filtres actifs", 12, True),
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.pdfgen import canvas as pdf_canvas
+
+    buffer = BytesIO()
+    page_width, page_height = landscape(A4)
+    canvas = pdf_canvas.Canvas(buffer, pagesize=(page_width, page_height), pageCompression=0)
+    generated_at = datetime.now().strftime("%d/%m/%Y à %H:%M")
+    chart_tables = _overview_export_tables(df_f)
+    palette = [
+        (0.96, 0.64, 0.0),
+        (0.0, 0.45, 0.78),
+        (0.94, 0.19, 0.18),
+        (0.0, 0.68, 0.58),
+        (0.38, 0.33, 0.75),
+        (0.55, 0.61, 0.68),
+        (0.96, 0.79, 0.28),
     ]
+
+    page = 1
+    _draw_pdf_header(
+        canvas,
+        title="Dashboard solaire thermique - vue d'ensemble",
+        subtitle=f"Export généré le {generated_at} - données filtrées affichées dans la vue d'ensemble",
+        width=page_width,
+        height=page_height,
+    )
+    y = page_height - 92
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 12)
+    canvas.drawString(34, y, "Filtres actifs")
+    canvas.setFillColorRGB(0.42, 0.44, 0.52)
+    fy = y - 16
     for label, value in filters:
-        for wrapped in _wrap_text(f"{label} : {value}", width=95):
-            lines.append((wrapped, 9, False))
+        fy = _draw_wrapped_pdf_text(canvas, f"{label} : {value}", x=34, y=fy, max_chars=80)
+    y = min(y, fy) - 8
 
-    lines.extend([("", 9, False), ("Indicateurs clés", 12, True)])
-    for label, value in _filtered_summary_metrics(df_f):
-        lines.append((f"{label} : {value}", 10, False))
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 12)
+    canvas.drawString(34, y, "Indicateurs clés")
+    y = _draw_kpi_cards(canvas, _filtered_summary_metrics(df_f), x=34, y=y - 10, width=page_width - 68)
 
-    for title, table in _overview_export_tables(df_f).items():
-        lines.extend([("", 9, False), (title, 12, True)])
-        for line in _table_lines(table):
-            for wrapped in _wrap_text(line, width=105):
-                lines.append((wrapped, 8, False))
+    _draw_bar_chart(
+        canvas,
+        chart_tables["Installations par département"],
+        x=34,
+        y=92,
+        width=360,
+        height=175,
+        title="Installations par département",
+        label_col="Département",
+        value_col="Nombre",
+        color=(0.96, 0.64, 0.0),
+    )
+    _draw_pie_chart(
+        canvas,
+        chart_tables["Répartition par secteur"],
+        x=456,
+        y=104,
+        radius=78,
+        title="Répartition par secteur",
+        label_col="Secteur",
+        value_col="Nombre",
+        colors=palette,
+    )
+    _draw_pdf_footer(canvas, page_number=page, width=page_width)
+    canvas.showPage()
 
-    return _simple_pdf_from_lines(lines)
+    page += 1
+    _draw_pdf_header(
+        canvas,
+        title="Graphiques de la vue d'ensemble",
+        subtitle="Répartition, évolution temporelle et surfaces - mêmes filtres que l'écran",
+        width=page_width,
+        height=page_height,
+    )
+    _draw_pie_chart(
+        canvas,
+        chart_tables["Répartition par état"],
+        x=34,
+        y=344,
+        radius=68,
+        title="Répartition par état",
+        label_col="Etat",
+        value_col="Nombre",
+        colors=palette,
+    )
+    _draw_line_chart(
+        canvas,
+        chart_tables["Évolution cumulée"],
+        x=440,
+        y=330,
+        width=350,
+        height=160,
+        title="Évolution cumulée du nombre d'installations",
+        x_col="Année de mise en service",
+        y_col="Cumulé",
+    )
+    _draw_bar_chart(
+        canvas,
+        chart_tables["Nouvelles installations par année"],
+        x=34,
+        y=82,
+        width=360,
+        height=170,
+        title="Nouvelles installations par année",
+        label_col="Année de mise en service",
+        value_col="Nombre",
+        color=(0.18, 0.53, 0.67),
+        max_items=18,
+    )
+    _draw_pie_chart(
+        canvas,
+        chart_tables["Superficie par secteur"],
+        x=456,
+        y=94,
+        radius=74,
+        title="Superficie (m²) par secteur",
+        label_col="Secteur",
+        value_col="Superficie (m²)",
+        colors=palette,
+    )
+    _draw_pdf_footer(canvas, page_number=page, width=page_width)
+    canvas.showPage()
+
+    page += 1
+    _draw_pdf_header(
+        canvas,
+        title="Détails filtrés",
+        subtitle="Nuage de points et premières lignes du jeu de données filtré",
+        width=page_width,
+        height=page_height,
+    )
+    _draw_scatter_chart(
+        canvas,
+        chart_tables["Superficie vs production annuelle"],
+        x=34,
+        y=312,
+        width=450,
+        height=190,
+        title="Superficie vs production annuelle",
+    )
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(34, 274, "Aperçu des installations filtrées")
+    preview_cols = [
+        col
+        for col in ["Application", "Ville", "Département", "Secteur", "Superficie (m²)", "Production annuelle (MWh)"]
+        if col in df_f.columns
+    ]
+    preview = df_f[preview_cols].head(18) if preview_cols else pd.DataFrame()
+    ty = 256
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColorRGB(0.32, 0.34, 0.42)
+    for line in _table_lines(preview, max_rows=18):
+        for wrapped in _wrap_text(line, width=155):
+            canvas.drawString(34, ty, wrapped)
+            ty -= 9
+            if ty < 34:
+                break
+        if ty < 34:
+            break
+    _draw_pdf_footer(canvas, page_number=page, width=page_width)
+    canvas.save()
+    return buffer.getvalue()
 
 
 def render_solar_thermal_dashboard() -> None:
@@ -454,7 +782,7 @@ def render_solar_thermal_dashboard() -> None:
     # ---------------------------------------------------------------------------
     # Filtres
     # ---------------------------------------------------------------------------
-    st.sidebar.header("ðŸ”Ž Filtres")
+    st.sidebar.header("Filtres")
 
 
     def multiselect_filter(label, column):
@@ -522,13 +850,13 @@ def render_solar_thermal_dashboard() -> None:
     # donc la carte est toujours créée dans un conteneur réellement visible.
     section = st.radio(
         "Navigation",
-        ["ðŸ“Š Vue d'ensemble", "ðŸ—ºï¸ Carte", "ðŸ“‹ Données"],
+        ["Vue d'ensemble", "Carte", "Données"],
         horizontal=True,
         label_visibility="collapsed",
     )
 
     # --- Vue d'ensemble --------------------------------------------------------
-    if section == "ðŸ“Š Vue d'ensemble":
+    if section == "Vue d'ensemble":
         pdf_bytes = _overview_pdf_bytes(df_f=df_f, filters=active_filters)
         st.download_button(
             "Télécharger la vue d'ensemble en PDF",
@@ -687,17 +1015,17 @@ def render_solar_thermal_dashboard() -> None:
             st.info("Pas assez de données pour ce graphique.")
 
     # --- Carte -------------------------------------------------------------
-    elif section == "ðŸ—ºï¸ Carte":
+    elif section == "Carte":
         nb_avec_coords = df_f[["Latitude", "Longitude"]].dropna().shape[0]
         if nb_avec_coords > 0:
             st.caption(
-                f"ðŸŽ¯ {nb_avec_coords} installation(s) localisée(s) précisément "
+                f"{nb_avec_coords} installation(s) localisée(s) précisément "
                 "via les coordonnées stockées dans Airtable (géocodage gratuit "
                 "Apps Script)."
             )
         else:
             st.caption(
-                "ðŸ“ Localisation approximative au niveau de la ville "
+                "Localisation approximative au niveau de la ville "
                 "(geo.api.gouv.fr, gratuit). Pour une localisation précise et "
                 "gratuite, utilisez le script Apps Script fourni "
                 "(geocoder_airtable.gs) pour écrire Latitude/Longitude dans "
@@ -705,7 +1033,7 @@ def render_solar_thermal_dashboard() -> None:
             )
 
         recherche = st.text_input(
-            "ðŸ” Rechercher une installation (nom de l'application, ville ou département)"
+            "Rechercher une installation (nom de l'application, ville ou département)"
         )
 
         FONDS_DE_CARTE = {
@@ -767,12 +1095,12 @@ def render_solar_thermal_dashboard() -> None:
                         f"Année de mise en service : {p.get('Année de mise en service') or '-'}<br>"
                         f"Superficie : {p.get('Superficie (m²)') or '-'} m²<br>"
                         f"Production annuelle : {p.get('Production annuelle (MWh)') or '-'} MWh<br>"
-                        f"<a href='{p['maps_url']}' target='_blank'>ðŸ“ Voir sur Google Maps</a>"
+                        f"<a href='{p['maps_url']}' target='_blank'>Voir sur Google Maps</a>"
                     )
                     if p.get("Lien internet"):
                         popup_html += (
                             f"<br><a href='{p['Lien internet']}' target='_blank'>"
-                            "ðŸ”— Lien du projet</a>"
+                            "Lien du projet</a>"
                         )
 
                     folium.Marker(

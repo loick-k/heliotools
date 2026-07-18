@@ -7,6 +7,8 @@ import pandas as pd
 
 
 MODULE_ROOT = Path(__file__).resolve().parents[1]
+if str(MODULE_ROOT) not in sys.path:
+    sys.path.insert(0, str(MODULE_ROOT))
 
 
 def test_dashboard_parallelism_is_limited_to_geocoding_io():
@@ -87,9 +89,16 @@ def test_solar_dashboard_overview_pdf_uses_filtered_values(monkeypatch):
     metrics = dict(solar_dashboard_module._filtered_summary_metrics(filtered))
     pdf = solar_dashboard_module._overview_pdf_bytes(df_f=filtered, filters=filters)
 
-    assert pdf.startswith(b"%PDF-1.4")
+    assert pdf.startswith(b"%PDF-1.3") or pdf.startswith(b"%PDF-1.4")
     assert metrics["Installations"] == "1"
     assert metrics["Superficie totale"] == "100 m²"
     assert metrics["Production annuelle totale"] == "80 MWh"
+    assert len(pdf) > 8000
     assert b"Projet A" in pdf
     assert b"Projet B" not in pdf
+
+
+def test_solar_dashboard_text_has_no_common_mojibake_sequences():
+    source = (MODULE_ROOT / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
+    forbidden = ["\u00f0", "\u00c3", "\u00c2", "\u00ef\u00b8", "\u00e2\u201a\u00ac"]
+    assert not any(token in source for token in forbidden)
