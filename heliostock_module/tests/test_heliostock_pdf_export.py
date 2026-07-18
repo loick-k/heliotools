@@ -106,19 +106,58 @@ def _minimal_scenario_result() -> ScenarioResult:
             },
         ]
     )
+    hourly = pd.DataFrame(
+        [
+            {
+                "Jour annee": day,
+                "solar_ht_buffer_temp_end_c": 40.0 + day * 0.2,
+                "T_source_PAC_fin_heure_C": 5.0 - day * 0.02,
+                "T_paroi_forage_C": 6.0 - day * 0.015,
+                "T_evaporateur_PAC_C": 2.0 - day * 0.02,
+            }
+            for day in range(0, 365, 12)
+        ]
+    )
+    monthly = pd.DataFrame(
+        [
+            {
+                "Mois": f"{month:02d}",
+                "Prechauffage HT solaire (MWh)": 12.0 + month,
+                "Injection BTES (MWh)": 6.0 + month / 2,
+                "BT PAC (MWh)": 70.0 + month,
+                "Appoint HT (MWh)": 4.0,
+                "Appoint BT (MWh)": 3.0,
+            }
+            for month in range(1, 13)
+        ]
+    )
+    multiyear = pd.DataFrame(
+        [
+            {
+                "Annee": year,
+                "Mois index": (year - 1) * 12 + month,
+                "Mois": f"A{year:02d}-{month:02d}",
+                "T source PAC fin (C)": 6.0 - year * 0.1 + month * 0.03,
+            }
+            for year in range(1, 4)
+            for month in range(1, 13)
+        ]
+    )
+    no_solar_multiyear = multiyear.assign(**{"T source PAC fin (C)": multiyear["T source PAC fin (C)"] - 1.0})
+    reduced_multiyear = multiyear.assign(**{"T source PAC fin (C)": multiyear["T source PAC fin (C)"] - 0.4})
     return ScenarioResult(
         config=SimulationConfig(
             collector=CollectorConfig(area_m2=850.0, daily_buffer_l_per_m2=60.0),
             btes=BtesConfig(boreholes=150, depth_m=100.0),
             heat_pump=HeatPumpConfig(max_thermal_power_kw=730.0),
         ),
-        hourly_df=pd.DataFrame(),
+        hourly_df=hourly,
         no_solar_hourly_df=pd.DataFrame(),
-        multiyear_btes_df=pd.DataFrame(),
-        no_solar_multiyear_btes_df=pd.DataFrame(),
-        reduced_multiyear_btes_df=pd.DataFrame(),
+        multiyear_btes_df=multiyear,
+        no_solar_multiyear_btes_df=no_solar_multiyear,
+        reduced_multiyear_btes_df=reduced_multiyear,
         annual_df=pd.DataFrame(),
-        hourly_by_month_df=pd.DataFrame(),
+        hourly_by_month_df=monthly,
         savings={"simulated": True, "found": True, "candidate_length_m": 14000.0, "saved_length_m": 1000.0},
         solar_economics={},
         heat_costs={},
@@ -172,6 +211,7 @@ def test_heliostock_overview_pdf_is_generated_from_scenario_result():
     )
 
     assert pdf.startswith(b"%PDF-1.3") or pdf.startswith(b"%PDF-1.4")
-    assert len(pdf) > 8000
+    assert len(pdf) > 16000
     assert b"HelioStock" in pdf
+    assert b"graphiques" in pdf
     assert b"Geothermie" in pdf or "Géothermie".encode("cp1252") in pdf

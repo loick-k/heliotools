@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import math
 from typing import Any
 
 import pandas as pd
@@ -13,6 +14,20 @@ SCENARIOS = [
     ("B - Géothermie avec recharge solaire", "Geothermie + solaire meme sondes"),
     ("C - Recharge solaire et sondes réduites", "Geothermie + solaire sondes reduites"),
 ]
+
+SCENARIO_COLORS = {
+    "A - Géothermie seule": (0.00, 0.38, 0.72),
+    "B - Géothermie avec recharge solaire": (0.40, 0.72, 0.96),
+    "C - Recharge solaire et linéaire réduit": (0.95, 0.18, 0.18),
+    "C - Recharge solaire et sondes réduites": (0.95, 0.18, 0.18),
+}
+
+ENERGY_COLORS = {
+    "Solaire thermique": (0.98, 0.80, 0.08),
+    "Injection solaire BTES": (0.98, 0.45, 0.08),
+    "Géothermie PAC": (0.09, 0.64, 0.29),
+    "Appoint gaz": (0.56, 0.61, 0.67),
+}
 
 
 def _fmt_number(value: Any, digits: int = 0, suffix: str = "") -> str:
@@ -82,6 +97,296 @@ def _draw_section_title(canvas, title: str, *, x: float, y: float) -> float:
     canvas.setFont("Helvetica-Bold", 12)
     canvas.drawString(x, y, title)
     return y - 18
+
+
+def _draw_note(canvas, text: str, *, x: float, y: float, width: float) -> float:
+    canvas.setFillColorRGB(0.48, 0.50, 0.58)
+    canvas.setFont("Helvetica", 7)
+    line = ""
+    for word in str(text).split():
+        candidate = f"{line} {word}".strip()
+        if line and canvas.stringWidth(candidate, "Helvetica", 7) > width:
+            canvas.drawString(x, y, line)
+            y -= 10
+            line = word
+        else:
+            line = candidate
+    if line:
+        canvas.drawString(x, y, line)
+        y -= 10
+    return y
+
+
+def _numeric_frame(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    if df.empty or any(column not in df.columns for column in columns):
+        return pd.DataFrame()
+    out = df[columns].copy()
+    for column in columns:
+        out[column] = pd.to_numeric(out[column], errors="coerce")
+    return out.dropna()
+
+
+def _nice_bounds(values: list[float]) -> tuple[float, float]:
+    clean = [float(v) for v in values if pd.notna(v) and math.isfinite(float(v))]
+    if not clean:
+        return 0.0, 1.0
+    lo = min(clean)
+    hi = max(clean)
+    if math.isclose(lo, hi):
+        margin = max(1.0, abs(lo) * 0.1)
+        return lo - margin, hi + margin
+    margin = (hi - lo) * 0.08
+    return lo - margin, hi + margin
+
+
+def _draw_no_data(canvas, *, x: float, y: float, width: float, height: float, title: str) -> None:
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(x, y + height - 10, title)
+    canvas.setFillColorRGB(0.96, 0.97, 0.99)
+    canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
+    canvas.roundRect(x, y, width, height - 24, 5, fill=1, stroke=1)
+    canvas.setFillColorRGB(0.50, 0.52, 0.58)
+    canvas.setFont("Helvetica", 8)
+    canvas.drawCentredString(x + width / 2, y + (height - 24) / 2, "Données non disponibles dans ce résultat exporté.")
+
+
+def _draw_line_chart(
+    canvas,
+    series: list[tuple[str, pd.DataFrame, str, str, tuple[float, float, float]]],
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    title: str,
+    x_label: str,
+    y_label: str,
+    max_points: int = 260,
+) -> None:
+    usable_series: list[tuple[str, pd.DataFrame, str, str, tuple[float, float, float]]] = []
+    all_x: list[float] = []
+    all_y: list[float] = []
+    for label, df, x_col, y_col, color in series:
+        data = _numeric_frame(df, [x_col, y_col])
+        if data.empty:
+            continue
+        if len(data) > max_points:
+            step = max(1, math.ceil(len(data) / max_points))
+            data = data.iloc[::step].copy()
+        usable_series.append((label, data, x_col, y_col, color))
+        all_x.extend(data[x_col].astype(float).tolist())
+        all_y.extend(data[y_col].astype(float).tolist())
+
+    if not usable_series:
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title=title)
+        return
+
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(x, y + height - 10, title)
+
+    plot_x = x + 42
+    plot_y = y + 34
+    plot_w = width - 132
+    plot_h = height - 66
+    x_min, x_max = _nice_bounds(all_x)
+    y_min, y_max = _nice_bounds(all_y)
+    if x_min < 0 < x_max and min(all_x) >= 0:
+        x_min = 0.0
+
+    canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
+    canvas.setLineWidth(0.6)
+    for i in range(6):
+        gx = plot_x + plot_w * i / 5
+        gy = plot_y + plot_h * i / 5
+        canvas.line(plot_x, gy, plot_x + plot_w, gy)
+        canvas.line(gx, plot_y, gx, plot_y + plot_h)
+
+    canvas.setStrokeColorRGB(0.58, 0.62, 0.70)
+    canvas.line(plot_x, plot_y, plot_x, plot_y + plot_h)
+    canvas.line(plot_x, plot_y, plot_x + plot_w, plot_y)
+
+    canvas.setFont("Helvetica", 6.5)
+    canvas.setFillColorRGB(0.42, 0.45, 0.53)
+    for i in range(6):
+        xv = x_min + (x_max - x_min) * i / 5
+        yv = y_min + (y_max - y_min) * i / 5
+        canvas.drawCentredString(plot_x + plot_w * i / 5, plot_y - 10, _fmt_number(xv, 0))
+        canvas.drawRightString(plot_x - 5, plot_y + plot_h * i / 5 - 2, _fmt_number(yv, 1))
+
+    canvas.setFont("Helvetica", 7)
+    canvas.drawCentredString(plot_x + plot_w / 2, y + 5, x_label)
+    canvas.saveState()
+    canvas.translate(x + 8, plot_y + plot_h / 2)
+    canvas.rotate(90)
+    canvas.drawCentredString(0, 0, y_label)
+    canvas.restoreState()
+
+    def project(px: float, py: float) -> tuple[float, float]:
+        return (
+            plot_x + (px - x_min) / max(1e-9, x_max - x_min) * plot_w,
+            plot_y + (py - y_min) / max(1e-9, y_max - y_min) * plot_h,
+        )
+
+    legend_y = plot_y + plot_h - 6
+    for label, data, x_col, y_col, color in usable_series:
+        points = list(zip(data[x_col].astype(float), data[y_col].astype(float)))
+        canvas.setStrokeColorRGB(*color)
+        canvas.setLineWidth(1.2)
+        px0, py0 = project(points[0][0], points[0][1])
+        if len(points) == 1:
+            canvas.setFillColorRGB(*color)
+            canvas.circle(px0, py0, 2.2, fill=1, stroke=0)
+        else:
+            for px, py in points[1:]:
+                px1, py1 = project(px, py)
+                canvas.line(px0, py0, px1, py1)
+                px0, py0 = px1, py1
+        canvas.setFillColorRGB(*color)
+        canvas.rect(plot_x + plot_w + 14, legend_y - 4, 8, 3, fill=1, stroke=0)
+        canvas.setFillColorRGB(0.35, 0.37, 0.45)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, label[:28])
+        legend_y -= 12
+
+
+def _draw_grouped_bar_chart(
+    canvas,
+    df: pd.DataFrame,
+    *,
+    categories_col: str,
+    series_cols: list[tuple[str, str, tuple[float, float, float]]],
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    title: str,
+    y_label: str,
+) -> None:
+    required = [categories_col] + [column for _, column, _ in series_cols]
+    if df.empty or any(column not in df.columns for column in required):
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title=title)
+        return
+    data = df[required].copy()
+    for _, column, _ in series_cols:
+        data[column] = pd.to_numeric(data[column], errors="coerce").fillna(0.0).clip(lower=0.0)
+    data = data.head(12)
+    if data.empty:
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title=title)
+        return
+
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(x, y + height - 10, title)
+
+    plot_x = x + 42
+    plot_y = y + 34
+    plot_w = width - 132
+    plot_h = height - 66
+    totals = data[[column for _, column, _ in series_cols]].sum(axis=1)
+    y_max = max(1.0, float(totals.max()) * 1.12)
+
+    canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
+    canvas.setLineWidth(0.6)
+    for i in range(6):
+        gy = plot_y + plot_h * i / 5
+        canvas.line(plot_x, gy, plot_x + plot_w, gy)
+        canvas.setFillColorRGB(0.42, 0.45, 0.53)
+        canvas.setFont("Helvetica", 6.5)
+        canvas.drawRightString(plot_x - 5, gy - 2, _fmt_number(y_max * i / 5, 0))
+
+    bar_gap = 3
+    bar_w = max(3.0, (plot_w - bar_gap * (len(data) - 1)) / max(1, len(data)))
+    for idx, (_, row) in enumerate(data.iterrows()):
+        bx = plot_x + idx * (bar_w + bar_gap)
+        bottom = plot_y
+        for _, column, color in series_cols:
+            value = float(row[column])
+            bh = value / y_max * plot_h if y_max > 0 else 0.0
+            canvas.setFillColorRGB(*color)
+            canvas.rect(bx, bottom, bar_w, bh, fill=1, stroke=0)
+            bottom += bh
+        canvas.setFillColorRGB(0.42, 0.45, 0.53)
+        canvas.setFont("Helvetica", 5.5)
+        canvas.drawCentredString(bx + bar_w / 2, plot_y - 9, str(row[categories_col])[:5])
+
+    canvas.setStrokeColorRGB(0.58, 0.62, 0.70)
+    canvas.line(plot_x, plot_y, plot_x, plot_y + plot_h)
+    canvas.line(plot_x, plot_y, plot_x + plot_w, plot_y)
+    canvas.setFont("Helvetica", 7)
+    canvas.setFillColorRGB(0.42, 0.45, 0.53)
+    canvas.saveState()
+    canvas.translate(x + 8, plot_y + plot_h / 2)
+    canvas.rotate(90)
+    canvas.drawCentredString(0, 0, y_label)
+    canvas.restoreState()
+
+    legend_y = plot_y + plot_h - 6
+    for label, _, color in series_cols:
+        canvas.setFillColorRGB(*color)
+        canvas.rect(plot_x + plot_w + 14, legend_y - 4, 8, 5, fill=1, stroke=0)
+        canvas.setFillColorRGB(0.35, 0.37, 0.45)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, label[:34])
+        legend_y -= 12
+
+
+def _draw_simple_bar_chart(
+    canvas,
+    df: pd.DataFrame,
+    *,
+    label_col: str,
+    value_col: str,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    title: str,
+    y_label: str,
+    color: tuple[float, float, float],
+) -> None:
+    data = df[[label_col, value_col]].copy() if not df.empty and {label_col, value_col}.issubset(df.columns) else pd.DataFrame()
+    if data.empty:
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title=title)
+        return
+    data[value_col] = pd.to_numeric(data[value_col], errors="coerce").fillna(0.0)
+    data = data.dropna().head(8)
+    for label, raw_name in SCENARIOS:
+        data.loc[data[label_col].astype(str) == raw_name, label_col] = label
+
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(x, y + height - 10, title)
+    plot_x = x + 48
+    plot_y = y + 34
+    plot_w = width - 68
+    plot_h = height - 66
+    y_max = max(1.0, float(data[value_col].max()) * 1.12)
+    bar_w = min(46.0, plot_w / max(1, len(data)) * 0.55)
+    spacing = plot_w / max(1, len(data))
+
+    canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
+    for i in range(6):
+        gy = plot_y + plot_h * i / 5
+        canvas.line(plot_x, gy, plot_x + plot_w, gy)
+        canvas.setFillColorRGB(0.42, 0.45, 0.53)
+        canvas.setFont("Helvetica", 6.5)
+        canvas.drawRightString(plot_x - 5, gy - 2, _fmt_number(y_max * i / 5, 0))
+    for idx, (_, row) in enumerate(data.iterrows()):
+        cx = plot_x + idx * spacing + spacing / 2
+        bh = float(row[value_col]) / y_max * plot_h
+        canvas.setFillColorRGB(*color)
+        canvas.rect(cx - bar_w / 2, plot_y, bar_w, bh, fill=1, stroke=0)
+        canvas.setFillColorRGB(0.35, 0.37, 0.45)
+        canvas.setFont("Helvetica", 6)
+        canvas.drawCentredString(cx, plot_y - 9, str(row[label_col])[:20])
+    canvas.setFont("Helvetica", 7)
+    canvas.saveState()
+    canvas.translate(x + 10, plot_y + plot_h / 2)
+    canvas.rotate(90)
+    canvas.drawCentredString(0, 0, y_label)
+    canvas.restoreState()
 
 
 def _draw_kpi_grid(canvas, metrics: list[tuple[str, str]], *, x: float, y: float, width: float, cols: int = 4) -> float:
@@ -164,6 +469,169 @@ def _draw_economic_table(canvas, scenario: ScenarioResult, *, x: float, y: float
     return y
 
 
+def _monthly_comparison_series(scenario: ScenarioResult) -> list[tuple[str, pd.DataFrame, str, str, tuple[float, float, float]]]:
+    frames = [
+        ("A - Géothermie seule", scenario.no_solar_multiyear_btes_df),
+        ("B - Géothermie avec recharge solaire", scenario.multiyear_btes_df),
+        ("C - Recharge solaire et linéaire réduit", scenario.reduced_multiyear_btes_df),
+    ]
+    return [
+        (label, df, "Mois index", "T source PAC fin (C)", SCENARIO_COLORS[label])
+        for label, df in frames
+        if isinstance(df, pd.DataFrame) and not df.empty
+    ]
+
+
+def _annual_temperature_series(scenario: ScenarioResult) -> list[tuple[str, pd.DataFrame, str, str, tuple[float, float, float]]]:
+    if scenario.economic_trajectory_df.empty or {"Scenario", "Annee", "T_source_PAC_min (C)"}.difference(
+        scenario.economic_trajectory_df.columns
+    ):
+        return []
+    out = []
+    labels = {
+        "Geothermie seule": "A - Géothermie seule",
+        "Geothermie + solaire meme sondes": "B - Géothermie avec recharge solaire",
+        "Geothermie + solaire sondes reduites": "C - Recharge solaire et linéaire réduit",
+    }
+    for raw_name, label in labels.items():
+        rows = scenario.economic_trajectory_df[scenario.economic_trajectory_df["Scenario"].astype(str) == raw_name].copy()
+        if rows.empty:
+            continue
+        data = pd.DataFrame(
+            {
+                "Annee": pd.to_numeric(rows["Annee"], errors="coerce"),
+                "T source PAC min (C)": pd.to_numeric(rows["T_source_PAC_min (C)"], errors="coerce"),
+            }
+        )
+        out.append((label, data, "Annee", "T source PAC min (C)", SCENARIO_COLORS[label]))
+    return out
+
+
+def _draw_multiyear_charts_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
+    _draw_header(canvas, title="HelioStock - graphiques multiannuels", subtitle=subtitle, width=width, height=height)
+    chart_w = (width - 82) / 2
+    chart_h = 310
+    _draw_line_chart(
+        canvas,
+        _monthly_comparison_series(scenario),
+        x=34,
+        y=height - 92 - chart_h,
+        width=chart_w,
+        height=chart_h,
+        title="Fluctuations mensuelles - scénarios A, B et C",
+        x_label="Mois de simulation",
+        y_label="Température source PAC fin de mois (°C)",
+        max_points=320,
+    )
+    _draw_line_chart(
+        canvas,
+        _annual_temperature_series(scenario),
+        x=48 + chart_w,
+        y=height - 92 - chart_h,
+        width=chart_w,
+        height=chart_h,
+        title="Dérive annuelle - scénarios A, B et C",
+        x_label="Année de simulation",
+        y_label="Température source PAC minimale annuelle (°C)",
+    )
+    _draw_note(
+        canvas,
+        "Les courbes multiannuelles reprennent les mêmes grandeurs que l'onglet Multiannuel BTES : scénario A sans solaire, scénario B avec recharge solaire et linéaire initial, scénario C avec recharge solaire et linéaire réduit quand il a été simulé.",
+        x=34,
+        y=80,
+        width=width - 68,
+    )
+
+
+def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
+    _draw_header(canvas, title="HelioStock - graphiques année affichée", subtitle=subtitle, width=width, height=height)
+    chart_w = (width - 82) / 2
+    chart_h = 310
+    hourly_series = [
+        (
+            "T ballon solaire",
+            scenario.hourly_df,
+            "Jour annee",
+            "solar_ht_buffer_temp_end_c",
+            (0.00, 0.45, 0.85),
+        ),
+        (
+            "T source PAC fin d'heure",
+            scenario.hourly_df,
+            "Jour annee",
+            "T_source_PAC_fin_heure_C",
+            (0.09, 0.64, 0.29),
+        ),
+        (
+            "T paroi forage",
+            scenario.hourly_df,
+            "Jour annee",
+            "T_paroi_forage_C",
+            (0.98, 0.45, 0.08),
+        ),
+        (
+            "T évaporateur PAC",
+            scenario.hourly_df,
+            "Jour annee",
+            "T_evaporateur_PAC_C",
+            (0.92, 0.20, 0.14),
+        ),
+    ]
+    _draw_line_chart(
+        canvas,
+        hourly_series,
+        x=34,
+        y=height - 92 - chart_h,
+        width=chart_w,
+        height=chart_h,
+        title=f"Températures horaires - scénario B, année {scenario.simulation_year_displayed}",
+        x_label="Jour de l'année",
+        y_label="Température (°C)",
+        max_points=365,
+    )
+    _draw_grouped_bar_chart(
+        canvas,
+        scenario.hourly_by_month_df,
+        categories_col="Mois",
+        series_cols=[
+            ("Solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
+            ("Injection BTES", "Injection BTES (MWh)", ENERGY_COLORS["Injection solaire BTES"]),
+            ("PAC géothermie", "BT PAC (MWh)", ENERGY_COLORS["Géothermie PAC"]),
+            ("Appoint HT", "Appoint HT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+            ("Appoint BT", "Appoint BT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+        ],
+        x=48 + chart_w,
+        y=height - 92 - chart_h,
+        width=chart_w,
+        height=chart_h,
+        title=f"Bilan mensuel par générateur - scénario B, année {scenario.simulation_year_displayed}",
+        y_label="MWh/mois",
+    )
+    _draw_note(
+        canvas,
+        "Les températures horaires sont échantillonnées pour garder un rapport lisible et léger. Les valeurs KPI et tableaux restent calculées sur toutes les heures disponibles.",
+        x=34,
+        y=80,
+        width=width - 68,
+    )
+
+
+def _draw_economic_chart(canvas, scenario: ScenarioResult, *, x: float, y: float, width: float, height: float) -> None:
+    _draw_simple_bar_chart(
+        canvas,
+        scenario.economic_comparison_df,
+        label_col="Scenario",
+        value_col="Cout chaleur global (EUR/MWh)",
+        x=x,
+        y=y,
+        width=width,
+        height=height,
+        title="Coût de chaleur multiannuel par scénario",
+        y_label="EUR/MWh",
+        color=(0.09, 0.48, 0.74),
+    )
+
+
 def build_heliostock_overview_pdf(
     scenario: ScenarioResult,
     *,
@@ -238,13 +706,25 @@ def build_heliostock_overview_pdf(
     canvas.showPage()
     page_number += 1
 
+    _draw_multiyear_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
+    _draw_footer(canvas, page_number=page_number, width=page_width)
+    canvas.showPage()
+    page_number += 1
+
+    _draw_display_year_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
+    _draw_footer(canvas, page_number=page_number, width=page_width)
+    canvas.showPage()
+    page_number += 1
+
     _draw_header(canvas, title="HelioStock - économie multiannuelle", subtitle=subtitle, width=page_width, height=page_height)
     y = page_height - 92
-    y = _draw_section_title(canvas, "Comparaison économique des scénarios", x=34, y=y)
-    y = _draw_economic_table(canvas, scenario, x=34, y=y, width=page_width - 68)
-    y -= 16
+    chart_w = (page_width - 82) / 2
+    _draw_economic_chart(canvas, scenario, x=34, y=page_height - 92 - 220, width=chart_w, height=220)
+    y = _draw_section_title(canvas, "Comparaison économique des scénarios", x=48 + chart_w, y=y)
+    y = _draw_economic_table(canvas, scenario, x=48 + chart_w, y=y, width=chart_w)
+    y -= 10
     savings = scenario.savings or {}
-    y = _draw_section_title(canvas, "Statut économie de sondes", x=34, y=y)
+    y = _draw_section_title(canvas, "Statut économie de sondes", x=48 + chart_w, y=y)
     _draw_kpi_grid(
         canvas,
         [
@@ -253,9 +733,10 @@ def build_heliostock_overview_pdf(
             ("Linéaire testé", _fmt_number(savings.get("candidate_length_m"), 0, "ml")),
             ("Gain retenu", _fmt_number(savings.get("saved_length_m", 0.0), 0, "ml")),
         ],
-        x=34,
+        x=48 + chart_w,
         y=y,
-        width=page_width - 68,
+        width=chart_w,
+        cols=2,
     )
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.save()
