@@ -637,10 +637,13 @@ def _draw_scatter_chart(
         canvas.setFont("Helvetica", 9)
         canvas.drawString(x, y + height / 2, "Aucune donnée.")
         return
-    chart = chart[chart["Superficie (m²)"].map(_pdf_numeric) > 0].copy()
+    chart = chart[
+        (chart["Superficie (m²)"].map(_pdf_numeric) > 0)
+        & (chart["Production annuelle (MWh)"].map(_pdf_numeric) > 0)
+    ].copy()
     if chart.empty:
         canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnée avec une surface strictement positive.")
+        canvas.drawString(x, y + height / 2, "Aucune donnée avec surface et production strictement positives.")
         return
     min_x = max(chart["Superficie (m²)"].map(_pdf_numeric).min(), 1.0)
     max_x = max(chart["Superficie (m²)"].map(_pdf_numeric).max(), min_x)
@@ -649,14 +652,21 @@ def _draw_scatter_chart(
     tick_values = [10**power for power in range(log_min, log_max + 1)]
     if not tick_values:
         tick_values = [min_x, max_x]
-    max_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).max(), 1.0)
+    min_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).min(), 1.0)
+    max_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).max(), min_y)
+    log_y_min = math.floor(math.log10(min_y))
+    log_y_max = math.ceil(math.log10(max_y))
+    y_tick_values = [10**power for power in range(log_y_min, log_y_max + 1)]
+    if not y_tick_values:
+        y_tick_values = [min_y, max_y]
     canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
     canvas.setFillColorRGB(0.38, 0.4, 0.48)
     canvas.setFont("Helvetica", 7)
-    for step in range(5):
-        gy = y + height * step / 4
+    log_y_span = max(log_y_max - log_y_min, 1e-9)
+    for tick in y_tick_values:
+        gy = y + height * (math.log10(tick) - log_y_min) / log_y_span
         canvas.line(x + 28, gy, x + width, gy)
-        canvas.drawRightString(x + 24, gy - 3, _fmt_number(max_y * step / 4))
+        canvas.drawRightString(x + 24, gy - 3, _fmt_number(tick))
     log_span = max(log_max - log_min, 1e-9)
     for tick in tick_values:
         gx = x + 28 + (width - 36) * (math.log10(tick) - log_min) / log_span
@@ -666,14 +676,15 @@ def _draw_scatter_chart(
     for _, row in chart.head(120).iterrows():
         surface = max(_pdf_numeric(row["Superficie (m²)"]), min_x)
         px = x + 28 + (width - 36) * (math.log10(surface) - log_min) / log_span
-        py = y + height * _pdf_numeric(row["Production annuelle (MWh)"]) / max_y
+        production = max(_pdf_numeric(row["Production annuelle (MWh)"]), min_y)
+        py = y + height * (math.log10(production) - log_y_min) / log_y_span
         canvas.circle(px, py, 2.4, fill=1, stroke=0)
     canvas.setFillColorRGB(0.38, 0.4, 0.48)
     canvas.setFont("Helvetica", 7)
     canvas.drawCentredString(x + width / 2, y - 24, "Surface de capteurs installée (m², axe logarithmique)")
-    canvas.drawString(x + 28, y + height + 3, "Production annuelle (MWh/an)")
+    canvas.drawString(x + 28, y + height + 3, "Production annuelle (MWh/an, axe logarithmique)")
     canvas.setFillColorRGB(0.5, 0.52, 0.58)
-    canvas.drawString(x + 28, y - 36, "Axe X logarithmique : les grandes installations ne compriment pas les petits projets.")
+    canvas.drawString(x + 28, y - 36, "Axes log : comparaison lisible des petites, moyennes et grandes installations.")
 
 
 def _overview_pdf_bytes(
@@ -991,17 +1002,17 @@ def render_solar_thermal_dashboard() -> None:
             secteur_counts = group_small_categories(
                 secteur_counts, "Secteur", "Nombre", seuil_pct=3.0
             )
-            fig_secteur = px.bar(
+            fig_secteur = px.pie(
                 secteur_counts,
-                x="Nombre",
-                y="Secteur",
-                orientation="h",
+                names="Secteur",
+                values="Nombre",
                 color="Secteur",
                 title="Répartition par secteur",
                 color_discrete_sequence=CHART_COLORS,
                 labels={"Nombre": "Nombre d'installations", "Secteur": "Secteur"},
             )
-            fig_secteur.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
+            fig_secteur.update_traces(textposition="inside", textinfo="percent")
+            fig_secteur.update_layout(legend_title_text="Secteur")
             st.plotly_chart(fig_secteur, width="stretch")
 
         col_e, col_f = st.columns(2)
@@ -1014,17 +1025,17 @@ def render_solar_thermal_dashboard() -> None:
             etat_counts = group_small_categories(
                 etat_counts, "Etat", "Nombre", seuil_pct=3.0
             )
-            fig_etat = px.bar(
+            fig_etat = px.pie(
                 etat_counts,
-                x="Nombre",
-                y="Etat",
-                orientation="h",
+                names="Etat",
+                values="Nombre",
                 color="Etat",
                 title="Répartition par état",
                 color_discrete_sequence=CHART_COLORS,
                 labels={"Nombre": "Nombre d'installations", "Etat": "État"},
             )
-            fig_etat.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
+            fig_etat.update_traces(textposition="inside", textinfo="percent")
+            fig_etat.update_layout(legend_title_text="État")
             st.plotly_chart(fig_etat, width="stretch")
 
         with col_f:
@@ -1093,17 +1104,17 @@ def render_solar_thermal_dashboard() -> None:
                 superficie_secteur = group_small_categories(
                     superficie_secteur, "Secteur", "Superficie (m²)", seuil_pct=3.0
                 )
-                fig_superficie_secteur = px.bar(
+                fig_superficie_secteur = px.pie(
                     superficie_secteur,
-                    x="Superficie (m²)",
-                    y="Secteur",
-                    orientation="h",
+                    names="Secteur",
+                    values="Superficie (m²)",
                     color="Secteur",
                     title="Superficie (m²) par secteur",
                     color_discrete_sequence=CHART_COLORS,
                     labels={"Superficie (m²)": "Surface de capteurs installée (m²)", "Secteur": "Secteur"},
                 )
-                fig_superficie_secteur.update_layout(showlegend=False, yaxis={"categoryorder": "total ascending"})
+                fig_superficie_secteur.update_traces(textposition="inside", textinfo="percent")
+                fig_superficie_secteur.update_layout(legend_title_text="Secteur")
                 st.plotly_chart(fig_superficie_secteur, width="stretch")
             else:
                 st.info("Pas assez de données de superficie pour ce graphique.")
@@ -1156,24 +1167,33 @@ def render_solar_thermal_dashboard() -> None:
 
         st.subheader("Production annuelle selon la surface installée")
         scatter_df = df_f.dropna(subset=["Superficie (m²)", "Production annuelle (MWh)"])
-        scatter_df = scatter_df[scatter_df["Superficie (m²)"].map(to_float) > 0].copy()
+        scatter_df = scatter_df[
+            (scatter_df["Superficie (m²)"].map(to_float) > 0)
+            & (scatter_df["Production annuelle (MWh)"].map(to_float) > 0)
+        ].copy()
         if not scatter_df.empty:
             min_surface = max(float(scatter_df["Superficie (m²)"].map(to_float).min()), 1.0)
             max_surface = max(float(scatter_df["Superficie (m²)"].map(to_float).max()), min_surface)
             log_min = math.floor(math.log10(min_surface))
             log_max = math.ceil(math.log10(max_surface))
             surface_ticks = [10**power for power in range(log_min, log_max + 1)]
+            min_production = max(float(scatter_df["Production annuelle (MWh)"].map(to_float).min()), 1.0)
+            max_production = max(float(scatter_df["Production annuelle (MWh)"].map(to_float).max()), min_production)
+            production_log_min = math.floor(math.log10(min_production))
+            production_log_max = math.ceil(math.log10(max_production))
+            production_ticks = [10**power for power in range(production_log_min, production_log_max + 1)]
             fig_scatter = px.scatter(
                 scatter_df,
                 x="Superficie (m²)",
                 y="Production annuelle (MWh)",
                 color="Secteur",
                 log_x=True,
+                log_y=True,
                 hover_name="Ville",
                 hover_data=["Application", "Année de mise en service"],
                 labels={
                     "Superficie (m²)": "Surface de capteurs installée (m², axe logarithmique)",
-                    "Production annuelle (MWh)": "Production solaire annuelle (MWh/an)",
+                    "Production annuelle (MWh)": "Production solaire annuelle (MWh/an, axe logarithmique)",
                     "Secteur": "Secteur",
                 },
             )
@@ -1183,15 +1203,19 @@ def render_solar_thermal_dashboard() -> None:
                 ticktext=[f"{tick:g}" for tick in surface_ticks],
                 title_text="Surface de capteurs installée (m², axe logarithmique)",
             )
-            fig_scatter.update_yaxes(title_text="Production solaire annuelle (MWh/an)")
+            fig_scatter.update_yaxes(
+                tickmode="array",
+                tickvals=production_ticks,
+                ticktext=[f"{tick:g}" for tick in production_ticks],
+                title_text="Production solaire annuelle (MWh/an, axe logarithmique)",
+            )
             st.plotly_chart(fig_scatter, width="stretch")
             st.caption(
-                "Axe X logarithmique : chaque graduation correspond à un changement d'ordre de grandeur "
-                "(10, 100, 1 000, 10 000 m²...). Cela rend lisibles les petites et moyennes installations "
-                "même lorsqu'un très grand projet est présent."
+                "Axes logarithmiques : chaque graduation correspond à un changement d'ordre de grandeur. "
+                "Cela rend lisibles les petites, moyennes et très grandes installations sur le même graphique."
             )
         else:
-            st.info("Pas assez de données avec une surface strictement positive pour ce graphique.")
+            st.info("Pas assez de données avec une surface et une production strictement positives pour ce graphique.")
 
     # --- Carte -------------------------------------------------------------
     elif section == "Carte":

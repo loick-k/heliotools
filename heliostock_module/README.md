@@ -56,6 +56,18 @@ conflits d'import et de tests.
 Les projets sauvegardes contiennent les hypotheses d'interface autorisees, le fichier Excel de besoins horaires si
 l'utilisateur l'a charge, et eventuellement le dernier resultat calcule dans un cache local associe au projet.
 
+Sur Streamlit Cloud, le stockage local peut etre perdu lors d'un reboot. HelioTools peut donc dupliquer les projets
+HelioStock dans un fichier JSON versionne sur GitHub. Configurer les secrets :
+
+- `GITHUB_BACKUP_REPO` : depot cible, par exemple `loick-k/heliotools` ;
+- `GITHUB_BACKUP_BRANCH` : branche cible, par exemple `main` ;
+- `GITHUB_BACKUP_TOKEN` : token GitHub avec droit d'ecriture sur le depot ;
+- `GITHUB_BACKUP_PROJECTS_PATH` : chemin du JSON projets, par defaut `seed_data/heliostock_projects.json`.
+
+Ce JSON conserve les parametres projet et le fichier Excel de besoins horaires encode en base64. Le cache resultat
+pickle reste local pour eviter de pousser de gros objets Python fragiles dans GitHub ; apres reboot, un projet restaure
+peut donc necessiter de relancer le calcul si le cache local n'existe plus.
+
 Les secrets ne sont pas sauvegardes dans les fichiers projet. Les cles contenant `token`, `api_key`, `apikey`,
 `secret` ou `password` sont filtrees au moment de creer le payload projet. Le token Airtable doit rester dans les
 secrets Streamlit ou dans la session d'execution, jamais dans un projet exporte.

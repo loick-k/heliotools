@@ -33,6 +33,12 @@ ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 PROCESS_TEMPLATE_XLSX = ASSETS_DIR / "modele_besoins_process_8760h.xlsx"
 
 
+def _widget_default(key: str, value):
+    """Avoid Streamlit's warning when a loaded project already set the widget state."""
+
+    return {} if key in st.session_state else {"value": value}
+
+
 def _process_template_excel_bytes() -> bytes:
     if PROCESS_TEMPLATE_XLSX.exists():
         return PROCESS_TEMPLATE_XLSX.read_bytes()
@@ -128,25 +134,25 @@ def render_weather_form() -> WeatherFormResult:
             "Inclinaison capteurs (°)",
             min_value=0.0,
             max_value=90.0,
-            value=35.0,
             step=1.0,
             key="weather_tilt_deg",
+            **_widget_default("weather_tilt_deg", 35.0),
         )
         azimuth_deg_south = c2.number_input(
             "Azimut vs sud (°)",
             min_value=-180.0,
             max_value=180.0,
-            value=0.0,
             step=5.0,
             key="weather_azimuth_deg_south",
+            **_widget_default("weather_azimuth_deg_south", 0.0),
         )
         albedo = c3.number_input(
             "Albédo du sol",
             min_value=0.0,
             max_value=1.0,
-            value=0.2,
             step=0.05,
             key="weather_albedo",
+            **_widget_default("weather_albedo", 0.2),
             help=(
                 "Part du rayonnement solaire réfléchie par le sol vers les capteurs. "
                 "0,20 correspond à un sol courant ; une surface claire ou enneigée peut être plus élevée."

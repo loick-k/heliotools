@@ -133,6 +133,24 @@ def test_users_are_restored_from_configured_backup_path():
     assert "_github_write_json_list(" in source
 
 
+def test_projects_are_backed_up_to_github_json_without_result_pickle():
+    source = _source("heliostock/ui_portal.py")
+    readme = _source("README.md")
+
+    assert 'DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliostock_projects.json"' in source
+    assert "GITHUB_BACKUP_PROJECTS_PATH" in source
+    assert "def _restore_projects_from_backup" in source
+    assert "def _upsert_project_backup" in source
+    assert "demand_excel_base64" in source
+    assert "_restore_projects_from_backup()" in source
+    assert "_upsert_project_backup(" in source
+    assert "_delete_project_backup(selected_path)" in source
+    assert "_save_local_result_pickle(result_path, cached_result)" in source
+    assert "heliostock_projects.json" in readme
+    assert "Le cache resultat" in readme
+    assert "reste local" in readme
+
+
 def test_login_events_are_recorded_without_secret_values():
     source = _source("heliostock/ui_portal.py")
     assert "LOGIN_EVENTS_FILE" in source

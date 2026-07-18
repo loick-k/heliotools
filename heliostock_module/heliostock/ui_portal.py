@@ -34,12 +34,14 @@ RESULT_PICKLE_MAX_BYTES = 200 * 1024 * 1024
 DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"
 DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"
 DEFAULT_BACKUP_INSTALLATIONS_PATH = "seed_data/installations.json"
+DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliostock_projects.json"
 PASSWORD_MIN_LENGTH = 10
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCK_SECONDS = 60
 LOGIN_FAILURE_STATE_KEY = "heliotools_login_failures"
 LOGIN_LOCK_STATE_KEY = "heliotools_login_locked_until"
 USERS_SESSION_CACHE_KEY = "heliotools_users_cache"
+PROJECTS_SESSION_CACHE_KEY = "heliotools_projects_cache"
 GITHUB_BACKUP_TIMEOUT_SECONDS = 3
 FORBIDDEN_PROJECT_KEY_FRAGMENTS = ("token", "api_key", "apikey", "secret", "password")
 
@@ -123,6 +125,10 @@ def _backup_installations_path_setting() -> str:
     return _secret_value("GITHUB_BACKUP_INSTALLATIONS_PATH") or DEFAULT_BACKUP_INSTALLATIONS_PATH
 
 
+def _backup_projects_path_setting() -> str:
+    return _secret_value("GITHUB_BACKUP_PROJECTS_PATH") or DEFAULT_BACKUP_PROJECTS_PATH
+
+
 def _github_backup_enabled() -> bool:
     return bool(_github_backup_repo() and _github_backup_branch() and _github_backup_token())
 
@@ -144,6 +150,21 @@ def _resolve_backup_users_path() -> Path:
 
 def _resolve_backup_login_events_path() -> Path:
     configured = Path(_backup_login_events_path_setting())
+    if configured.is_absolute():
+        return configured
+
+    candidates = [
+        Path.cwd() / configured,
+        Path(__file__).resolve().parents[1] / configured,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _resolve_backup_projects_path() -> Path:
+    configured = Path(_backup_projects_path_setting())
     if configured.is_absolute():
         return configured
 
@@ -281,6 +302,91 @@ def _restore_users_from_backup() -> list[dict[str, Any]]:
     if users:
         _write_users_file(USERS_FILE, users)
     return users
+
+
+def _project_backup_slug(project: dict[str, Any]) -> str:
+    slug = str(project.get("slug", "") or "").strip()
+    if slug:
+        return _safe_project_slug(slug)
+    owner = _safe_project_slug(str(project.get("owner_email", "") or "anonymous"))
+    name = _safe_project_slug(str(project.get("name", "") or "Projet HelioStock"))
+    return f"{owner}_{name}"[:120]
+
+
+def _load_project_backups() -> list[dict[str, Any]]:
+    cached = st.session_state.get(PROJECTS_SESSION_CACHE_KEY)
+    if isinstance(cached, list):
+        return [dict(project) for project in cached if isinstance(project, dict)]
+
+    github_projects = _github_read_json_list(_backup_projects_path_setting())
+    if github_projects:
+        _write_json_list(_resolve_backup_projects_path(), github_projects)
+        st.session_state[PROJECTS_SESSION_CACHE_KEY] = github_projects
+        return github_projects
+
+    backup_path = _resolve_backup_projects_path()
+    projects = _read_json_list(backup_path)
+    if projects:
+        st.session_state[PROJECTS_SESSION_CACHE_KEY] = projects
+    return projects
+
+
+def _save_project_backups(projects: list[dict[str, Any]]) -> None:
+    clean_projects = [dict(project) for project in projects if isinstance(project, dict)]
+    st.session_state[PROJECTS_SESSION_CACHE_KEY] = clean_projects
+    _write_json_list(_resolve_backup_projects_path(), clean_projects)
+    _github_write_json_list(
+        _backup_projects_path_setting(),
+        clean_projects,
+        message="chore: update heliostock projects backup",
+    )
+
+
+def _restore_projects_from_backup() -> None:
+    projects = _load_project_backups()
+    if not projects:
+        return
+    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    for project in projects:
+        slug = _project_backup_slug(project)
+        if not slug:
+            continue
+        payload = dict(project.get("payload", project))
+        payload.pop("demand_excel_base64", None)
+        path = PROJECTS_DIR / f"{slug}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        demand_encoded = project.get("demand_excel_base64")
+        demand_path, _ = _project_sidecar_paths(path)
+        if isinstance(demand_encoded, str) and demand_encoded:
+            try:
+                demand_path.write_bytes(base64.b64decode(demand_encoded.encode("ascii")))
+            except Exception:
+                demand_path.unlink(missing_ok=True)
+
+
+def _upsert_project_backup(*, path: Path, payload: dict[str, Any], demand_bytes: bytes | None) -> None:
+    slug = path.with_suffix("").name
+    backup_item = {
+        "slug": slug,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "owner_email": payload.get("owner_email", ""),
+        "name": payload.get("name", slug),
+        "payload": payload,
+        "demand_excel_base64": (
+            base64.b64encode(demand_bytes).decode("ascii")
+            if isinstance(demand_bytes, (bytes, bytearray)) and demand_bytes
+            else ""
+        ),
+    }
+    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    projects.append(backup_item)
+    _save_project_backups(projects)
+
+
+def _delete_project_backup(path: Path) -> None:
+    slug = path.with_suffix("").name
+    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    _save_project_backups(projects)
 
 
 def _backup_users_configured() -> bool:
@@ -602,6 +708,7 @@ def _can_access_project(path: Path) -> bool:
 
 
 def _project_files() -> list[Path]:
+    _restore_projects_from_backup()
     if not PROJECTS_DIR.exists():
         return []
     users_path = USERS_FILE.resolve()
@@ -956,6 +1063,7 @@ def render_portal_sidebar() -> str:
                         demand_path, result_path = _project_sidecar_paths(selected_path)
                         demand_path.unlink(missing_ok=True)
                         result_path.unlink(missing_ok=True)
+                        _delete_project_backup(selected_path)
                         selected_path.unlink(missing_ok=True)
                         st.session_state.pop("heliostock_current_project_name", None)
                         st.rerun()
@@ -1008,6 +1116,11 @@ def render_project_save_controls() -> None:
                 demand_path.write_bytes(bytes(demand_bytes))
             else:
                 demand_path.unlink(missing_ok=True)
+            _upsert_project_backup(
+                path=path,
+                payload=payload,
+                demand_bytes=bytes(demand_bytes) if demand_bytes else None,
+            )
             cached_result = st.session_state.get("heliostock_last_result")
             if cached_result is not None:
                 _save_local_result_pickle(result_path, cached_result)
