@@ -111,6 +111,7 @@ def _minimal_scenario_result() -> ScenarioResult:
             {
                 "Jour annee": day,
                 "solar_ht_buffer_temp_end_c": 40.0 + day * 0.2,
+                "solar_ht_buffer_at_max": day >= 300,
                 "T_source_PAC_fin_heure_C": 5.0 - day * 0.02,
                 "T_paroi_forage_C": 6.0 - day * 0.015,
                 "T_evaporateur_PAC_C": 2.0 - day * 0.02,

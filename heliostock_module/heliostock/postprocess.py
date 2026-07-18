@@ -142,6 +142,7 @@ def _hourly_by_month_summary(results_df: pd.DataFrame) -> pd.DataFrame:
                 "Charge ballon solaire (MWh)": group["solar_ht_to_buffer_kwh"].sum() / 1000.0,
                 "Prechauffage HT solaire (MWh)": group["solar_ht_from_buffer_kwh"].sum() / 1000.0,
                 "Appoint HT (MWh)": group["unmet_ht_kwh"].sum() / 1000.0,
+                "Heures palier haut ballon solaire": int(group["solar_ht_buffer_at_max"].sum()) if "solar_ht_buffer_at_max" in group else 0,
                 "Taux couverture solaire HT (%)": group["solar_ht_from_buffer_kwh"].sum() / max(1e-9, demand_ht) * 100.0,
                 "Injection BTES (MWh)": group["solar_to_btes_kwh"].sum() / 1000.0,
                 "Solaire non valorise (MWh)": group["solar_not_used_kwh"].sum() / 1000.0,

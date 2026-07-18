@@ -5,7 +5,7 @@ import pytest
 from heliostock.btes_models import PygfunctionBtesModel, create_btes_model, pygfunction_available
 from heliostock.engine import BtesConfig, CollectorConfig, HeatPumpConfig, MonthlyDemand, SimulationConfig
 from heliostock.hourly_engine import HourlyResult, HourlyWeather, aggregate_hourly_results_monthly, simulate_hourly
-from heliostock.postprocess import _hourly_results_to_dataframe, _multiyear_btes_summary
+from heliostock.postprocess import _hourly_by_month_summary, _hourly_results_to_dataframe, _multiyear_btes_summary
 
 
 def skip_if_no_pygfunction() -> None:
@@ -482,6 +482,20 @@ def test_postprocess_exports_year_metadata_and_signed_injection():
     assert int(df["simulation_year_displayed"].iloc[0]) == 25
     assert int(df["simulation_years_total"].iloc[0]) == 25
     assert bool(df["critere_gmi_active"].iloc[0])
+
+
+def test_postprocess_counts_solar_buffer_high_limit_hours():
+    df = _hourly_results_to_dataframe(
+        [
+            _fake_hourly_result(solar_ht_buffer_at_max=True),
+            _fake_hourly_result(hour_index=1, solar_ht_buffer_at_max=False),
+            _fake_hourly_result(hour_index=2, solar_ht_buffer_at_max=True),
+        ]
+    )
+
+    monthly = _hourly_by_month_summary(df)
+
+    assert int(monthly["Heures palier haut ballon solaire"].iloc[0]) == 2
 
 
 def test_gmi_threshold_is_distinct_from_operational_tmin():

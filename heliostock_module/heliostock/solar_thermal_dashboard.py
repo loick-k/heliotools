@@ -396,11 +396,6 @@ def _pdf_short_label(value: object, max_chars: int = 26) -> str:
     return label if len(label) <= max_chars else f"{label[: max_chars - 1]}…"
 
 
-def _map_short_label(value: object, fallback: object = "", max_chars: int = 28) -> str:
-    label = str(value or fallback or "Installation").strip()
-    return label if len(label) <= max_chars else f"{label[: max_chars - 1]}…"
-
-
 def _draw_pdf_header(canvas, *, title: str, subtitle: str, width: float, height: float) -> None:
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 18)
@@ -1335,7 +1330,6 @@ def render_solar_thermal_dashboard() -> None:
                 for p in points:
                     secteur = p.get("Secteur") or "Non renseigné"
                     type_installation = p.get("Type d'installation") or "-"
-                    label = _map_short_label(p.get("Application"), p.get("Ville"))
                     popup_html = (
                         f"<b>{p.get('Application') or 'Installation'}</b><br>"
                         f"Ville : {p.get('Ville') or '-'}<br>"
@@ -1364,21 +1358,6 @@ def render_solar_thermal_dashboard() -> None:
                         fill=True,
                         fill_color=couleur_secteur[secteur],
                         fill_opacity=0.95,
-                    ).add_to(carte)
-                    folium.Marker(
-                        location=[p["lat"], p["lon"]],
-                        icon=folium.DivIcon(
-                            html=(
-                                "<div style='"
-                                "font-size:11px;font-weight:600;color:#111827;"
-                                "background:rgba(255,255,255,0.88);"
-                                "border:1px solid rgba(17,24,39,0.18);"
-                                "border-radius:4px;padding:1px 4px;"
-                                "box-shadow:0 1px 2px rgba(0,0,0,0.18);"
-                                "white-space:nowrap;transform:translate(8px,-8px);"
-                                f"'> {label}</div>"
-                            )
-                        ),
                     ).add_to(carte)
 
                 st_folium(

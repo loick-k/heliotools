@@ -48,6 +48,19 @@ def _fmt_mwh_from_kwh(value: Any, digits: int = 0) -> str:
         return "n.d."
 
 
+def _solar_buffer_at_max_hours(scenario: ScenarioResult) -> int:
+    hourly_df = scenario.hourly_df
+    if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty:
+        return 0
+    if "solar_ht_buffer_at_max" in hourly_df:
+        return int(pd.to_numeric(hourly_df["solar_ht_buffer_at_max"], errors="coerce").fillna(0.0).sum())
+    if "solar_ht_buffer_temp_end_c" not in hourly_df:
+        return 0
+    max_temp_c = scenario.config.collector.daily_buffer_max_temp_c
+    temperatures = pd.to_numeric(hourly_df["solar_ht_buffer_temp_end_c"], errors="coerce")
+    return int((temperatures >= max_temp_c - 1e-6).sum())
+
+
 def _row_float(row: pd.Series | None, column: str, default: float | None = None) -> float | None:
     if row is None or column not in row:
         return default
@@ -595,7 +608,6 @@ def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: f
         categories_col="Mois",
         series_cols=[
             ("Solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
-            ("Injection BTES", "Injection BTES (MWh)", ENERGY_COLORS["Injection solaire BTES"]),
             ("PAC géothermie", "BT PAC (MWh)", ENERGY_COLORS["Géothermie PAC"]),
             ("Appoint HT", "Appoint HT (MWh)", ENERGY_COLORS["Appoint gaz"]),
             ("Appoint BT", "Appoint BT (MWh)", ENERGY_COLORS["Appoint gaz"]),
@@ -604,12 +616,12 @@ def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: f
         y=height - 92 - chart_h,
         width=chart_w,
         height=chart_h,
-        title=f"Bilan mensuel par générateur - scénario B, année {scenario.simulation_year_displayed}",
+        title=f"Besoins couverts par générateur - scénario B, année {scenario.simulation_year_displayed}",
         y_label="MWh/mois",
     )
     _draw_note(
         canvas,
-        "Les températures horaires sont échantillonnées pour garder un rapport lisible et léger. Les valeurs KPI et tableaux restent calculées sur toutes les heures disponibles.",
+        "Les températures horaires sont échantillonnées pour garder un rapport lisible et léger. L'injection BTES n'est pas empilée dans le bilan par générateur : elle recharge le sol et contribue indirectement à la PAC géothermique.",
         x=34,
         y=80,
         width=width - 68,
@@ -678,6 +690,7 @@ def build_heliostock_overview_pdf(
             ("Production solaire totale", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh + scenario.total_to_btes_kwh)),
             ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
             ("Production solaire injectée BTES", _fmt_mwh_from_kwh(scenario.total_to_btes_kwh)),
+            ("Heures palier haut ballon", _fmt_number(_solar_buffer_at_max_hours(scenario), 0, "h")),
             ("Couverture solaire HT", _fmt_number(scenario.annual_ht_solar_coverage * 100.0, 0, "%")),
             ("Productivité solaire valorisée", _fmt_number(scenario.solar_productivity_valued_kwh_m2_year, 0, "kWh/m².an")),
         ],

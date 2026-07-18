@@ -346,6 +346,16 @@ def render_hourly_results(
         if "solar_ht_buffer_loss_kwh" in hourly_df
         else 0.0
     )
+    solar_buffer_at_max_hours = (
+        int(hourly_df["solar_ht_buffer_at_max"].sum())
+        if "solar_ht_buffer_at_max" in hourly_df
+        else int(
+            (
+                hourly_df.get("solar_ht_buffer_temp_end_c", pd.Series(dtype=float))
+                >= scenario.config.collector.daily_buffer_max_temp_c - 1e-6
+            ).sum()
+        )
+    )
     combined_eff = (
         (ht_eff * ht_energy_mwh + storage_eff * storage_energy_mwh)
         / max(1e-9, ht_energy_mwh + storage_energy_mwh)
@@ -599,6 +609,7 @@ def render_hourly_results(
                     ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
                     ("Production solaire injectée BTES", f"{total_to_btes / 1000:.0f} MWh"),
                     ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
+                    ("Heures palier haut ballon", f"{solar_buffer_at_max_hours} h"),
                     ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                     ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
                     ("Énergie injectée BTES", f"{final_btes_injection_mwh:.0f} MWh"),
@@ -644,6 +655,7 @@ def render_hourly_results(
                     ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
                     ("Production solaire injectée BTES", f"{total_to_btes / 1000:.0f} MWh"),
                     ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
+                    ("Heures palier haut ballon", f"{solar_buffer_at_max_hours} h"),
                     ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                     ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
                     ("Rendement capteur ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),

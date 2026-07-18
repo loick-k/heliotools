@@ -79,6 +79,7 @@ class HourlyResult:
     unmet_bt_kwh: float
     collector_eff_ht: float
     collector_eff_storage: float
+    solar_ht_buffer_at_max: bool = False
 
 
 def expand_monthly_demands_to_hourly(
@@ -455,6 +456,7 @@ def simulate_hourly(
             solar_ht_from_buffer_kwh=solar_ht_from_buffer,
             solar_ht_to_buffer_kwh=solar_ht_to_buffer,
             solar_ht_buffer_loss_kwh=buffer_loss,
+            solar_ht_buffer_at_max=buffer_was_saturated_by_solar,
             solar_ht_buffer_energy_end_kwh=buffer_energy,
             solar_ht_buffer_temp_start_c=buffer_temp_start,
             solar_ht_buffer_temp_end_c=_daily_buffer_temperature_c(buffer_energy, collector),
