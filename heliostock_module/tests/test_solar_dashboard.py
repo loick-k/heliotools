@@ -103,3 +103,17 @@ def test_solar_dashboard_text_has_no_common_mojibake_sequences():
     source = (MODULE_ROOT / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
     forbidden = ["\u00f0", "\u00c3", "\u00c2", "\u00ef\u00b8", "\u00e2\u201a\u00ac"]
     assert not any(token in source for token in forbidden)
+
+
+def test_geocoder_apps_script_is_linked_and_versioned():
+    source = (MODULE_ROOT / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
+    script = (MODULE_ROOT / "scripts" / "geocoder_airtable.gs").read_text(encoding="utf-8")
+
+    assert "GEOCODER_APPS_SCRIPT_URL" in source
+    assert "1jDiVia7tT3dOoWIMxlypC2BxXWAAXz48x-pCneMn_w0730BT8fUVdxdZ" in source
+    assert "st.link_button(" in source
+    assert "scripts/geocoder_airtable.gs" in source
+    assert "function geocodeInstallationsAirtable()" in script
+    assert "Maps.newGeocoder().setRegion('fr')" in script
+    assert "Latitude" in script
+    assert "Longitude" in script

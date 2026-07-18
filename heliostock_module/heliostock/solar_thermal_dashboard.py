@@ -34,6 +34,10 @@ from .dashboard_data_cleaning import group_small_categories, join_values, to_flo
 # IDs par défaut (base "BDD Atlansun Solaire thermique")
 DEFAULT_BASE_ID = "appjauiOQySQq9PBz"
 DEFAULT_TABLE_ID = "tblU1ec0gGyWq9YN8"  # table "BDD STH"
+GEOCODER_APPS_SCRIPT_URL = (
+    "https://script.google.com/home/projects/"
+    "1jDiVia7tT3dOoWIMxlypC2BxXWAAXz48x-pCneMn_w0730BT8fUVdxdZ/edit"
+)
 GEOCODING_MAX_WORKERS = 6
 CHART_COLORS = [
     "#F2A000",
@@ -1236,7 +1240,13 @@ def render_solar_thermal_dashboard() -> None:
             "Pour recalculer les coordonnées précises, lance le projet Google Apps Script "
             "`Database Airtable Streamlit`, fonction `geocodeInstallationsAirtable`. "
             "Le script écrit les champs `Latitude` et `Longitude` dans Airtable. "
-            "Après exécution, clique sur `Rafraîchir les données` dans HelioTools."
+            "Après exécution, clique sur `Rafraîchir les données` dans HelioTools. "
+            "Une copie du script est conservée dans `scripts/geocoder_airtable.gs`."
+        )
+        st.link_button(
+            "Ouvrir le script de géolocalisation",
+            GEOCODER_APPS_SCRIPT_URL,
+            width="stretch",
         )
 
         recherche = st.text_input(
