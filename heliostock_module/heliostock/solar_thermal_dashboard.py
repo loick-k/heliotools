@@ -1271,10 +1271,14 @@ def render_solar_thermal_dashboard() -> None:
             "Rechercher une installation (nom de l'application, ville ou département)"
         )
 
+        esri_attribution = "Tiles © Esri, TomTom, Garmin, FAO, NOAA, USGS, OpenStreetMap contributors"
         FONDS_DE_CARTE = {
-            "Satellite (vue aérienne)": "Esri.WorldImagery",
-            "Standard (rues détaillées)": "OpenStreetMap",
-            "Clair et épuré": "cartodbpositron",
+            "Satellite (vue aérienne)": {
+                "tiles": "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                "attr": "Tiles © Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+            },
+            "Standard (rues détaillées)": {"tiles": "OpenStreetMap", "attr": None},
+            "Clair et épuré": {"tiles": "cartodbpositron", "attr": None},
         }
         fond_choisi = st.selectbox(
             "Fond de carte", list(FONDS_DE_CARTE.keys()), index=0
@@ -1302,17 +1306,20 @@ def render_solar_thermal_dashboard() -> None:
                 carte = folium.Map(
                     location=[centre_lat, centre_lon],
                     zoom_start=6 if len(points) > 1 else 12,
-                    tiles=FONDS_DE_CARTE[fond_choisi],
+                    tiles=FONDS_DE_CARTE[fond_choisi]["tiles"],
+                    attr=FONDS_DE_CARTE[fond_choisi]["attr"],
                 )
                 if fond_choisi == "Satellite (vue aérienne)":
                     folium.TileLayer(
-                        tiles="Esri.WorldTransportation",
+                        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+                        attr=esri_attribution,
                         name="Routes et transports",
                         overlay=True,
                         control=True,
                     ).add_to(carte)
                     folium.TileLayer(
-                        tiles="Esri.WorldBoundariesAndPlaces",
+                        tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+                        attr=esri_attribution,
                         name="Noms des villes",
                         overlay=True,
                         control=True,

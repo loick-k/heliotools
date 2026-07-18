@@ -17,12 +17,50 @@ from .ui_forms import (
     render_solar_form,
     render_weather_form,
 )
-from .ui_portal import render_project_save_controls
+from .ui_portal import HELIOSTOCK_NOTICE, render_project_save_controls
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
+
+
+def render_heliostock_view_switch() -> str:
+    """Render HelioStock internal view buttons in the main page."""
+
+    current_view = st.session_state.get("heliostock_view", "solver")
+    if current_view not in {"solver", "notice"}:
+        current_view = "solver"
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stHorizontalBlock"] div.stButton > button {
+            border-radius: 999px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    solver_col, notice_col, spacer = st.columns([1, 1, 4])
+    if solver_col.button(
+        "Solveur HelioStock",
+        key="heliostock_main_view_solver",
+        type="primary" if current_view == "solver" else "secondary",
+        width="stretch",
+    ):
+        st.session_state["heliostock_view"] = "solver"
+        st.rerun()
+    if notice_col.button(
+        "Notice HelioStock",
+        key="heliostock_main_view_notice",
+        type="primary" if current_view == "notice" else "secondary",
+        width="stretch",
+        disabled=not HELIOSTOCK_NOTICE.exists(),
+    ):
+        st.session_state["heliostock_view"] = "notice"
+        st.rerun()
+    spacer.empty()
+    return current_view
 
 
 def _snapshot_from_forms(
@@ -81,6 +119,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
         "Le calcul exploite un profil de besoins au pas de temps horaire, réalise par défaut une simulation 25 ans du champ "
         "de sondes avec pygfunction, puis propose une comparaison technico-économique des différents scénarios."
     )
+    render_heliostock_view_switch()
 
     weather_form = render_weather_form()
     demand_form = render_demand_form(weather_form.hourly_weather)

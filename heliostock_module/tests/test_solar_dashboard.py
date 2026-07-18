@@ -177,8 +177,9 @@ def test_satellite_map_adds_city_labels_overlay():
     source = (MODULE_ROOT / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
 
     assert 'fond_choisi == "Satellite (vue aérienne)"' in source
-    assert "Esri.WorldTransportation" in source
-    assert "Esri.WorldBoundariesAndPlaces" in source
+    assert "World_Transportation/MapServer" in source
+    assert "World_Boundaries_and_Places/MapServer" in source
+    assert "attr=esri_attribution" in source
     assert 'name="Noms des villes"' in source
     assert "folium.LayerControl" in source
 

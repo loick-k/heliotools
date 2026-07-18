@@ -1030,38 +1030,9 @@ def render_portal_sidebar() -> str:
         )
 
         if app_name == "HelioStock":
-            st.markdown("### HelioStock")
-            st.markdown(
-                """
-                <style>
-                [data-testid="stSidebar"] div.stButton > button {
-                    border-radius: 999px;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True,
-            )
             current_view = st.session_state.get("heliostock_view", "solver")
             if current_view not in {"solver", "notice"}:
                 current_view = "solver"
-            solver_col, notice_col = st.columns(2)
-            if solver_col.button(
-                "Solveur HelioStock",
-                key="heliostock_view_solver",
-                type="primary" if current_view == "solver" else "secondary",
-                width="stretch",
-            ):
-                st.session_state["heliostock_view"] = "solver"
-                st.rerun()
-            if notice_col.button(
-                "Notice HelioStock",
-                key="heliostock_view_notice",
-                type="primary" if current_view == "notice" else "secondary",
-                width="stretch",
-                disabled=not HELIOSTOCK_NOTICE.exists(),
-            ):
-                st.session_state["heliostock_view"] = "notice"
-                st.rerun()
 
             if current_view == "solver":
                 st.markdown("### Projets")
@@ -1103,6 +1074,23 @@ def render_heliostock_notice_page() -> None:
         return
     notice_text = HELIOSTOCK_NOTICE.read_text(encoding="utf-8")
     st.title("Notice HelioStock")
+    solver_col, notice_col, spacer = st.columns([1, 1, 4])
+    if solver_col.button(
+        "Solveur HelioStock",
+        key="heliostock_notice_view_solver",
+        type="secondary",
+        width="stretch",
+    ):
+        st.session_state["heliostock_view"] = "solver"
+        st.rerun()
+    notice_col.button(
+        "Notice HelioStock",
+        key="heliostock_notice_view_notice",
+        type="primary",
+        width="stretch",
+        disabled=True,
+    )
+    spacer.empty()
     st.caption("Notice méthodologique et limites d'utilisation du modèle.")
     st.download_button(
         "Télécharger la notice",
