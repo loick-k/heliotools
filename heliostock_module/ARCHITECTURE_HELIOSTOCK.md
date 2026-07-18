@@ -1,4 +1,4 @@
-# Architecture HelioStock
+﻿# Architecture HelioStock
 
 Ce document sert de carte de travail pour maintenir le code sans mélanger interface, orchestration, physique et économie.
 
@@ -76,3 +76,4 @@ ui_results.py / ui_economics.py / charts.py
 3. Sortir la lecture météo/besoins vers un `input_service.py` si un mode batch hors Streamlit devient prioritaire.
 4. Découper `scenarios.py` en `scenario_runner.py`, `scenario_metrics.py` et `economic_comparison.py`.
 5. Ajouter des tests unitaires dédiés aux formulaires avec Streamlit mocké si l'interface devient plus complexe.
+

@@ -1,4 +1,4 @@
-import traceback
+﻿import traceback
 
 import streamlit as st
 
@@ -68,3 +68,4 @@ elif selected_app == "Note d'opportunité solaire thermique":
         st.caption(str(exc))
     except Exception:
         _show_startup_error("La note d'opportunité solaire thermique a rencontré une erreur.")
+

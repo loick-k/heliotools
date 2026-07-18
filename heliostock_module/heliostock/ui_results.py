@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
@@ -20,7 +20,7 @@ from .postprocess import (
     _melt_monthly,
     _stacked_coverage_duration_dataframe,
 )
-from .scenarios import ScenarioResult
+from .scenario_outputs import ScenarioResult
 from .ui_economics import render_economics_tab
 from .ui_formatting import display_dataframe, round_display_df
 
@@ -322,23 +322,9 @@ def render_hourly_results(
             final_year_end_source_c = float(final_year_rows["T source PAC fin (C)"].iloc[-1])
         period_min_source_c = float(multiyear_btes_df["T source PAC min (C)"].min())
     final_btes_injection_mwh = 0.0
-    final_btes_extraction_mwh = 0.0
-    eta_btes_final = None
     if not multiyear_btes_df.empty and "Annee" in multiyear_btes_df:
         final_year_rows = multiyear_btes_df[multiyear_btes_df["Annee"] == int(multiyear_btes_df["Annee"].max())]
         final_btes_injection_mwh = float(final_year_rows.get("Injection BTES (MWh)", pd.Series(dtype=float)).sum())
-        final_btes_extraction_mwh = float(final_year_rows.get("Extraction PAC (MWh)", pd.Series(dtype=float)).sum())
-        if final_btes_injection_mwh > 1e-9:
-            eta_btes_final = final_btes_extraction_mwh / final_btes_injection_mwh
-    btes_diag = scenario.btes_diagnostics
-    eta_btes_multi = btes_diag.get("eta_btes")
-    ratio_injection_extraction = float(btes_diag.get("ratio_injection_extraction") or 0.0)
-    geo_field_mode = str(btes_diag.get("geo_field_mode") or "GSHP_dominant")
-    geo_field_mode_label = {
-        "GSHP_dominant": "PAC dominante",
-        "solar_recharged_borefield": "Champ recharge solaire",
-        "BTES_like": "Fonctionnement proche BTES",
-    }.get(geo_field_mode, geo_field_mode)
     solar_storage_volume_m3 = (
         float(scenario.config.collector.area_m2)
         * float(scenario.config.collector.daily_buffer_l_per_m2)
@@ -616,9 +602,9 @@ def render_hourly_results(
                     ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                     ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
                     ("Énergie injectée BTES", f"{final_btes_injection_mwh:.0f} MWh"),
-                    ("η solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
-                    ("η solaire BTES", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh injectés"),
-                    ("η solaire global", f"{combined_eff * 100:.1f} %" if combined_eff > 0.0 else "non disponible"),
+                    ("Rendement capteur ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
+                    ("Rendement capteur injection solaire", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh injectés"),
+                    ("Rendement capteur global", f"{combined_eff * 100:.1f} %" if combined_eff > 0.0 else "non disponible"),
                 ],
                 tone="solar",
             )
@@ -660,8 +646,8 @@ def render_hourly_results(
                     ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
                     ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                     ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
-                    ("η solaire ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
-                    ("η solaire BTES", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh injectés"),
+                    ("Rendement capteur ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
+                    ("Rendement capteur injection solaire", f"{storage_eff * 100:.1f} %", f"{storage_energy_mwh:.0f} MWh injectés"),
                 ],
                 tone="solar",
             )
@@ -697,13 +683,6 @@ def render_hourly_results(
                 ],
                 tone="gas",
             )
-
-        if btes_diag.get("geo_field_mode_comment"):
-            st.caption(str(btes_diag["geo_field_mode_comment"]))
-        if btes_diag.get("warning"):
-            st.warning(str(btes_diag["warning"]))
-        if btes_diag.get("surface_insulation_warning"):
-            st.warning(str(btes_diag["surface_insulation_warning"]))
 
         _render_btes_warnings(
             scenario=scenario,
@@ -831,15 +810,15 @@ def _render_collector_efficiency_kpis(hourly_df: pd.DataFrame) -> None:
     storage_energy_mwh = float(hourly_df["solar_to_btes_kwh"].sum()) / 1000.0 if "solar_to_btes_kwh" in hourly_df else 0.0
 
     k1, k2, k3 = st.columns(3)
-    k1.metric("η solaire ECS", f"{ht_eff * 100:.1f} %", delta=f"{ht_energy_mwh:.0f} MWh captés")
-    k2.metric("η solaire BTES", f"{storage_eff * 100:.1f} %", delta=f"{storage_energy_mwh:.0f} MWh injectés")
+    k1.metric("Rendement capteur ECS", f"{ht_eff * 100:.1f} %", delta=f"{ht_energy_mwh:.0f} MWh captés")
+    k2.metric("Rendement capteur injection solaire", f"{storage_eff * 100:.1f} %", delta=f"{storage_energy_mwh:.0f} MWh injectés")
     if ht_energy_mwh + storage_energy_mwh > 1e-9:
         combined_eff = (
             ht_eff * ht_energy_mwh + storage_eff * storage_energy_mwh
         ) / max(1e-9, ht_energy_mwh + storage_energy_mwh)
-        k3.metric("η solaire global", f"{combined_eff * 100:.1f} %")
+        k3.metric("Rendement capteur global", f"{combined_eff * 100:.1f} %")
     else:
-        k3.metric("η solaire global", "non disponible")
+        k3.metric("Rendement capteur global", "non disponible")
 
 
 def _render_btes_warnings(
@@ -1225,3 +1204,4 @@ def _render_detail_tab(hourly_by_month_df: pd.DataFrame, hourly_profile_df: pd.D
             - Le champ de sondes utilise pygfunction pour calculer la température source PAC.
             """
         )
+

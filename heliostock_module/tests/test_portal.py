@@ -1,0 +1,217 @@
+import importlib.util
+from pathlib import Path
+
+import pytest
+
+
+MODULE_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _source(relative_path: str) -> str:
+    return (MODULE_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def test_heliotools_portal_password_hashing_helpers():
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    password_hash = ui_portal._hash_password("motdepasse-solide")
+    assert password_hash != "motdepasse-solide"
+    assert ui_portal._verify_password("motdepasse-solide", password_hash)
+    assert not ui_portal._verify_password("mauvais", password_hash)
+    assert ui_portal._safe_project_slug("Projet test / 01") == "Projet_test_01"
+    with pytest.raises(ValueError):
+        ui_portal._validate_password("court")
+
+
+def test_airtable_token_is_not_project_saveable():
+    source = _source("heliostock/ui_portal.py")
+    saveable_block = source.split("SAVEABLE_WIDGET_KEYS = [", 1)[1].split("]", 1)[0]
+    assert '"airtable_api_key"' not in saveable_block
+    assert '"dashboard_google_api_key"' not in saveable_block
+    assert '"airtable_base_id"' in saveable_block
+    assert '"airtable_table_id"' in saveable_block
+    assert '"solar_daily_buffer_l_per_m2"' in saveable_block
+    assert "FORBIDDEN_PROJECT_KEY_FRAGMENTS" in source
+    assert "_is_safe_project_widget_key(key)" in source
+
+
+def test_project_payload_filters_secret_like_widget_keys(monkeypatch):
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    monkeypatch.setattr(
+        ui_portal,
+        "SAVEABLE_WIDGET_KEYS",
+        [
+            "solar_area_m2",
+            "airtable_api_key",
+            "github_token",
+            "admin_password",
+            "client_secret",
+            "custom_apikey",
+        ],
+    )
+    monkeypatch.setattr(ui_portal, "_current_user_email", lambda: "user@example.com")
+    monkeypatch.setitem(ui_portal.st.session_state, "solar_area_m2", 500.0)
+    monkeypatch.setitem(ui_portal.st.session_state, "airtable_api_key", "secret-airtable")
+    monkeypatch.setitem(ui_portal.st.session_state, "github_token", "secret-github")
+    monkeypatch.setitem(ui_portal.st.session_state, "admin_password", "secret-password")
+    monkeypatch.setitem(ui_portal.st.session_state, "client_secret", "secret-client")
+    monkeypatch.setitem(ui_portal.st.session_state, "custom_apikey", "secret-apikey")
+
+    payload = ui_portal._project_payload("demo")
+
+    assert payload["widget_values"] == {"solar_area_m2": 500.0}
+
+
+def test_readme_documents_project_secret_filtering_and_signed_cache():
+    readme = _source("README.md")
+    assert "Les secrets ne sont pas sauvegardes dans les fichiers projet" in readme
+    for fragment in ["`token`", "`api_key`", "`apikey`", "`secret`", "`password`"]:
+        assert fragment in readme
+    assert "HELIOSTOCK_RESULT_CACHE_V1" in readme
+
+
+def test_project_result_pickle_is_limited_to_local_sidecar():
+    source = _source("heliostock/ui_portal.py")
+    assert "RESULT_SIDECAR_SUFFIX" in source
+    assert "RESULT_PICKLE_MAGIC" in source
+    assert "RESULT_PICKLE_MAX_BYTES" in source
+    assert "def _assert_local_project_path" in source
+    assert "_assert_local_project_path(path)" in source
+    assert "_assert_local_project_path(path: Path)" in source
+    assert "payload.startswith(RESULT_PICKLE_MAGIC)" in source
+    assert "pickle.loads(payload[len(RESULT_PICKLE_MAGIC) :])" in source
+    assert "resolved.name.endswith(RESULT_SIDECAR_SUFFIX)" in source
+    assert "Ne jamais brancher" in source
+
+
+def test_project_result_pickle_requires_heliostock_signature(tmp_path, monkeypatch):
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    projects_dir = tmp_path / "projects"
+    monkeypatch.setattr(ui_portal, "PROJECTS_DIR", projects_dir)
+    result_path = projects_dir / "demo_resultat.pkl"
+
+    ui_portal._save_local_result_pickle(result_path, {"ok": True})
+    assert result_path.read_bytes().startswith(ui_portal.RESULT_PICKLE_MAGIC)
+    assert ui_portal._load_local_result_pickle(result_path) == {"ok": True}
+
+    unsigned_path = projects_dir / "unsigned_resultat.pkl"
+    unsigned_path.parent.mkdir(parents=True, exist_ok=True)
+    unsigned_path.write_bytes(b"not-a-heliostock-cache")
+    with pytest.raises(ValueError, match="non signé"):
+        ui_portal._load_local_result_pickle(unsigned_path)
+
+
+def test_admin_creation_is_blocked_when_project_data_already_exists():
+    source = _source("heliostock/ui_portal.py")
+    assert "def _has_existing_project_data" in source
+    assert "if _has_existing_project_data() or _backup_users_configured():" in source
+    assert "création libre d'un nouvel administrateur est bloquée" in source
+    assert "HELIOSTOCK_ADMIN_EMAIL" in source
+    assert "HELIOSTOCK_ADMIN_PASSWORD" in source
+    assert "path.resolve() != users_path" in source
+
+
+def test_users_are_restored_from_configured_backup_path():
+    source = _source("heliostock/ui_portal.py")
+    assert 'DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"' in source
+    assert "GITHUB_BACKUP_USERS_PATH" in source
+    assert "GITHUB_BACKUP_REPO" in source
+    assert "GITHUB_BACKUP_BRANCH" in source
+    assert "GITHUB_BACKUP_TOKEN" in source
+    assert "def _restore_users_from_backup" in source
+    assert "_github_read_json_list(_backup_users_path_setting())" in source
+    assert "users = _restore_users_from_backup()" in source
+    assert "_write_users_file(_resolve_backup_users_path(), users)" in source
+    assert "_github_write_json_list(" in source
+
+
+def test_login_events_are_recorded_without_secret_values():
+    source = _source("heliostock/ui_portal.py")
+    assert "LOGIN_EVENTS_FILE" in source
+    assert 'DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"' in source
+    assert "def _append_login_event" in source
+    assert '"email": _email_normalise(email)' in source
+    assert '"success": bool(success)' in source
+    assert '"role": str(role or "")' in source
+    assert "_github_write_json_list(" in source
+
+
+def test_solar_dashboard_is_admin_only_and_airtable_inputs_are_hidden():
+    portal_source = _source("heliostock/ui_portal.py")
+    dashboard_source = _source("heliostock/solar_thermal_dashboard.py")
+
+    assert 'app_options = ["HelioStock"]' in portal_source
+    assert "if is_admin_authenticated():" in portal_source
+    assert 'app_options.append("Dashboard solaire thermique")' in portal_source
+    assert '"Personal Access Token Airtable"' not in dashboard_source
+    assert 'st.sidebar.text_input("Base ID"' not in dashboard_source
+    assert 'st.sidebar.text_input("Table ID' not in dashboard_source
+    assert '_dashboard_secret("AIRTABLE_TOKEN")' in dashboard_source
+
+
+def test_opportunity_notes_app_is_admin_only_and_callable():
+    portal_source = _source("heliostock/ui_portal.py")
+    demo_source = _source("demo_app.py")
+    app_source = _source("heliostock/opportunity_notes/streamlit_opportunity_app.py")
+
+    assert "Note d'opportunité solaire thermique" in portal_source
+    assert "Note d'opportunité solaire thermique" in demo_source
+    assert "from heliostock.opportunity_notes import render_opportunity_notes_app" in demo_source
+    assert "def render_opportunity_notes_app() -> None:" in app_source
+    assert "st.set_page_config" not in app_source
+    assert 'PROJECTS_DIR = Path.home() / ".heliotools" / "opportunity_notes" / "projects"' in app_source
+
+
+def test_projects_are_scoped_to_owner_for_non_admin_users():
+    source = _source("heliostock/ui_portal.py")
+    assert '"owner_email": _current_user_email()' in source
+    assert "def _can_access_project" in source
+    assert "if is_admin_authenticated():" in source
+    assert "owner_email == _current_user_email()" in source
+    assert "and _can_access_project(path)" in source
+    assert "def _owned_project_slug" in source
+    assert "_owned_project_slug(str(payload['name']))" in source
+    assert "Tu n'as pas accès à ce projet." in source
+
+
+def test_project_state_is_cleared_on_login_and_logout():
+    source = _source("heliostock/ui_portal.py")
+    assert "def _clear_project_session_state" in source
+    assert '"heliostock_last_result"' in source
+    assert '"heliostock_current_project_name"' in source
+    assert '"heliostock_demand_file_bytes"' in source
+    assert '"portal_project_to_load"' in source
+    connect_block = source.split("def _connect_user", 1)[1].split("def _disconnect_user", 1)[0]
+    disconnect_block = source.split("def _disconnect_user", 1)[1].split("def is_admin_authenticated", 1)[0]
+    assert "_clear_project_session_state()" in connect_block
+    assert "_clear_project_session_state()" in disconnect_block
+
+
+def test_app_gate_accepts_non_admin_authenticated_users():
+    source = _source("demo_app.py")
+    assert "getattr(ui_portal, \"is_user_authenticated\", None)" in source
+    assert "if not _is_user_authenticated():" in source
+    assert "if not is_admin_authenticated():" not in source
+
+
+def test_app_lazily_imports_heavy_dashboards_after_login():
+    source = _source("demo_app.py")
+    before_auth_gate = source.split("if not _is_user_authenticated():", 1)[0]
+    assert "from heliostock.streamlit_module import render_heliostock_hourly" not in before_auth_gate
+    assert "from heliostock.streamlit_module import render_heliostock_hourly" in source
+
+
+def test_portal_uses_short_github_timeout_and_session_user_cache():
+    source = _source("heliostock/ui_portal.py")
+    assert "GITHUB_BACKUP_TIMEOUT_SECONDS = 3" in source
+    assert "USERS_SESSION_CACHE_KEY" in source
+    assert "st.session_state[USERS_SESSION_CACHE_KEY]" in source
+    assert "timeout=GITHUB_BACKUP_TIMEOUT_SECONDS" in source

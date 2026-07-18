@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import time
 from pathlib import Path
@@ -264,6 +264,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                 display_log[column] = display_log[column].astype(float).round(2)
             st.dataframe(display_dataframe(display_log), width="stretch", hide_index=True)
     return hourly_df
+
 
 
 

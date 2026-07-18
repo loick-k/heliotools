@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 import time
@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pandas as pd
 
+from . import columns as col
 from .engine import MonthlyDemand, SimulationConfig
 from .hourly_engine import HourlyResult, HourlyWeather, simulate_hourly
 from .postprocess import _hourly_results_to_dataframe, _mean_cop
@@ -20,50 +21,50 @@ def _final_year_screening_metrics(
     gmi_t_max_c: float,
     demand_bt_kwh: float,
 ) -> dict[str, float]:
-    final_year = int(df["simulation_year"].max()) if "simulation_year" in df and not df.empty else 1
-    final_df = df[df["simulation_year"] == final_year].copy() if "simulation_year" in df else df
-    heat_pac_kwh = float(final_df["heat_bt_from_pac_kwh"].sum())
-    compressor_kwh = float(final_df["electricity_compressor_kwh"].sum())
-    demand_bt = max(1e-9, float(final_df["demand_bt_kwh"].sum()) if not final_df.empty else demand_bt_kwh)
+    final_year = int(df[col.SIMULATION_YEAR].max()) if col.SIMULATION_YEAR in df and not df.empty else 1
+    final_df = df[df[col.SIMULATION_YEAR] == final_year].copy() if col.SIMULATION_YEAR in df else df
+    heat_pac_kwh = float(final_df[col.HEAT_BT_FROM_PAC_KWH].sum())
+    compressor_kwh = float(final_df[col.ELECTRICITY_COMPRESSOR_KWH].sum())
+    demand_bt = max(1e-9, float(final_df[col.DEMAND_BT_KWH].sum()) if not final_df.empty else demand_bt_kwh)
     return {
         "final_year": float(final_year),
         "final_cop": heat_pac_kwh / compressor_kwh if compressor_kwh > 0.0 else 0.0,
         "final_bt_pac_kwh": heat_pac_kwh,
         "final_bt_coverage": heat_pac_kwh / demand_bt,
-        "final_t_source_min_c": float(final_df["T_source_PAC_C"].min()) if "T_source_PAC_C" in final_df else 0.0,
-        "final_hours_under_tmin": float((final_df["T_source_PAC_C"] < t_min_c - 1e-6).sum()) if "T_source_PAC_C" in final_df else 0.0,
+        "final_t_source_min_c": float(final_df[col.T_SOURCE_PAC_C].min()) if col.T_SOURCE_PAC_C in final_df else 0.0,
+        "final_hours_under_tmin": float((final_df[col.T_SOURCE_PAC_C] < t_min_c - 1e-6).sum()) if col.T_SOURCE_PAC_C in final_df else 0.0,
         "final_hours_under_gmi_tmin": (
-            float((final_df["T_fluide_entree_echangeur_geo_C"] < gmi_t_min_c - 1e-6).sum())
-            if "T_fluide_entree_echangeur_geo_C" in final_df
+            float((final_df[col.T_FLUID_ENTERING_GEO_EXCHANGER_C] < gmi_t_min_c - 1e-6).sum())
+            if col.T_FLUID_ENTERING_GEO_EXCHANGER_C in final_df
             else 0.0
         ),
         "final_hours_over_gmi_tmax": (
-            float((final_df["T_fluide_injection_C"] > gmi_t_max_c + 1e-6).sum())
-            if "T_fluide_injection_C" in final_df
+            float((final_df[col.T_FLUID_INJECTION_C] > gmi_t_max_c + 1e-6).sum())
+            if col.T_FLUID_INJECTION_C in final_df
             else 0.0
         ),
         "final_source_limited_hours": (
-            float(final_df["Limite_temperature_source"].sum()) if "Limite_temperature_source" in final_df else 0.0
+            float(final_df[col.SOURCE_TEMP_LIMITED_DISPLAY].sum()) if col.SOURCE_TEMP_LIMITED_DISPLAY in final_df else 0.0
         ),
-        "final_q_extraction_max_w_m": float(final_df["q_extraction_W_m"].max()) if "q_extraction_W_m" in final_df else 0.0,
-        "final_q_injection_max_w_m": float(final_df["q_injection_W_m"].max()) if "q_injection_W_m" in final_df else 0.0,
-        "final_extracted_ground_kwh": float(final_df["btes_extracted_by_pac_kwh"].sum())
-        if "btes_extracted_by_pac_kwh" in final_df
+        "final_q_extraction_max_w_m": float(final_df[col.Q_EXTRACTION_W_M].max()) if col.Q_EXTRACTION_W_M in final_df else 0.0,
+        "final_q_injection_max_w_m": float(final_df[col.Q_INJECTION_W_M].max()) if col.Q_INJECTION_W_M in final_df else 0.0,
+        "final_extracted_ground_kwh": float(final_df[col.BTES_EXTRACTED_BY_PAC_KWH].sum())
+        if col.BTES_EXTRACTED_BY_PAC_KWH in final_df
         else 0.0,
-        "final_injected_btes_kwh": float(final_df["solar_to_btes_kwh"].sum())
-        if "solar_to_btes_kwh" in final_df
+        "final_injected_btes_kwh": float(final_df[col.SOLAR_TO_BTES_KWH].sum())
+        if col.SOLAR_TO_BTES_KWH in final_df
         else 0.0,
-        "mean_pac_electricity_kwh": float(df["electricity_pac_total_kwh"].sum()) / max(1, int(final_year))
-        if "electricity_pac_total_kwh" in df
+        "mean_pac_electricity_kwh": float(df[col.ELECTRICITY_PAC_TOTAL_KWH].sum()) / max(1, int(final_year))
+        if col.ELECTRICITY_PAC_TOTAL_KWH in df
         else 0.0,
-        "mean_backup_total_kwh": float((df["unmet_ht_kwh"] + df["unmet_bt_kwh"]).sum()) / max(1, int(final_year))
-        if {"unmet_ht_kwh", "unmet_bt_kwh"}.issubset(df.columns)
+        "mean_backup_total_kwh": float((df[col.GAS_HT_KWH] + df[col.GAS_BT_KWH]).sum()) / max(1, int(final_year))
+        if {col.GAS_HT_KWH, col.GAS_BT_KWH}.issubset(df.columns)
         else 0.0,
     }
 
 
 def _mean_metrics(df: pd.DataFrame, years: int) -> tuple[float, float]:
-    return _mean_cop(df), float(df["heat_bt_from_pac_kwh"].sum()) / max(1, int(years))
+    return _mean_cop(df), float(df[col.HEAT_BT_FROM_PAC_KWH].sum()) / max(1, int(years))
 
 
 def _final_year_screening_metrics_from_results(
@@ -349,11 +350,13 @@ def borefield_equivalent_savings(
     simulation_cache: SimulationCache | None = None,
     include_hourly_df: bool = True,
 ) -> dict[str, float | bool | str | pd.DataFrame]:
-    """Estimate equivalent borefield length saving with solar recharge.
+    """Estimate an equivalent borefield length saving with solar recharge.
 
-    The search varies the actual number of boreholes and reruns the hourly
-    pygfunction backend. It is still a screening indicator, not a detailed
-    borefield design, but it only varies pygfunction borefield geometry.
+    `fast` first estimates a reduced field and verifies it with a few
+    simulations. `expert` performs the detailed iterative search. In both
+    modes, `found=True` means a real shorter field passed the technical
+    criteria; otherwise the reduced scenario can be displayed as non-validated.
+    `include_hourly_df=False` keeps only compact metrics to limit memory use.
     """
 
     tolerance_bt = max(1.0, 0.001 * reference_final_bt_pac_kwh)
@@ -749,3 +752,4 @@ def borefield_equivalent_savings(
         result["_equivalent_hourly_df"] = best_df
         result["_candidate_hourly_df"] = best_df
     return result
+

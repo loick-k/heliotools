@@ -52,7 +52,7 @@ class BtesConfig:
 
     boreholes: int = 100
     depth_m: float = 100.0
-    spacing_m: float = 5.0
+    spacing_m: float = 10.0
     t_initial_c: float = 12.0
     t_min_c: float = -3.0
     t_max_c: float = 40.0
@@ -69,7 +69,6 @@ class BtesConfig:
     max_extraction_w_m: float = 70.0
     max_injection_w_m: float = 80.0
     load_aggregation_mode: str = "pygfunction_default"
-    surface_insulation_considered: bool = False
 
 
 @dataclass(frozen=True)

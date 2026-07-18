@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 from .engine import BtesConfig, CollectorConfig, HeatPumpConfig, SimulationConfig
 
 if TYPE_CHECKING:
-    from .scenarios import ScenarioEconomicsConfig
+    from .scenario_outputs import ScenarioEconomicsConfig
 
 
 @dataclass(frozen=True)
@@ -92,7 +92,6 @@ class BtesInputs:
     max_injection_w_m: float = 80.0
     backend: str = "pygfunction"
     load_aggregation_mode: str = "pygfunction_default"
-    surface_insulation_considered: bool = False
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
@@ -128,7 +127,6 @@ class BtesInputs:
             max_extraction_w_m=self.max_extraction_w_m,
             max_injection_w_m=self.max_injection_w_m,
             load_aggregation_mode=self.load_aggregation_mode,
-            surface_insulation_considered=self.surface_insulation_considered,
         )
 
 
@@ -195,7 +193,7 @@ class EconomicsInputs:
         return warnings
 
     def to_scenario_economics_config(self) -> ScenarioEconomicsConfig:
-        from .scenarios import ScenarioEconomicsConfig
+        from .scenario_outputs import ScenarioEconomicsConfig
 
         return ScenarioEconomicsConfig(
             reference_energy_cost_eur_mwh=self.reference_energy_cost_eur_mwh,
@@ -241,3 +239,4 @@ class ScenarioInputs:
 
     def to_economics_config(self) -> ScenarioEconomicsConfig:
         return self.economics.to_scenario_economics_config()
+

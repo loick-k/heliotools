@@ -1,4 +1,4 @@
-"""Modèle économique CESC issu de l'onglet 'Simulateur eco CESC'.
+﻿"""Modèle économique CESC issu de l'onglet 'Simulateur eco CESC'.
 
 Ce module reprend les formules de l'Excel Atlansun v5, sans dépendance à Excel.
 Il est volontairement isolé de Streamlit pour rester testable et réutilisable.
@@ -37,11 +37,11 @@ class CescEconomicInputs:
     Les valeurs par défaut reproduisent l'onglet Excel analysé :
     - surface = 13 capteurs * 2,6 m² = 33,8 m²
     - productivité = 562 kWh/m².an
-    - coût énergie de référence = 75 €/MWh
+    - coût énergie de référence = 75 â‚¬/MWh
     - inflation énergie = 3 %/an
     - durée = 20 ans
-    - coût travaux = 1 563 €HT/m²
-    - typologie = CESC, avec forfait ADEME 1 260 €/MWh.an
+    - coût travaux = 1 563 â‚¬HT/m²
+    - typologie = CESC, avec forfait ADEME 1 260 â‚¬/MWh.an
     - eta_appoint = 0,82
     """
 
@@ -318,14 +318,14 @@ def build_yearly_cashflow_projection(
         rows.append(
             {
                 "Année": year,
-                "Coût référence annuel (€/MWh)": reference_cost_year_eur_mwh,
-                "Économie annuelle moyenne (€)": results.annual_savings_eur
+                "Coût référence annuel (â‚¬/MWh)": reference_cost_year_eur_mwh,
+                "Économie annuelle moyenne (â‚¬)": results.annual_savings_eur
                 if year > 0
                 else 0.0,
-                "Économie annuelle inflation (€)": annual_savings_inflated_eur,
-                "Flux cumulé moyen (€)": -results.net_investment_eur
+                "Économie annuelle inflation (â‚¬)": annual_savings_inflated_eur,
+                "Flux cumulé moyen (â‚¬)": -results.net_investment_eur
                 + results.annual_savings_eur * year,
-                "Flux cumulé inflation annuelle (€)": cumulative_inflated,
+                "Flux cumulé inflation annuelle (â‚¬)": cumulative_inflated,
             }
         )
 
@@ -360,3 +360,4 @@ def build_inputs_from_installation(
         years=years if years is not None else defaults.years,
         eta_appoint=eta_appoint if eta_appoint is not None else defaults.eta_appoint,
     )
+

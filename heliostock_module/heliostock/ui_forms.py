@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from io import BytesIO
 from dataclasses import dataclass
@@ -653,3 +653,4 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             step=float(param_surface_step_m2),
         ),
     )
+

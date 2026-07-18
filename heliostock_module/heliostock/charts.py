@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import altair as alt
 import pandas as pd
@@ -370,7 +370,7 @@ def _economic_cost_breakdown_chart(cost_breakdown_df: pd.DataFrame, *, reference
         .mark_bar()
         .encode(
             x=alt.X("Poste:N", title="Poste", sort=None),
-            y=alt.Y("Valeur:Q", title="€/MWh solaire valorisé"),
+            y=alt.Y("Valeur:Q", title="â‚¬/MWh solaire valorisé"),
             color=alt.Color("Poste:N", title="Poste"),
             tooltip=["Poste:N", alt.Tooltip("Valeur:Q", format=".1f")],
         )
@@ -533,13 +533,14 @@ def _cashflow_chart(cashflow_df: pd.DataFrame):
         .mark_line(point=True, strokeWidth=2)
         .encode(
             x=alt.X("Annee:Q", title="Année"),
-            y=alt.Y("Flux cumule (€):Q", title="Cashflow cumulé (€)"),
+            y=alt.Y("Flux cumule (â‚¬):Q", title="Cashflow cumulé (â‚¬)"),
             tooltip=[
                 "Annee:Q",
-                alt.Tooltip("Flux annuel (€):Q", format=",.0f"),
-                alt.Tooltip("Flux cumule (€):Q", format=",.0f"),
+                alt.Tooltip("Flux annuel (â‚¬):Q", format=",.0f"),
+                alt.Tooltip("Flux cumule (â‚¬):Q", format=",.0f"),
             ],
         )
     )
     return (zero + curve).properties(height=330)
+
 

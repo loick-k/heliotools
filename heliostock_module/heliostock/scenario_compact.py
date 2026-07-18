@@ -237,6 +237,14 @@ def _simulate_hourly_compact(
     simulation_cache: SimulationCache | None,
     cache_mode: str,
 ) -> tuple[dict[str, float], dict[str, float], pd.DataFrame]:
+    """Simulate and aggregate without storing the full hourly result list.
+
+    The returned tuple contains total compact metrics, final-year metrics and
+    an annual trajectory DataFrame. This path is intended for parametric loops
+    and borefield checks where retaining every `HourlyResult` would be too
+    heavy.
+    """
+
     total_stats = _new_compact_stats()
     year_stats: dict[int, dict[str, float]] = {}
 

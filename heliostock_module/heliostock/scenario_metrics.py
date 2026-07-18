@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from . import columns as col
 from .hourly_engine import HourlyResult
-from .postprocess import btes_efficiency_indicator, sign_change_diagnostics
 
 
 def _results_by_year(results: list[HourlyResult]) -> dict[int, list[HourlyResult]]:
@@ -35,16 +35,16 @@ def _hourly_metrics_from_results(
     annualization_years: int = 1,
 ) -> dict[str, float]:
     years = max(1, int(annualization_years))
-    total_ht = _sum_attr(results, "demand_ht_kwh")
-    total_bt = _sum_attr(results, "demand_bt_kwh")
-    total_backup_ht = _sum_attr(results, "unmet_ht_kwh")
-    total_backup_bt = _sum_attr(results, "unmet_bt_kwh")
-    total_pac = _sum_attr(results, "heat_bt_from_pac_kwh")
-    total_compressor = _sum_attr(results, "electricity_compressor_kwh")
-    total_elec = _sum_attr(results, "electricity_pac_total_kwh")
+    total_ht = _sum_attr(results, col.DEMAND_HT_KWH)
+    total_bt = _sum_attr(results, col.DEMAND_BT_KWH)
+    total_backup_ht = _sum_attr(results, col.GAS_HT_KWH)
+    total_backup_bt = _sum_attr(results, col.GAS_BT_KWH)
+    total_pac = _sum_attr(results, col.HEAT_BT_FROM_PAC_KWH)
+    total_compressor = _sum_attr(results, col.ELECTRICITY_COMPRESSOR_KWH)
+    total_elec = _sum_attr(results, col.ELECTRICITY_PAC_TOTAL_KWH)
     total_system_elec = _sum_attr(results, "electricity_system_total_kwh")
-    total_solar_ht = _sum_attr(results, "solar_ht_from_buffer_kwh")
-    total_solar_btes = _sum_attr(results, "solar_to_btes_kwh")
+    total_solar_ht = _sum_attr(results, col.SOLAR_HT_FROM_BUFFER_KWH)
+    total_solar_btes = _sum_attr(results, col.SOLAR_TO_BTES_KWH)
     backup_power_kw = max(
         (max(0.0, float(row.unmet_ht_kwh)) + max(0.0, float(row.unmet_bt_kwh)) for row in results),
         default=0.0,
@@ -82,7 +82,7 @@ def _hourly_metrics_from_results(
         "q_extraction_max_w_m": _max_attr(results, "q_extraction_w_m"),
         "q_injection_max_w_m": _max_attr(results, "q_injection_w_m"),
         "source_limited_hours": float(sum(1 for row in results if row.source_temp_limited)),
-        "source_limited_unmet_mwh": _sum_attr(results, "source_temp_unmet_bt_kwh") / 1000.0,
+        "source_limited_unmet_mwh": _sum_attr(results, col.SOURCE_TEMP_UNMET_BT_KWH) / 1000.0,
     }
 
 
@@ -99,12 +99,11 @@ def _multiyear_btes_summary_from_results(
         grouped.setdefault((int(result.simulation_year), int(result.month)), []).append(result)
     rows = []
     for (year, month), group in sorted(grouped.items()):
-        elec_compressor = _sum_attr(group, "electricity_compressor_kwh")
-        elec_total = _sum_attr(group, "electricity_pac_total_kwh")
-        heat_pac = _sum_attr(group, "heat_bt_from_pac_kwh")
-        extracted = _sum_attr(group, "btes_extracted_by_pac_kwh")
-        injected = _sum_attr(group, "solar_to_btes_kwh")
-        sign_diag = sign_change_diagnostics(row.q_net_w_m for row in group)
+        elec_compressor = _sum_attr(group, col.ELECTRICITY_COMPRESSOR_KWH)
+        elec_total = _sum_attr(group, col.ELECTRICITY_PAC_TOTAL_KWH)
+        heat_pac = _sum_attr(group, col.HEAT_BT_FROM_PAC_KWH)
+        extracted = _sum_attr(group, col.BTES_EXTRACTED_BY_PAC_KWH)
+        injected = _sum_attr(group, col.SOLAR_TO_BTES_KWH)
         rows.append(
             {
                 "Annee": int(year),
@@ -125,11 +124,6 @@ def _multiyear_btes_summary_from_results(
                 "Q net sol (MWh)": (extracted - injected) / 1000.0,
                 "Injection BTES (MWh)": injected / 1000.0,
                 "Extraction PAC (MWh)": extracted / 1000.0,
-                "Ratio injection/extraction": injected / max(1e-9, extracted),
-                "eta_BTES": btes_efficiency_indicator(extracted, injected),
-                "Transitions injection/extraction": int(sign_diag["sign_changes"]),
-                "Indice alternance charge": float(sign_diag["seasonal_load_variability_index"]),
-                "Niveau alternance": str(sign_diag["alternance_level"]),
                 "q extraction max (W/m)": _max_attr(group, "q_extraction_w_m"),
                 "q injection max (W/m)": _max_attr(group, "q_injection_w_m"),
                 "q net moyen (W/m)": _mean_attr(group, "q_net_w_m"),
@@ -169,17 +163,17 @@ def _annual_metrics_trajectory_from_results(
     rows: list[dict[str, float | int]] = []
     for year in range(1, years + 1):
         group = grouped.get(year, last_group)
-        heat_pac = _sum_attr(group, "heat_bt_from_pac_kwh")
-        elec_comp = _sum_attr(group, "electricity_compressor_kwh")
-        total_ht = _sum_attr(group, "demand_ht_kwh")
-        total_bt = _sum_attr(group, "demand_bt_kwh")
-        backup_ht = _sum_attr(group, "unmet_ht_kwh")
-        backup_bt = _sum_attr(group, "unmet_bt_kwh")
-        elec_total = _sum_attr(group, "electricity_pac_total_kwh")
-        solar_ht = _sum_attr(group, "solar_ht_from_buffer_kwh")
+        heat_pac = _sum_attr(group, col.HEAT_BT_FROM_PAC_KWH)
+        elec_comp = _sum_attr(group, col.ELECTRICITY_COMPRESSOR_KWH)
+        total_ht = _sum_attr(group, col.DEMAND_HT_KWH)
+        total_bt = _sum_attr(group, col.DEMAND_BT_KWH)
+        backup_ht = _sum_attr(group, col.GAS_HT_KWH)
+        backup_bt = _sum_attr(group, col.GAS_BT_KWH)
+        elec_total = _sum_attr(group, col.ELECTRICITY_PAC_TOTAL_KWH)
+        solar_ht = _sum_attr(group, col.SOLAR_HT_FROM_BUFFER_KWH)
         non_ren = backup_ht + backup_bt + elec_total
         useful = total_ht + total_bt
-        equivalent_power = pac_power_kw if pac_power_kw > 0.0 else _max_attr(group, "heat_bt_from_pac_kwh")
+        equivalent_power = pac_power_kw if pac_power_kw > 0.0 else _max_attr(group, col.HEAT_BT_FROM_PAC_KWH)
         rows.append(
             {
                 "Annee": year,
@@ -187,7 +181,7 @@ def _annual_metrics_trajectory_from_results(
                 "E utile BT (MWh)": total_bt / 1000.0,
                 "E utile totale (MWh)": useful / 1000.0,
                 "Solaire HT (MWh)": solar_ht / 1000.0,
-                "Injection solaire BTES (MWh)": _sum_attr(group, "solar_to_btes_kwh") / 1000.0,
+                "Injection solaire BTES (MWh)": _sum_attr(group, col.SOLAR_TO_BTES_KWH) / 1000.0,
                 "Chaleur PAC BT (MWh)": heat_pac / 1000.0,
                 "Appoint gaz HT (MWh)": backup_ht / 1000.0,
                 "Appoint gaz BT (MWh)": backup_bt / 1000.0,
@@ -210,7 +204,7 @@ def _annual_metrics_trajectory_from_results(
                     )
                 ),
                 "Heures limite source": int(sum(1 for row in group if row.source_temp_limited)),
-                "BT non couvert limite source (MWh)": _sum_attr(group, "source_temp_unmet_bt_kwh") / 1000.0,
+                "BT non couvert limite source (MWh)": _sum_attr(group, col.SOURCE_TEMP_UNMET_BT_KWH) / 1000.0,
                 "T_source_PAC_moy (C)": _mean_attr(group, "t_source_pac_c"),
                 "q_extraction_W_m_max": _max_attr(group, "q_extraction_w_m"),
                 "q_injection_W_m_max": _max_attr(group, "q_injection_w_m"),

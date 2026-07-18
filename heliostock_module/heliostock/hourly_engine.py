@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import calendar
 import math
@@ -247,7 +247,13 @@ def simulate_hourly(
     result_sink: Callable[[HourlyResult], None] | None = None,
     store_results: bool = True,
 ) -> list[HourlyResult]:
-    """Run simplified hourly solar + BTES + heat pump dispatch."""
+    """Simulate the hourly solar, borefield and heat-pump dispatch.
+
+    `hourly_demand_override` is mandatory so the model always runs from an
+    explicit hourly load profile. When `store_results` is False, rows are sent
+    to `result_sink` and not kept in memory, which is used by compact
+    parametric and borefield-saving simulations.
+    """
 
     if hourly_demand_override is None:
         raise ValueError("HelioStock requiert un profil de besoins horaire 8760 h.")
@@ -558,3 +564,4 @@ def aggregate_hourly_results_monthly(results: list[HourlyResult]) -> list[dict[s
             }
         )
     return rows
+

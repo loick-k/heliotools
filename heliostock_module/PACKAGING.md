@@ -1,4 +1,4 @@
-# Packaging HelioStock
+﻿# Packaging HelioStock
 
 Avant de livrer une archive HelioStock :
 
@@ -15,3 +15,4 @@ Get-ChildItem -Recurse -Directory -Filter __pycache__
 Get-ChildItem -Recurse -Directory -Filter .pytest_cache
 Get-ChildItem -Recurse -Directory -Filter heliostock_module
 ```
+

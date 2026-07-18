@@ -1,4 +1,4 @@
-"""Outil d'aide à la note d'opportunité solaire thermique.
+﻿"""Outil d'aide à la note d'opportunité solaire thermique.
 
 Lancement local :
     python -m streamlit run streamlit_opportunity_demo.py
@@ -67,19 +67,19 @@ PROJECTS_DIR = Path.home() / ".heliotools" / "opportunity_notes" / "projects"
 
 def eur(value: float | None, digits: int = 0) -> str:
     if value is None:
-        return "—"
-    return f"{value:,.{digits}f} €".replace(",", " ").replace(".", ",")
+        return "-"
+    return f"{value:,.{digits}f} â‚¬".replace(",", " ").replace(".", ",")
 
 
 def eur_mwh(value: float | None, digits: int = 1) -> str:
     if value is None:
-        return "—"
-    return f"{value:,.{digits}f} €/MWh".replace(",", " ").replace(".", ",")
+        return "-"
+    return f"{value:,.{digits}f} â‚¬/MWh".replace(",", " ").replace(".", ",")
 
 
 def number(value: float | None, digits: int = 1) -> str:
     if value is None:
-        return "—"
+        return "-"
     return f"{value:,.{digits}f}".replace(",", " ").replace(".", ",")
 
 
@@ -166,7 +166,7 @@ def add_excel_paste_box(df: pd.DataFrame, value_column: str, key: str, label: st
     simple que dans une section déjà repliable.
     """
     label = label or value_column
-    st.markdown(f"**Coller des valeurs depuis Excel — {label}**")
+    st.markdown(f"**Coller des valeurs depuis Excel - {label}**")
     st.caption(
         "Colle soit une colonne de valeurs, soit deux colonnes Mois + valeur. "
         "Les 12 premières valeurs reconnues sont appliquées dans l'ordre des mois."
@@ -192,7 +192,7 @@ def add_excel_paste_box(df: pd.DataFrame, value_column: str, key: str, label: st
 
 def percent(value: float | None, digits: int = 1) -> str:
     if value is None:
-        return "—"
+        return "-"
     return f"{100 * value:.{digits}f} %".replace(".", ",")
 
 
@@ -403,9 +403,9 @@ def render_ecs_loop_pie_chart(results):
 
 def build_heat_cost_breakdown_rows(results) -> list[dict[str, float | str]]:
     return [
-        {"Poste": "P1' - Auxiliaires électriques", "Famille": "P1'", "Coût chaleur (€/MWh)": results.heat_cost_p1_eur_mwh or 0.0},
-        {"Poste": "P2 - Suivi et maintenance", "Famille": "P2", "Coût chaleur (€/MWh)": results.heat_cost_p2_eur_mwh or 0.0},
-        {"Poste": "P4 - Investissement net aidé", "Famille": "P4", "Coût chaleur (€/MWh)": results.heat_cost_p4_eur_mwh or 0.0},
+        {"Poste": "P1' - Auxiliaires électriques", "Famille": "P1'", "Coût chaleur (â‚¬/MWh)": results.heat_cost_p1_eur_mwh or 0.0},
+        {"Poste": "P2 - Suivi et maintenance", "Famille": "P2", "Coût chaleur (â‚¬/MWh)": results.heat_cost_p2_eur_mwh or 0.0},
+        {"Poste": "P4 - Investissement net aidé", "Famille": "P4", "Coût chaleur (â‚¬/MWh)": results.heat_cost_p4_eur_mwh or 0.0},
     ]
 
 
@@ -418,22 +418,22 @@ def render_heat_cost_breakdown_plotly(results):
     x_max = max(total_cost, reference_cost, 1.0) * 1.25
     fig = go.Figure()
     for row in rows:
-        value = float(row["Coût chaleur (€/MWh)"])
+        value = float(row["Coût chaleur (â‚¬/MWh)"])
         fig.add_trace(
             go.Bar(
                 y=["Coût chaleur solaire"],
                 x=[value],
                 name=str(row["Poste"]),
                 orientation="h",
-                text=[f"{value:.1f} €/MWh"],
+                text=[f"{value:.1f} â‚¬/MWh"],
                 textposition="inside",
-                hovertemplate="%{fullData.name}<br>%{x:.1f} €/MWh<extra></extra>",
+                hovertemplate="%{fullData.name}<br>%{x:.1f} â‚¬/MWh<extra></extra>",
             )
         )
     fig.add_vline(
         x=reference_cost,
         line_dash="dash",
-        annotation_text=f"Référence moyenne : {reference_cost:.1f} €/MWh",
+        annotation_text=f"Référence moyenne : {reference_cost:.1f} â‚¬/MWh",
         annotation_position="top right",
     )
     fig.update_layout(
@@ -441,10 +441,10 @@ def render_heat_cost_breakdown_plotly(results):
         height=300,
         margin={"l": 10, "r": 20, "t": 60, "b": 40},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
-        xaxis_title="Coût de la chaleur (€/MWh utile)",
+        xaxis_title="Coût de la chaleur (â‚¬/MWh utile)",
         yaxis_title=None,
     )
-    fig.update_xaxes(range=[0, x_max], ticksuffix=" €/MWh")
+    fig.update_xaxes(range=[0, x_max], ticksuffix=" â‚¬/MWh")
     fig.update_yaxes(showticklabels=False)
     return fig
 
@@ -464,24 +464,24 @@ def render_cumulative_cashflow_plotly(cashflow_rows: list[dict[str, float | int]
     fig.add_trace(
         go.Scatter(
             x=years,
-            y=[float(row["Flux cumulé moyen (€)"]) for row in cashflow_rows],
+            y=[float(row["Flux cumulé moyen (â‚¬)"]) for row in cashflow_rows],
             name="Flux cumulé moyen/lissé",
             mode="lines+markers",
-            hovertemplate="Année %{x}<br>%{y:,.0f} €<extra></extra>",
+            hovertemplate="Année %{x}<br>%{y:,.0f} â‚¬<extra></extra>",
         )
     )
     fig.add_trace(
         go.Scatter(
             x=years,
-            y=[float(row["Flux cumulé inflation annuelle (€)"]) for row in cashflow_rows],
+            y=[float(row["Flux cumulé inflation annuelle (â‚¬)"]) for row in cashflow_rows],
             name="Flux cumulé avec inflation annuelle",
             mode="lines+markers",
-            hovertemplate="Année %{x}<br>%{y:,.0f} €<extra></extra>",
+            hovertemplate="Année %{x}<br>%{y:,.0f} â‚¬<extra></extra>",
         )
     )
     fig.add_hline(y=0, line_dash="dash", annotation_text="Retour à zéro", annotation_position="bottom right")
-    payback_avg = first_positive_year(cashflow_rows, "Flux cumulé moyen (€)")
-    payback_inflation = first_positive_year(cashflow_rows, "Flux cumulé inflation annuelle (€)")
+    payback_avg = first_positive_year(cashflow_rows, "Flux cumulé moyen (â‚¬)")
+    payback_inflation = first_positive_year(cashflow_rows, "Flux cumulé inflation annuelle (â‚¬)")
     if payback_avg is not None:
         fig.add_vline(x=payback_avg, line_dash="dot", annotation_text=f"Retour moyen : {payback_avg} ans")
     if payback_inflation is not None and payback_inflation != payback_avg:
@@ -490,11 +490,11 @@ def render_cumulative_cashflow_plotly(cashflow_rows: list[dict[str, float | int]
         height=390,
         margin={"l": 10, "r": 20, "t": 45, "b": 40},
         xaxis_title="Année",
-        yaxis_title="Flux cumulé (€)",
+        yaxis_title="Flux cumulé (â‚¬)",
         hovermode="x unified",
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
     )
-    fig.update_yaxes(ticksuffix=" €")
+    fig.update_yaxes(ticksuffix=" â‚¬")
     return fig
 
 
@@ -529,16 +529,16 @@ def render_opportunity_notes_app() -> None:
                 if airtable_id:
                     label += f" | Airtable {airtable_id}"
                 if updated:
-                    label += f" — {updated}"
+                    label += f" - {updated}"
             except Exception:
                 label = path.stem
             project_labels.append(label)
             project_by_label[label] = path
     
-        selected_project_label = st.selectbox("Projet enregistré", options=["—"] + project_labels, index=0)
+        selected_project_label = st.selectbox("Projet enregistré", options=["-"] + project_labels, index=0)
         col_load, col_new = st.columns(2)
         with col_load:
-            if st.button("Charger", width="stretch", disabled=selected_project_label == "—"):
+            if st.button("Charger", width="stretch", disabled=selected_project_label == "-"):
                 st.session_state.project_payload = load_project(project_by_label[selected_project_label])
                 st.rerun()
         with col_new:
@@ -1330,7 +1330,7 @@ def render_opportunity_notes_app() -> None:
             )
         with col_b:
             reference_energy_cost = st.number_input(
-                "Coût énergie référence (€/MWh)",
+                "Coût énergie référence (â‚¬/MWh)",
                 min_value=0.0,
                 value=float(economic_default.get("reference_energy_cost_eur_mwh", 75.0)),
                 step=5.0,
@@ -1343,7 +1343,7 @@ def render_opportunity_notes_app() -> None:
             years = st.number_input("Durée d'analyse (ans)", min_value=1, value=int(economic_default.get("years", 20)), step=1)
         with col_c:
             works_cost = st.number_input(
-                "Coût travaux installation (€HT/m²)",
+                "Coût travaux installation (â‚¬HT/m²)",
                 min_value=0.0,
                 value=float(economic_default.get("works_cost_eur_m2", 1563.0)),
                 step=50.0,
@@ -1363,13 +1363,13 @@ def render_opportunity_notes_app() -> None:
                     "Auxiliaires électriques (% prod.)", value=float(economic_default.get("auxiliary_ratio_percent", 3.0)), step=0.5
                 ) / 100.0
                 electricity_cost = st.number_input(
-                    "Coût électricité auxiliaire (€/MWh)", value=float(economic_default.get("electricity_cost_eur_mwh", 200.0)), step=10.0
+                    "Coût électricité auxiliaire (â‚¬/MWh)", value=float(economic_default.get("electricity_cost_eur_mwh", 200.0)), step=10.0
                 )
             with col_2:
                 maintenance_cost = st.number_input(
-                    "Maintenance (€/m².an)", value=float(economic_default.get("maintenance_cost_eur_m2_year", 22.0)), step=1.0
+                    "Maintenance (â‚¬/m².an)", value=float(economic_default.get("maintenance_cost_eur_m2_year", 22.0)), step=1.0
                 )
-                fae_cost = st.number_input("FAE (€HT)", value=float(economic_default.get("fae_cost_eur", 4929.0)), step=100.0)
+                fae_cost = st.number_input("FAE (â‚¬HT)", value=float(economic_default.get("fae_cost_eur", 4929.0)), step=100.0)
             with col_3:
                 fae_aid_rate = st.number_input(
                     "Taux aide FAE (%)", value=float(economic_default.get("fae_aid_rate_percent", 70.0)), step=5.0
@@ -1397,7 +1397,7 @@ def render_opportunity_notes_app() -> None:
         economic_results = compute_cesc_economic_model(economic_inputs)
     
         st.caption(
-            f"Forfait ADEME appliqué : {ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY[economic_typology]:,.0f} €/MWh.an".replace(
+            f"Forfait ADEME appliqué : {ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY[economic_typology]:,.0f} â‚¬/MWh.an".replace(
                 ",", " "
             )
         )
@@ -1465,7 +1465,7 @@ def render_opportunity_notes_app() -> None:
         st.markdown(
             f"""
     **Projet :** {site_inputs.project_name}  
-    **ID Airtable :** {site_inputs.airtable_id or "—"}  
+    **ID Airtable :** {site_inputs.airtable_id or "-"}  
     **Typologie :** {site_inputs.typology}  
     **Nature du bâtiment :** {site_inputs.building_state}  
     **Mode ECS :** {site_inputs.data_source}  
@@ -1497,4 +1497,5 @@ def render_opportunity_notes_app() -> None:
             st.session_state.project_payload = current_payload
             st.session_state.save_notice = f"Projet enregistré : {saved_path.name}"
             st.rerun()
+
 

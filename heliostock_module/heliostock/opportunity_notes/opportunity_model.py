@@ -1,4 +1,4 @@
-"""Pré-diagnostic ECS, bouclage sanitaire et prédimensionnement solaire thermique.
+﻿"""Pré-diagnostic ECS, bouclage sanitaire et prédimensionnement solaire thermique.
 
 Ce module sert de brique métier pour une note d'opportunité :
 1. estimation des volumes ECS mensuels à 60 °C ;
@@ -854,3 +854,4 @@ def dict_to_loop_inputs(data: dict[str, Any] | None) -> LoopInputs:
         defaults["solo_losses_input_mode"] = "Saisie annuelle"
     allowed = {f.name for f in fields(LoopInputs)}
     return LoopInputs(**{k: v for k, v in defaults.items() if k in allowed})
+

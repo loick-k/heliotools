@@ -1,4 +1,4 @@
-"""
+﻿"""
 Dashboard Streamlit - Installations Solaire Thermique (Atlansun)
 ==================================================================
 Connecte l'app à votre base Airtable "BDD Atlansun Solaire thermique"
@@ -430,7 +430,7 @@ def render_solar_thermal_dashboard() -> None:
         st.cache_data.clear()
 
     st.title("Installations Solaire Thermique")
-    st.caption("Base Airtable : BDD Atlansun Solaire thermique — table BDD STH")
+    st.caption("Base Airtable : BDD Atlansun Solaire thermique - table BDD STH")
 
     if not api_key:
         st.info(
@@ -454,7 +454,7 @@ def render_solar_thermal_dashboard() -> None:
     # ---------------------------------------------------------------------------
     # Filtres
     # ---------------------------------------------------------------------------
-    st.sidebar.header("🔎 Filtres")
+    st.sidebar.header("ðŸ”Ž Filtres")
 
 
     def multiselect_filter(label, column):
@@ -522,13 +522,13 @@ def render_solar_thermal_dashboard() -> None:
     # donc la carte est toujours créée dans un conteneur réellement visible.
     section = st.radio(
         "Navigation",
-        ["📊 Vue d'ensemble", "🗺️ Carte", "📋 Données"],
+        ["ðŸ“Š Vue d'ensemble", "ðŸ—ºï¸ Carte", "ðŸ“‹ Données"],
         horizontal=True,
         label_visibility="collapsed",
     )
 
     # --- Vue d'ensemble --------------------------------------------------------
-    if section == "📊 Vue d'ensemble":
+    if section == "ðŸ“Š Vue d'ensemble":
         pdf_bytes = _overview_pdf_bytes(df_f=df_f, filters=active_filters)
         st.download_button(
             "Télécharger la vue d'ensemble en PDF",
@@ -687,17 +687,17 @@ def render_solar_thermal_dashboard() -> None:
             st.info("Pas assez de données pour ce graphique.")
 
     # --- Carte -------------------------------------------------------------
-    elif section == "🗺️ Carte":
+    elif section == "ðŸ—ºï¸ Carte":
         nb_avec_coords = df_f[["Latitude", "Longitude"]].dropna().shape[0]
         if nb_avec_coords > 0:
             st.caption(
-                f"🎯 {nb_avec_coords} installation(s) localisée(s) précisément "
+                f"ðŸŽ¯ {nb_avec_coords} installation(s) localisée(s) précisément "
                 "via les coordonnées stockées dans Airtable (géocodage gratuit "
                 "Apps Script)."
             )
         else:
             st.caption(
-                "📍 Localisation approximative au niveau de la ville "
+                "ðŸ“ Localisation approximative au niveau de la ville "
                 "(geo.api.gouv.fr, gratuit). Pour une localisation précise et "
                 "gratuite, utilisez le script Apps Script fourni "
                 "(geocoder_airtable.gs) pour écrire Latitude/Longitude dans "
@@ -705,7 +705,7 @@ def render_solar_thermal_dashboard() -> None:
             )
 
         recherche = st.text_input(
-            "🔍 Rechercher une installation (nom de l'application, ville ou département)"
+            "ðŸ” Rechercher une installation (nom de l'application, ville ou département)"
         )
 
         FONDS_DE_CARTE = {
@@ -756,23 +756,23 @@ def render_solar_thermal_dashboard() -> None:
 
                 for p in points:
                     secteur = p.get("Secteur") or "Non renseigné"
-                    type_installation = p.get("Type d'installation") or "—"
+                    type_installation = p.get("Type d'installation") or "-"
                     popup_html = (
                         f"<b>{p.get('Application') or 'Installation'}</b><br>"
-                        f"Ville : {p.get('Ville') or '—'}<br>"
-                        f"Département : {p.get('Département') or '—'}<br>"
-                        f"Adresse estimée : {p.get('adresse') or '—'}<br>"
+                        f"Ville : {p.get('Ville') or '-'}<br>"
+                        f"Département : {p.get('Département') or '-'}<br>"
+                        f"Adresse estimée : {p.get('adresse') or '-'}<br>"
                         f"Secteur : {secteur}<br>"
                         f"Type : {type_installation}<br>"
-                        f"Année de mise en service : {p.get('Année de mise en service') or '—'}<br>"
-                        f"Superficie : {p.get('Superficie (m²)') or '—'} m²<br>"
-                        f"Production annuelle : {p.get('Production annuelle (MWh)') or '—'} MWh<br>"
-                        f"<a href='{p['maps_url']}' target='_blank'>📍 Voir sur Google Maps</a>"
+                        f"Année de mise en service : {p.get('Année de mise en service') or '-'}<br>"
+                        f"Superficie : {p.get('Superficie (m²)') or '-'} m²<br>"
+                        f"Production annuelle : {p.get('Production annuelle (MWh)') or '-'} MWh<br>"
+                        f"<a href='{p['maps_url']}' target='_blank'>ðŸ“ Voir sur Google Maps</a>"
                     )
                     if p.get("Lien internet"):
                         popup_html += (
                             f"<br><a href='{p['Lien internet']}' target='_blank'>"
-                            "🔗 Lien du projet</a>"
+                            "ðŸ”— Lien du projet</a>"
                         )
 
                     folium.Marker(
@@ -795,7 +795,7 @@ def render_solar_thermal_dashboard() -> None:
                 )
                 if nb_avec_coords == 0:
                     st.caption(
-                        "ℹ️ Localisation approximative : plusieurs installations "
+                        "Info - Localisation approximative : plusieurs installations "
                         "d'une même ville apparaissent au même point (centre-ville)."
                     )
             else:
@@ -814,10 +814,11 @@ def render_solar_thermal_dashboard() -> None:
             hide_index=True,
         )
         st.download_button(
-            "⬇️ Télécharger en CSV",
+            "Télécharger en CSV",
             data=df_f.to_csv(index=False).encode("utf-8-sig"),
             file_name="installations_solaire_thermique.csv",
             mime="text/csv",
         )
+
 
 

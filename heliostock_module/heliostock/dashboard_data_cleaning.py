@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import re
 
@@ -58,3 +58,4 @@ def group_small_categories(
         else:
             principales = pd.concat([principales, ligne_autres], ignore_index=True)
     return principales.sort_values(value_col, ascending=False)
+

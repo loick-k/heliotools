@@ -12,8 +12,8 @@ from .engine import MonthlyDemand
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, ScenarioInputs, SolarInputs
 from .load_profiles import _peak_bt_power_kw
+from .scenario_outputs import ScenarioResult
 from .scenarios import (
-    ScenarioResult,
     pac_power_parametric_study,
     run_hourly_scenario,
     solar_surface_parametric_study,

@@ -82,11 +82,10 @@ class PygfunctionExpertBtesModel:
         n_side = max(1, int(math.ceil(math.sqrt(n_boreholes))))
         dt = 3600.0
         tmax = float(self._simulation_hours) * dt
-        # Miceli et al. 2026 remind that long BTES simulations are sensitive to
-        # load-history aggregation, especially around injection/extraction
-        # transitions. HelioStock currently delegates aggregation to
-        # pygfunction's Claesson-Javed algorithm. The diagnostic layer reports
-        # sign alternance; it does not alter the validated pygfunction backend.
+        # Long simulations with alternating extraction and injection are
+        # sensitive to load-history aggregation. HelioStock keeps pygfunction's
+        # validated Claesson-Javed aggregation and does not add a separate
+        # simplified BTES classification layer.
         load_agg = gt.load_aggregation.ClaessonJaved(dt, tmax)
         time_req = load_agg.get_times_for_simulation()
         borefield = gt.boreholes.rectangle_field(

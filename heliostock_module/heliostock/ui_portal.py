@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
 import json
@@ -994,4 +994,5 @@ def render_project_save_controls() -> None:
                 result_path.unlink(missing_ok=True)
             st.session_state["heliostock_current_project_name"] = str(payload["name"])
             st.success(f"Projet enregistré : {payload['name']}")
+
 

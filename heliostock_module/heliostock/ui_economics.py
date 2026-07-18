@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 
@@ -134,3 +134,4 @@ def render_economics_tab(
         "Si l'horizon économique dépasse les années simulées, la dernière année simulée est répétée comme année stabilisée."
     )
     st.dataframe(display_dataframe(economic_trajectory_df), width="stretch", hide_index=True)
+

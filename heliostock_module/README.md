@@ -486,21 +486,15 @@ temperature de stockage pour l'injection BTES.
 `pygfunction` calcule la derive thermique du champ a partir de l'historique horaire net. Les limites PAC viennent de la
 puissance PAC installee, des puissances lineiques admissibles, de `Tmin source` et du COP minimum.
 
-## Enseignements issus de Miceli et al. 2026 sur les BTES solaires
+## Prudence sur le vocabulaire BTES
 
-L'article de Miceli et al. 2026, "Modelling of borehole thermal energy storages: A g-function approach with a novel load
-aggregation scheme", confirme l'interet des g-functions pour simuler rapidement des champs de sondes et BTES sur de
-longues periodes. Il rappelle aussi que le point critique n'est pas uniquement le temps de calcul pygfunction : la gestion
-de l'historique des charges thermiques devient centrale.
+HelioStock peut simuler une recharge solaire du champ de sondes, mais ne doit pas etre interprete comme un modele detaille
+de BTES intersaisonnier. Le backend reste `pygfunction`, adapte au predimensionnement long terme d'un champ de sondes dans
+son domaine d'hypotheses.
 
-Pour les systemes solaires + BTES, les alternances entre injection estivale et extraction hivernale sont fortes. Une
-agregation trop brutale peut moyenner des periodes de signes opposes et deplacer les temperatures lors des transitions
-charge/decharge. Un controle d'erreur sur l'agregation est donc preferable a une agregation geometrique fixe.
-
-HelioStock conserve pour l'instant le comportement robuste de production : `pygfunction` avec agregation Claesson-Javed.
-Le code ajoute toutefois un diagnostic des signes de charge, du nombre de transitions injection/extraction, du ratio
-injection/extraction et du type de fonctionnement du champ. Le mode `error_control_placeholder` reserve une architecture
-pour une future agregation controlee par erreur ; il ne change pas encore le calcul physique.
+Pour eviter une surinterpretation, l'interface met en avant des grandeurs directement lisibles : energie solaire injectee,
+energie extraite par la PAC, temperatures source/paroi, heures sous seuil, critere GMI et trajectoire annuelle. Les
+indicateurs avances propres aux modeles BTES detailles ne sont pas presentes dans les KPI metier a ce stade.
 
 Limites a garder en tete : `pygfunction` ne represente pas directement l'isolation superieure du stockage, les conditions
 aux limites complexes, l'heterogeneite verticale detaillee, l'hydraulique serie/parallele fine de type MIFT ni l'inertie

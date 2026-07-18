@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import unicodedata
 
@@ -235,4 +235,5 @@ def _estimate_capped_bt_heat_mwh(
         hourly_bt = max(0.0, demand.process_bt_kwh) / hours
         total_kwh += min(hourly_bt, cap) * hours
     return total_kwh / 1000.0
+
 
