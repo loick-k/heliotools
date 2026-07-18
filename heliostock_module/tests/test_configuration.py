@@ -12,6 +12,7 @@ from heliostock.ui_inputs import (
     FixedEconomicsAssumptions,
     FixedGeoAssumptions,
     FixedSolarAssumptions,
+    WEATHER_STATION_LABEL_ALIASES,
 )
 
 
@@ -57,9 +58,12 @@ def test_fixed_ui_assumptions_keep_expected_defaults():
 
     assert "Bretagne" in DEFAULT_EPW_REGIONS
     assert "Pays de la Loire" in DEFAULT_EPW_REGIONS
-    assert "Rennes - St Jacques" in DEFAULT_EPW_REGIONS["Bretagne"]
-    assert "Nantes Atlantique" in DEFAULT_EPW_REGIONS["Pays de la Loire"]
-    assert "Pays de la Loire - Nantes Atlantique" in DEFAULT_EPW_STATIONS
+    assert "Rennes" in DEFAULT_EPW_REGIONS["Bretagne"]
+    assert "Saint-Brieuc" in DEFAULT_EPW_REGIONS["Bretagne"]
+    assert "Nantes" in DEFAULT_EPW_REGIONS["Pays de la Loire"]
+    assert "Pays de la Loire - Nantes" in DEFAULT_EPW_STATIONS
+    assert WEATHER_STATION_LABEL_ALIASES["St Brieuc Armor"] == "Saint-Brieuc"
+    assert WEATHER_STATION_LABEL_ALIASES["Nantes Atlantique"] == "Nantes"
     assert solar.daily_buffer_l_per_m2 == 60.0
     assert solar.daily_buffer_tank_count == 1
     assert solar.daily_buffer_insulation_thickness_cm == 10.0

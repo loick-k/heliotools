@@ -57,6 +57,7 @@ APP_DASHBOARD_LABEL = "Dashboard solaire thermique"
 APP_OPPORTUNITY_LABEL = "HelioNOP"
 APP_HELIOECO_LABEL = "HelioEco"
 APP_ACCESS_LABELS = (APP_HELIOSTOCK_LABEL, APP_DASHBOARD_LABEL, APP_OPPORTUNITY_LABEL, APP_HELIOECO_LABEL)
+PORTAL_PAGE_LABELS = (APP_HOME_LABEL, APP_ADMIN_LABEL)
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -717,6 +718,10 @@ def _clear_project_session_state() -> None:
         "heliostock_current_project_shared_with",
     ):
         st.session_state.pop(key, None)
+
+
+def _clear_portal_page_selection() -> None:
+    st.session_state.pop("portal_page", None)
 
 
 def _safe_project_slug(name: str) -> str:
@@ -1453,20 +1458,31 @@ def render_portal_sidebar() -> str:
                 st.rerun()
             st.divider()
 
+        if st.button("Accueil", width="stretch"):
+            st.session_state["portal_page"] = APP_HOME_LABEL
+        if is_admin_authenticated() and st.button("Administration", width="stretch"):
+            st.session_state["portal_page"] = APP_ADMIN_LABEL
+        st.divider()
+
         allowed_apps = _current_user_allowed_apps()
-        app_options = [APP_HOME_LABEL] + [label for label in APP_ACCESS_LABELS if label in allowed_apps]
-        if is_admin_authenticated():
-            app_options.append(APP_ADMIN_LABEL)
+        app_options = [label for label in APP_ACCESS_LABELS if label in allowed_apps]
         requested_app = st.session_state.pop("portal_app_requested", None)
         if requested_app in app_options:
             st.session_state["portal_app"] = requested_app
+            st.session_state.pop("portal_page", None)
+        elif requested_app in PORTAL_PAGE_LABELS:
+            st.session_state["portal_page"] = requested_app
         if st.session_state.get("portal_app") not in app_options:
             st.session_state["portal_app"] = app_options[0]
         app_name = st.selectbox(
             "Application",
             options=app_options,
             key="portal_app",
+            on_change=_clear_portal_page_selection,
         )
+        selected_page = st.session_state.get("portal_page")
+        if selected_page == APP_HOME_LABEL or (selected_page == APP_ADMIN_LABEL and is_admin_authenticated()):
+            app_name = selected_page
 
         if app_name == APP_HELIOSTOCK_LABEL:
             current_view = st.session_state.get("heliostock_view", "solver")

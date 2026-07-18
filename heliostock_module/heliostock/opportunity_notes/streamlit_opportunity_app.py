@@ -66,7 +66,7 @@ from .pdf_export import build_opportunity_note_pdf
 from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..epw_reader import read_epw_hourly_weather_from_zip
-from ..ui_inputs import DEFAULT_EPW_REGIONS
+from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 from .. import ui_portal
 
 APP_KEY = "helionop"
@@ -290,6 +290,7 @@ def _daily_l_to_daily_kwh(*, daily_l_60c: float, cold_water_temperature_c: float
 
 
 def _monthly_air_temperatures_from_station(region_name: str, station_label: str) -> dict[str, float]:
+    station_label = WEATHER_STATION_LABEL_ALIASES.get(station_label, station_label)
     station = DEFAULT_EPW_REGIONS.get(region_name, {}).get(station_label)
     if station is None or not station.path.exists():
         return {month: 12.0 for month in MONTH_NAMES}
@@ -908,11 +909,17 @@ def render_opportunity_notes_app() -> None:
                     key=f"{project_ui_key}_nop_cold_weather_region",
                 )
                 station_labels = list(DEFAULT_EPW_REGIONS[region_name].keys())
+                station_key = f"{project_ui_key}_nop_cold_weather_station"
+                legacy_station = st.session_state.get(station_key)
+                if legacy_station in WEATHER_STATION_LABEL_ALIASES:
+                    st.session_state[station_key] = WEATHER_STATION_LABEL_ALIASES[str(legacy_station)]
+                if st.session_state.get(station_key) not in station_labels:
+                    st.session_state[station_key] = station_labels[0]
                 station_label = st.selectbox(
                     "Station météo",
                     options=station_labels,
                     index=0,
-                    key=f"{project_ui_key}_nop_cold_weather_station",
+                    key=station_key,
                 )
             monthly_air = _monthly_air_temperatures_from_station(region_name, station_label)
             cold_water_temperatures = _esm2_cold_water_temperatures(

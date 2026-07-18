@@ -25,6 +25,7 @@ from .ui_inputs import (
     FixedEconomicsAssumptions,
     FixedGeoAssumptions,
     FixedSolarAssumptions,
+    WEATHER_STATION_LABEL_ALIASES,
 )
 from .ui_formatting import display_dataframe
 
@@ -169,6 +170,9 @@ def render_weather_form() -> WeatherFormResult:
         with station_col:
             region_name = st.selectbox("Région météo", options=region_names, index=0, key="weather_region")
             stations_by_label = DEFAULT_EPW_REGIONS[region_name]
+            legacy_station = st.session_state.get("weather_station")
+            if legacy_station in WEATHER_STATION_LABEL_ALIASES:
+                st.session_state["weather_station"] = WEATHER_STATION_LABEL_ALIASES[str(legacy_station)]
             if st.session_state.get("weather_station") not in stations_by_label:
                 st.session_state["weather_station"] = list(stations_by_label.keys())[0]
             station_label = st.selectbox("Station météo", options=list(stations_by_label.keys()), index=0, key="weather_station")

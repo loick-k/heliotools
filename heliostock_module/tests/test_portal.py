@@ -358,6 +358,21 @@ def test_home_cards_do_not_mutate_selectbox_state_after_widget_creation():
     assert 'st.session_state["portal_app"] = requested_app' in sidebar_block
 
 
+def test_sidebar_application_selectbox_only_contains_applications():
+    source = _source("heliostock/ui_portal.py")
+    sidebar_block = source.split("def render_portal_sidebar", 1)[1].split(
+        "def render_heliostock_solver_selector",
+        1,
+    )[0]
+
+    assert 'st.button("Accueil", width="stretch")' in sidebar_block
+    assert 'st.button("Administration", width="stretch")' in sidebar_block
+    assert "app_options = [label for label in APP_ACCESS_LABELS if label in allowed_apps]" in sidebar_block
+    assert "app_options = [APP_HOME_LABEL]" not in sidebar_block
+    assert "app_options.append(APP_ADMIN_LABEL)" not in sidebar_block
+    assert "on_change=_clear_portal_page_selection" in sidebar_block
+
+
 def test_login_portal_uses_discreet_beta_copy():
     source = _source("heliostock/ui_portal.py")
     login_block = source.split("def render_admin_login", 1)[1].split("def render_login_portal", 1)[0]
