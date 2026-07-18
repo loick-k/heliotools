@@ -44,6 +44,11 @@ USERS_SESSION_CACHE_KEY = "heliotools_users_cache"
 PROJECTS_SESSION_CACHE_KEY = "heliotools_projects_cache"
 GITHUB_BACKUP_TIMEOUT_SECONDS = 3
 FORBIDDEN_PROJECT_KEY_FRAGMENTS = ("token", "api_key", "apikey", "secret", "password")
+APP_HOME_LABEL = "Accueil HelioTools"
+APP_HELIOSTOCK_LABEL = "HelioStock"
+APP_ADMIN_LABEL = "Administration HelioTools"
+APP_DASHBOARD_LABEL = "Dashboard solaire thermique"
+APP_OPPORTUNITY_LABEL = "Note d'opportunité solaire thermique"
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -445,6 +450,18 @@ def _append_login_event(*, email: str, success: bool, reason: str = "", role: st
         rows,
         message="chore: update heliotools login events",
     )
+
+
+def _load_login_events() -> list[dict[str, Any]]:
+    rows = _read_json_list(LOGIN_EVENTS_FILE)
+    if rows:
+        return rows
+    github_rows = _github_read_json_list(_backup_login_events_path_setting())
+    if github_rows:
+        _write_json_list(LOGIN_EVENTS_FILE, github_rows)
+        return github_rows
+    backup_path = _resolve_backup_login_events_path()
+    return _read_json_list(backup_path)
 
 
 def _user_by_email(email: str) -> dict[str, Any] | None:
@@ -1002,6 +1019,147 @@ def render_login_portal() -> bool:
     return render_admin_login(compact=False)
 
 
+def _format_event_outcome(event: dict[str, Any]) -> str:
+    return "Connexion réussie" if event.get("success") else "Échec"
+
+
+def render_heliotools_home_page() -> None:
+    """Page d'accueil du portail HelioTools après authentification."""
+
+    render_brand_header(subtitle="Suite d'outils solaires Atlansun")
+    user = st.session_state.get("user") if isinstance(st.session_state.get("user"), dict) else {}
+    role = str(user.get("role", "user"))
+    st.caption(
+        "HelioTools regroupe les applications de pré-dimensionnement, de suivi et de production "
+        "de livrables. HelioStock est désormais une application du portail."
+    )
+
+    st.markdown("### Applications disponibles")
+    cards = [
+        (
+            APP_HELIOSTOCK_LABEL,
+            "Pré-dimensionnement solaire thermique, géothermie et recharge du champ de sondes.",
+            "Ouvrir HelioStock",
+        )
+    ]
+    if is_admin_authenticated():
+        cards.extend(
+            [
+                (
+                    APP_DASHBOARD_LABEL,
+                    "Pilotage du parc solaire thermique depuis les données Airtable.",
+                    "Ouvrir le dashboard",
+                ),
+                (
+                    APP_OPPORTUNITY_LABEL,
+                    "Préparation de notes d'opportunité solaire thermique.",
+                    "Ouvrir les notes",
+                ),
+                (
+                    APP_ADMIN_LABEL,
+                    "Gestion des comptes, rôles et connexions au portail.",
+                    "Administrer",
+                ),
+            ]
+        )
+
+    columns = st.columns(2)
+    for index, (title, description, button_label) in enumerate(cards):
+        with columns[index % 2]:
+            with st.container(border=True):
+                st.subheader(title)
+                st.write(description)
+                if st.button(button_label, key=f"home_open_{index}", width="stretch"):
+                    st.session_state["portal_app"] = title
+                    st.rerun()
+
+    st.info(
+        "Session connectée en mode administrateur."
+        if role == "admin"
+        else "Session connectée en mode utilisateur. Les applications d'administration restent masquées."
+    )
+
+
+def render_admin_dashboard_page() -> None:
+    """Page pleine largeur de gestion des utilisateurs et des connexions."""
+
+    if not is_admin_authenticated():
+        st.error("Accès réservé aux administrateurs.")
+        return
+
+    st.title("Administration HelioTools")
+    st.caption("Gestion des comptes, rôles et connexions du portail.")
+
+    users = _load_users()
+    events = _load_login_events()
+    active_users = [user for user in users if user.get("active", True) is not False]
+    admin_users = [user for user in users if str(user.get("role", "")) == "admin"]
+    successful_events = [event for event in events if event.get("success")]
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Comptes", len(users))
+    k2.metric("Comptes actifs", len(active_users))
+    k3.metric("Administrateurs", len(admin_users))
+    k4.metric("Connexions réussies", len(successful_events))
+
+    st.markdown("### Créer un compte")
+    with st.form("form_create_portal_user_page"):
+        c1, c2 = st.columns(2)
+        email = c1.text_input("Email utilisateur", key="portal_admin_new_user_email")
+        name = c2.text_input("Nom utilisateur", key="portal_admin_new_user_name")
+        c3, c4 = st.columns(2)
+        role = c3.selectbox("Rôle", options=["user", "admin"], key="portal_admin_new_user_role")
+        password = c4.text_input(
+            "Mot de passe temporaire",
+            type="password",
+            key="portal_admin_new_user_password",
+        )
+        submitted = st.form_submit_button("Créer l'utilisateur", type="primary")
+    if submitted:
+        try:
+            _create_user(email=email, name=name, password=password, role=role)
+            st.success("Utilisateur créé.")
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
+
+    st.markdown("### Comptes utilisateurs")
+    if users:
+        users_df = pd.DataFrame(
+            [
+                {
+                    "Email": user.get("email", ""),
+                    "Nom": user.get("nom", ""),
+                    "Rôle": user.get("role", "user"),
+                    "Statut": "actif" if user.get("active", True) is not False else "désactivé",
+                    "Créé le": user.get("created_at", ""),
+                }
+                for user in users
+            ]
+        )
+        st.dataframe(users_df, hide_index=True, width="stretch")
+    else:
+        st.info("Aucun utilisateur enregistré.")
+
+    st.markdown("### Connexions récentes")
+    if events:
+        events_df = pd.DataFrame(
+            [
+                {
+                    "Date": event.get("timestamp", ""),
+                    "Email": event.get("email", ""),
+                    "Résultat": _format_event_outcome(event),
+                    "Rôle": event.get("role", ""),
+                    "Motif": event.get("reason", ""),
+                }
+                for event in events[-100:][::-1]
+            ]
+        )
+        st.dataframe(events_df, hide_index=True, width="stretch")
+    else:
+        st.info("Aucune connexion enregistrée.")
+
+
 def render_portal_sidebar() -> str:
     """Render left navigation and project loading controls."""
 
@@ -1016,20 +1174,22 @@ def render_portal_sidebar() -> str:
                 _disconnect_user()
                 st.session_state.pop("heliostock_last_result", None)
                 st.rerun()
-            if user.get("role") == "admin":
-                _render_user_admin_panel()
             st.divider()
-        app_options = ["HelioStock"]
+
+        app_options = [APP_HOME_LABEL, APP_HELIOSTOCK_LABEL]
         if is_admin_authenticated():
-            app_options.append("Dashboard solaire thermique")
-            app_options.append("Note d'opportunité solaire thermique")
+            app_options.append(APP_ADMIN_LABEL)
+            app_options.append(APP_DASHBOARD_LABEL)
+            app_options.append(APP_OPPORTUNITY_LABEL)
+        if st.session_state.get("portal_app") not in app_options:
+            st.session_state["portal_app"] = app_options[0]
         app_name = st.selectbox(
             "Application",
             options=app_options,
             key="portal_app",
         )
 
-        if app_name == "HelioStock":
+        if app_name == APP_HELIOSTOCK_LABEL:
             current_view = st.session_state.get("heliostock_view", "solver")
             if current_view not in {"solver", "notice"}:
                 current_view = "solver"

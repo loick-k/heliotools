@@ -5,7 +5,7 @@ import streamlit as st
 from heliostock import ui_portal
 
 
-st.set_page_config(page_title="HelioStock", layout="wide")
+st.set_page_config(page_title="HelioTools", layout="wide")
 
 
 def _is_user_authenticated() -> bool:
@@ -27,7 +27,13 @@ if not _is_user_authenticated():
 
 selected_app = ui_portal.render_portal_sidebar()
 
-if selected_app == "HelioStock":
+if selected_app == ui_portal.APP_HOME_LABEL:
+    ui_portal.render_heliotools_home_page()
+
+elif selected_app == ui_portal.APP_ADMIN_LABEL:
+    ui_portal.render_admin_dashboard_page()
+
+elif selected_app == ui_portal.APP_HELIOSTOCK_LABEL:
     try:
         if st.session_state.get("heliostock_view", "solver") == "notice":
             ui_portal.render_heliostock_notice_page()
@@ -38,7 +44,7 @@ if selected_app == "HelioStock":
     except Exception:
         _show_startup_error("HelioStock n'a pas pu démarrer.")
 
-elif selected_app == "Dashboard solaire thermique":
+elif selected_app == ui_portal.APP_DASHBOARD_LABEL:
     try:
         from heliostock.solar_thermal_dashboard import render_solar_thermal_dashboard
 
@@ -52,7 +58,7 @@ elif selected_app == "Dashboard solaire thermique":
     except Exception:
         _show_startup_error("Le dashboard solaire thermique a rencontré une erreur.")
 
-elif selected_app == "Note d'opportunité solaire thermique":
+elif selected_app == ui_portal.APP_OPPORTUNITY_LABEL:
     try:
         from heliostock.opportunity_notes import render_opportunity_notes_app
 
