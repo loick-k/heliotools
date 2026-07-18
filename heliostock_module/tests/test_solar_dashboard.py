@@ -171,3 +171,13 @@ def test_geocoder_apps_script_is_linked_and_versioned():
     assert "Maps.newGeocoder().setRegion('fr')" in script
     assert "Latitude" in script
     assert "Longitude" in script
+
+
+def test_satellite_map_adds_city_labels_overlay():
+    source = (MODULE_ROOT / "heliostock" / "solar_thermal_dashboard.py").read_text(encoding="utf-8")
+
+    assert 'fond_choisi == "Satellite (vue aérienne)"' in source
+    assert "Esri.WorldTransportation" in source
+    assert "Esri.WorldBoundariesAndPlaces" in source
+    assert 'name="Noms des villes"' in source
+    assert "folium.LayerControl" in source

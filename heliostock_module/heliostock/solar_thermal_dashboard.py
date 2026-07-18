@@ -1290,6 +1290,20 @@ def render_solar_thermal_dashboard() -> None:
                     zoom_start=6 if len(points) > 1 else 12,
                     tiles=FONDS_DE_CARTE[fond_choisi],
                 )
+                if fond_choisi == "Satellite (vue aérienne)":
+                    folium.TileLayer(
+                        tiles="Esri.WorldTransportation",
+                        name="Routes et transports",
+                        overlay=True,
+                        control=True,
+                    ).add_to(carte)
+                    folium.TileLayer(
+                        tiles="Esri.WorldBoundariesAndPlaces",
+                        name="Noms des villes",
+                        overlay=True,
+                        control=True,
+                    ).add_to(carte)
+                    folium.LayerControl(collapsed=True).add_to(carte)
                 cluster = MarkerCluster().add_to(carte)
 
                 palette = [
