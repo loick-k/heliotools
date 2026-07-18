@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
+from io import BytesIO, StringIO
 from dataclasses import asdict
 from typing import Any
 
@@ -35,7 +36,9 @@ from .cesc_economic_model import (
 from .opportunity_model import (
     BUILDING_STATES,
     CAMPING_DEFAULT_L_PER_PERSON_NIGHT,
+    CP_WHLK,
     DATA_SOURCES,
+    DAYS_BY_MONTH,
     DEFAULT_COLLECTOR_UNIT_AREA_M2,
     DEFAULT_LOOP_AMBIENT_TEMPERATURES_C,
     DEFAULT_MONTHLY_COEFFICIENTS,
@@ -61,10 +64,23 @@ from .opportunity_model import (
 )
 from .pdf_export import build_opportunity_note_pdf
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
+from ..epw_reader import read_epw_hourly_weather_from_zip
+from ..ui_inputs import DEFAULT_EPW_REGIONS
 
 APP_KEY = "helionop"
 APP_LABEL = "HelioNOP"
 PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)
+ECS_PROFILE_INPUT_MODES: tuple[str, ...] = (
+    "Profil L/jour moyen",
+    "Volume m³/mois",
+    "Consommation ECS MWh/mois",
+    "Consommation ECS kWh/jour",
+)
+COLD_WATER_MODES: tuple[str, ...] = (
+    "Température eau froide manuelle",
+    "Méthode ESM2",
+    "Méthode ESM2 + 3 °C",
+)
 
 
 def eur(value: float | None, digits: int = 0) -> str:
@@ -191,6 +207,109 @@ def add_excel_paste_box(df: pd.DataFrame, value_column: str, key: str, label: st
             st.success(f"{count} valeur(s) appliquée(s) dans le tableau.")
             return updated
     return df
+
+
+def _read_monthly_profile_upload(uploaded_file: Any, value_column: str) -> pd.DataFrame | None:
+    if uploaded_file is None:
+        return None
+    raw = uploaded_file.getvalue()
+    suffix = str(getattr(uploaded_file, "name", "")).lower()
+    if suffix.endswith((".xlsx", ".xls")):
+        df = pd.read_excel(BytesIO(raw))
+    else:
+        text = raw.decode("utf-8-sig", errors="ignore")
+        df = pd.read_csv(StringIO(text), sep=None, engine="python")
+    if df.empty:
+        return None
+    month_col = next((col for col in df.columns if str(col).strip().lower() in {"mois", "month"}), None)
+    numeric_cols = [col for col in df.columns if col != month_col and pd.to_numeric(df[col], errors="coerce").notna().any()]
+    if not numeric_cols:
+        return None
+    selected_col = numeric_cols[0]
+    values_by_month: dict[str, float] = {}
+    if month_col is not None:
+        for _, row in df.iterrows():
+            month_label = str(row.get(month_col, "")).strip()
+            matched_month = next((month for month in MONTH_NAMES if month.lower() == month_label.lower()), None)
+            if matched_month:
+                raw_value = pd.to_numeric(row.get(selected_col), errors="coerce")
+                values_by_month[matched_month] = 0.0 if pd.isna(raw_value) else float(max(0.0, raw_value))
+    else:
+        numeric_values = pd.to_numeric(df[selected_col], errors="coerce").dropna().tolist()
+        for month, value in zip(MONTH_NAMES, numeric_values):
+            values_by_month[month] = float(max(0.0, value))
+    if not values_by_month:
+        return None
+    return pd.DataFrame(
+        [
+            {"Mois": month, value_column: float(values_by_month.get(month, 0.0))}
+            for month in MONTH_NAMES
+        ]
+    )
+
+
+def _value_to_daily_l_60c(
+    *,
+    value: float,
+    input_mode: str,
+    month: str,
+    cold_water_temperature_c: float,
+) -> float:
+    value = max(0.0, float(value))
+    days = DAYS_BY_MONTH[month]
+    delta_t = max(1e-6, 60.0 - float(cold_water_temperature_c))
+    if input_mode == "Profil L/jour moyen":
+        return value
+    if input_mode == "Volume m³/mois":
+        return value * 1000.0 / days
+    if input_mode == "Consommation ECS MWh/mois":
+        month_volume_l = value * 1000.0 * 1000.0 / (CP_WHLK * delta_t)
+        return month_volume_l / days
+    if input_mode == "Consommation ECS kWh/jour":
+        return value * 1000.0 / (CP_WHLK * delta_t)
+    return value
+
+
+def _daily_l_to_monthly_mwh(
+    *,
+    daily_l_60c: float,
+    month: str,
+    cold_water_temperature_c: float,
+) -> float:
+    delta_t = max(0.0, 60.0 - float(cold_water_temperature_c))
+    return max(0.0, daily_l_60c) * DAYS_BY_MONTH[month] * CP_WHLK * delta_t / 1000.0 / 1000.0
+
+
+def _daily_l_to_daily_kwh(*, daily_l_60c: float, cold_water_temperature_c: float) -> float:
+    delta_t = max(0.0, 60.0 - float(cold_water_temperature_c))
+    return max(0.0, daily_l_60c) * CP_WHLK * delta_t / 1000.0
+
+
+def _monthly_air_temperatures_from_station(region_name: str, station_label: str) -> dict[str, float]:
+    station = DEFAULT_EPW_REGIONS.get(region_name, {}).get(station_label)
+    if station is None or not station.path.exists():
+        return {month: 12.0 for month in MONTH_NAMES}
+    _location, hourly_weather = read_epw_hourly_weather_from_zip(
+        station.path,
+        tilt_deg=35.0,
+        azimuth_deg_south=0.0,
+        albedo=0.2,
+    )
+    rows = [{"Mois": MONTH_NAMES[item.month - 1], "Tair": float(item.tair_c)} for item in hourly_weather if 1 <= item.month <= 12]
+    if not rows:
+        return {month: 12.0 for month in MONTH_NAMES}
+    df = pd.DataFrame(rows)
+    means = df.groupby("Mois")["Tair"].mean().to_dict()
+    return {month: float(means.get(month, 12.0)) for month in MONTH_NAMES}
+
+
+def _esm2_cold_water_temperatures(monthly_air_temperatures_c: dict[str, float], offset_c: float = 0.0) -> dict[str, float]:
+    annual_mean = sum(monthly_air_temperatures_c.get(month, 12.0) for month in MONTH_NAMES) / 12.0
+    return {
+        month: min(25.0, max(5.0, 0.6 * annual_mean + 0.4 * monthly_air_temperatures_c.get(month, annual_mean) + offset_c))
+        for month in MONTH_NAMES
+    }
+
 
 def percent(value: float | None, digits: int = 1) -> str:
     if value is None:
@@ -549,11 +668,11 @@ def render_opportunity_notes_app() -> None:
     # ---------------------------------------------------------------------------
     # Onglets de saisie et résultats.
     # ---------------------------------------------------------------------------
-    tab_site, tab_needs, tab_energy, tab_loop, tab_sizing, tab_economics, tab_export = st.tabs(
+    tab_site, tab_energy, tab_needs, tab_loop, tab_sizing, tab_economics, tab_export = st.tabs(
         [
             "1. Projet",
-            "2. Besoins ECS",
-            "3. Eau froide & énergie",
+            "2. Eau froide",
+            "3. Besoins ECS",
             "4. Bouclage sanitaire",
             "5. Prédimensionnement",
             "6. Économie",
@@ -606,7 +725,80 @@ def render_opportunity_notes_app() -> None:
         building_state=building_state,
         data_source=data_source,
     )
-    
+
+    # ---------------------------------------------------------------------------
+    # Eau froide et paramètres de prédimensionnement.
+    # ---------------------------------------------------------------------------
+    cold_water_temperatures = dict(sizing_default.cold_water_temperatures_c)
+    with tab_energy:
+        st.subheader("Température d'eau froide")
+        cold_water_mode = st.radio(
+            "Mode de calcul de la température d'eau froide",
+            options=list(COLD_WATER_MODES),
+            index=0,
+            horizontal=True,
+        )
+        if cold_water_mode == "Température eau froide manuelle":
+            st.caption("Saisir une température moyenne mensuelle d'eau froide.")
+            tef_rows = pd.DataFrame(
+                [
+                    {"Mois": month, "Température eau froide (°C)": float(cold_water_temperatures.get(month, 15.0))}
+                    for month in MONTH_NAMES
+                ]
+            )
+            edited_tef = st.data_editor(
+                tef_rows,
+                hide_index=True,
+                width="stretch",
+                disabled=["Mois"],
+                key=f"{project_ui_key}_cold_water_editor",
+            )
+            cold_water_temperatures = {
+                str(row["Mois"]): float(row["Température eau froide (°C)"]) for _, row in edited_tef.iterrows()
+            }
+        else:
+            station_col, info_col = st.columns(2)
+            with station_col:
+                region_names = list(DEFAULT_EPW_REGIONS.keys())
+                region_name = st.selectbox(
+                    "Région météo",
+                    options=region_names,
+                    index=0,
+                    key=f"{project_ui_key}_nop_cold_weather_region",
+                )
+                station_labels = list(DEFAULT_EPW_REGIONS[region_name].keys())
+                station_label = st.selectbox(
+                    "Station météo",
+                    options=station_labels,
+                    index=0,
+                    key=f"{project_ui_key}_nop_cold_weather_station",
+                )
+            monthly_air = _monthly_air_temperatures_from_station(region_name, station_label)
+            cold_water_temperatures = _esm2_cold_water_temperatures(
+                monthly_air,
+                offset_c=3.0 if cold_water_mode == "Méthode ESM2 + 3 °C" else 0.0,
+            )
+            with info_col:
+                st.info(
+                    "La méthode ESM2 estime l'eau froide à partir des températures extérieures mensuelles "
+                    "de la station EPW sélectionnée. La variante + 3 °C ajoute une marge si le réseau ou le "
+                    "local technique est plus tempéré."
+                )
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Mois": month,
+                            "Température extérieure moyenne (°C)": monthly_air[month],
+                            "Température eau froide retenue (°C)": cold_water_temperatures[month],
+                        }
+                        for month in MONTH_NAMES
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+
     # ---------------------------------------------------------------------------
     # Besoins ECS.
     # ---------------------------------------------------------------------------
@@ -624,20 +816,51 @@ def render_opportunity_notes_app() -> None:
         monthly_coefficients = dict(needs_default.monthly_coefficients)
     
         if data_source == "Mesure de consommation ECS":
-            st.markdown("**Saisie d'une consommation mesurée ou estimée directement en L/j à 60 °C**")
-            st.caption("Saisir la valeur moyenne journalière du mois. Le volume mensuel est calculé avec le nombre exact de jours du mois.")
-            measured_rows = pd.DataFrame(
-                [
-                    {"Mois": month, "Conso mesurée ECS 60°C (L/j)": float(measured_daily.get(month, 0.0))}
-                    for month in MONTH_NAMES
-                ]
+            st.markdown("**Saisie d'une consommation ECS mesurée ou estimée**")
+            st.caption(
+                "Importer un profil mensuel ou saisir les valeurs dans le tableau. "
+                "Le calcul convertit automatiquement vers un volume ECS équivalent à 60 °C."
             )
-            measured_rows = add_excel_paste_box(
-                measured_rows,
-                "Conso mesurée ECS 60°C (L/j)",
-                key=f"{project_ui_key}_measured_daily",
-                label="consommation ECS mesurée",
+            ecs_input_mode = st.radio(
+                "Format du profil ECS",
+                options=list(ECS_PROFILE_INPUT_MODES),
+                horizontal=True,
+                key=f"{project_ui_key}_ecs_profile_input_mode",
             )
+            input_col = {
+                "Profil L/jour moyen": "Profil ECS 60 °C (L/jour moyen)",
+                "Volume m³/mois": "Volume ECS 60 °C (m³/mois)",
+                "Consommation ECS MWh/mois": "Consommation ECS utile (MWh/mois)",
+                "Consommation ECS kWh/jour": "Consommation ECS utile (kWh/jour)",
+            }[ecs_input_mode]
+            default_values = []
+            for month in MONTH_NAMES:
+                daily_l = float(measured_daily.get(month, 0.0))
+                if ecs_input_mode == "Profil L/jour moyen":
+                    value = daily_l
+                elif ecs_input_mode == "Volume m³/mois":
+                    value = daily_l * DAYS_BY_MONTH[month] / 1000.0
+                elif ecs_input_mode == "Consommation ECS MWh/mois":
+                    value = _daily_l_to_monthly_mwh(
+                        daily_l_60c=daily_l,
+                        month=month,
+                        cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                    )
+                else:
+                    value = _daily_l_to_daily_kwh(
+                        daily_l_60c=daily_l,
+                        cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                    )
+                default_values.append({"Mois": month, input_col: float(value)})
+
+            uploaded_profile = st.file_uploader(
+                "Importer un profil ECS mensuel",
+                type=["xlsx", "xls", "csv"],
+                key=f"{project_ui_key}_ecs_profile_upload",
+                help="Fichier avec 12 lignes. Une colonne 'Mois' est optionnelle ; la première colonne numérique est utilisée.",
+            )
+            imported_rows = _read_monthly_profile_upload(uploaded_profile, input_col)
+            measured_rows = imported_rows if imported_rows is not None else pd.DataFrame(default_values)
             edited_measured = st.data_editor(
                 measured_rows,
                 hide_index=True,
@@ -645,10 +868,35 @@ def render_opportunity_notes_app() -> None:
                 disabled=["Mois"],
                 key=f"{project_ui_key}_measured_daily_editor",
             )
-            measured_daily = {
-                str(row["Mois"]): float(max(0.0, row["Conso mesurée ECS 60°C (L/j)"]))
-                for _, row in edited_measured.iterrows()
-            }
+            measured_daily = {}
+            conversion_rows = []
+            for _, row in edited_measured.iterrows():
+                month = str(row["Mois"])
+                daily_l = _value_to_daily_l_60c(
+                    value=float(max(0.0, row[input_col])),
+                    input_mode=ecs_input_mode,
+                    month=month,
+                    cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                )
+                measured_daily[month] = daily_l
+                conversion_rows.append(
+                    {
+                        "Mois": month,
+                        "Volume équivalent ECS 60 °C (L/j)": daily_l,
+                        "Volume équivalent ECS 60 °C (m³/mois)": daily_l * DAYS_BY_MONTH[month] / 1000.0,
+                        "Besoin utile ECS (kWh/j)": _daily_l_to_daily_kwh(
+                            daily_l_60c=daily_l,
+                            cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                        ),
+                        "Besoin utile ECS (MWh/mois)": _daily_l_to_monthly_mwh(
+                            daily_l_60c=daily_l,
+                            month=month,
+                            cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                        ),
+                    }
+                )
+            st.markdown("**Conversions utilisées par le calcul**")
+            st.dataframe(pd.DataFrame(conversion_rows), hide_index=True, width="stretch")
     
             st.markdown("**Unités de référence du site**")
             st.caption(
@@ -685,12 +933,6 @@ def render_opportunity_notes_app() -> None:
                 occupancy_rows = pd.DataFrame(
                     [{"Mois": month, "Nuitées chambres": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
                 )
-                occupancy_rows = add_excel_paste_box(
-                    occupancy_rows,
-                    "Nuitées chambres",
-                    key=f"{project_ui_key}_measured_hotel_occupancy",
-                    label="nuitées chambres",
-                )
                 edited_occupancy = st.data_editor(
                     occupancy_rows,
                     hide_index=True,
@@ -705,12 +947,6 @@ def render_opportunity_notes_app() -> None:
                 st.caption("Renseigner les personnes-nuitées si elles sont disponibles, pour calculer un volume de référence par personne-nuitée.")
                 occupancy_rows = pd.DataFrame(
                     [{"Mois": month, "Personnes-nuitées": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
-                )
-                occupancy_rows = add_excel_paste_box(
-                    occupancy_rows,
-                    "Personnes-nuitées",
-                    key=f"{project_ui_key}_measured_camping_occupancy",
-                    label="personnes-nuitées",
                 )
                 edited_occupancy = st.data_editor(
                     occupancy_rows,
@@ -790,12 +1026,6 @@ def render_opportunity_notes_app() -> None:
             occupancy_rows = pd.DataFrame(
                 [{"Mois": month, "Nuitées chambres": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
             )
-            occupancy_rows = add_excel_paste_box(
-                occupancy_rows,
-                "Nuitées chambres",
-                key=f"{project_ui_key}_hotel_occupancy",
-                label="nuitées chambres",
-            )
             edited_occupancy = st.data_editor(
                 occupancy_rows,
                 hide_index=True,
@@ -818,12 +1048,6 @@ def render_opportunity_notes_app() -> None:
             occupancy_rows = pd.DataFrame(
                 [{"Mois": month, "Personnes-nuitées": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
             )
-            occupancy_rows = add_excel_paste_box(
-                occupancy_rows,
-                "Personnes-nuitées",
-                key=f"{project_ui_key}_camping_occupancy",
-                label="personnes-nuitées",
-            )
             edited_occupancy = st.data_editor(
                 occupancy_rows,
                 hide_index=True,
@@ -842,12 +1066,6 @@ def render_opportunity_notes_app() -> None:
                         {"Mois": month, "Coefficient": float(monthly_coefficients.get(month, DEFAULT_MONTHLY_COEFFICIENTS[month]))}
                         for month in MONTH_NAMES
                     ]
-                )
-                coeff_rows = add_excel_paste_box(
-                    coeff_rows,
-                    "Coefficient",
-                    key=f"{project_ui_key}_monthly_coeff",
-                    label="coefficients mensuels",
                 )
                 edited_coeff = st.data_editor(
                     coeff_rows,
@@ -871,38 +1089,6 @@ def render_opportunity_notes_app() -> None:
         measured_daily_l_60c_by_month=measured_daily,
         monthly_coefficients=monthly_coefficients,
     )
-    
-    # ---------------------------------------------------------------------------
-    # Eau froide et paramètres de prédimensionnement.
-    # ---------------------------------------------------------------------------
-    with tab_energy:
-        st.subheader("Température d'eau froide et besoins utiles")
-        st.info(
-            "La température d'eau froide est initialisée à 15 °C par défaut. "
-            "Elle pourra être remplacée par le profil mensuel issu du module SOLO 2018."
-        )
-        tef_rows = pd.DataFrame(
-            [
-                {"Mois": month, "Température eau froide (°C)": float(sizing_default.cold_water_temperatures_c.get(month, 15.0))}
-                for month in MONTH_NAMES
-            ]
-        )
-        tef_rows = add_excel_paste_box(
-            tef_rows,
-            "Température eau froide (°C)",
-            key=f"{project_ui_key}_cold_water",
-            label="températures d'eau froide",
-        )
-        edited_tef = st.data_editor(
-            tef_rows,
-            hide_index=True,
-            width="stretch",
-            disabled=["Mois"],
-            key=f"{project_ui_key}_cold_water_editor",
-        )
-        cold_water_temperatures = {
-            str(row["Mois"]): float(row["Température eau froide (°C)"]) for _, row in edited_tef.iterrows()
-        }
     
     # ---------------------------------------------------------------------------
     # Bouclage sanitaire.
@@ -1229,6 +1415,29 @@ def render_opportunity_notes_app() -> None:
     except ValueError as exc:
         st.error(str(exc))
         st.stop()
+
+    with tab_needs:
+        st.markdown("### Synthèse du besoin ECS")
+        k1, k2, k3 = st.columns(3)
+        k1.metric(
+            "Consommation moyenne journalière annuelle",
+            f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à 60 °C",
+        )
+        k2.metric(
+            "Besoin utile ECS moyen",
+            f"{number(opportunity_results.annual_useful_energy_mwh * 1000.0 / 365.0, 1)} kWh/j",
+        )
+        k3.metric(
+            "Valeur par unité de référence",
+            f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 1)} L/unité/j",
+        )
+        if opportunity_results.reference_unit_count > 0:
+            st.caption(
+                f"Unité de référence estimée : {number(opportunity_results.reference_unit_count, 1)} "
+                "unité(s) selon la typologie du site."
+            )
+        else:
+            st.caption("Aucune unité de référence exploitable n'est renseignée ; la valeur par unité reprend le volume moyen total.")
     
     with tab_loop:
         st.markdown("### Résultat bouclage")
