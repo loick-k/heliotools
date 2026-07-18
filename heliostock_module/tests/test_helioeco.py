@@ -1,6 +1,10 @@
 from pathlib import Path
 
-from heliostock.opportunity_notes.cesc_economic_model import CescEconomicInputs, compute_cesc_economic_model
+from heliostock.opportunity_notes.cesc_economic_model import (
+    CescEconomicInputs,
+    build_yearly_cashflow_projection,
+    compute_cesc_economic_model,
+)
 
 
 MODULE_ROOT = Path(__file__).resolve().parents[1]
@@ -41,3 +45,14 @@ def test_helioeco_app_is_callable_without_page_config():
     assert "from ..opportunity_notes.cesc_economic_model import" in app_source
     assert "st.set_page_config" not in app_source
     assert "def __getattr__" in package_source
+
+
+def test_helioeco_cashflow_chart_uses_existing_projection_columns():
+    inputs = CescEconomicInputs()
+    results = compute_cesc_economic_model(inputs)
+    cashflow_rows = list(build_yearly_cashflow_projection(inputs, results))
+    app_source = _source("heliostock/helioeco/streamlit_helioeco_app.py")
+
+    assert "Flux annuel inflation annuelle (€)" not in cashflow_rows[0]
+    assert "Économie annuelle inflation (€)" in cashflow_rows[0]
+    assert '"Économie annuelle inflation (€)"' in app_source

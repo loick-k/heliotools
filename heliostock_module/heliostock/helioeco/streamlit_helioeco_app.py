@@ -83,6 +83,14 @@ def _first_positive_year(rows: list[dict[str, float | int]], cumulative_key: str
     return None
 
 
+def _first_available_key(row: dict[str, float | int], candidates: tuple[str, ...]) -> str:
+    for key in candidates:
+        if key in row:
+            return key
+    available = ", ".join(str(key) for key in row)
+    raise KeyError(f"Aucune colonne disponible parmi {candidates}. Colonnes reçues : {available}")
+
+
 def _render_heat_cost_breakdown_plotly(results: CescEconomicResults):
     if go is None:
         return None
@@ -130,13 +138,35 @@ def _render_heat_cost_breakdown_plotly(results: CescEconomicResults):
 
 
 def _render_cashflow_plotly(cashflow_rows: list[dict[str, float | int]]):
-    if go is None:
+    if go is None or not cashflow_rows:
         return None
 
-    years = [int(row["Année"]) for row in cashflow_rows]
-    cumulative = [float(row["Flux cumulé inflation annuelle (€)"]) for row in cashflow_rows]
-    annual = [float(row["Flux annuel inflation annuelle (€)"]) for row in cashflow_rows]
-    breakeven_year = _first_positive_year(cashflow_rows, "Flux cumulé inflation annuelle (€)")
+    sample = cashflow_rows[0]
+    year_key = _first_available_key(sample, ("Année", "Annee"))
+    annual_key = _first_available_key(
+        sample,
+        (
+            "Économie annuelle inflation (€)",
+            "Economie annuelle inflation (€)",
+            "Flux annuel inflation annuelle (€)",
+            "Économie annuelle moyenne (€)",
+            "Economie annuelle moyenne (€)",
+        ),
+    )
+    cumulative_key = _first_available_key(
+        sample,
+        (
+            "Flux cumulé inflation annuelle (€)",
+            "Flux cumule inflation annuelle (€)",
+            "Flux cumulé moyen (€)",
+            "Flux cumule moyen (€)",
+        ),
+    )
+
+    years = [int(row[year_key]) for row in cashflow_rows]
+    cumulative = [float(row[cumulative_key]) for row in cashflow_rows]
+    annual = [float(row[annual_key]) for row in cashflow_rows]
+    breakeven_year = _first_positive_year(cashflow_rows, cumulative_key)
 
     fig = go.Figure()
     fig.add_trace(
