@@ -116,7 +116,8 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
     assert "création libre d'un nouvel administrateur est bloquée" in source
     assert "HELIOSTOCK_ADMIN_EMAIL" in source
     assert "HELIOSTOCK_ADMIN_PASSWORD" in source
-    assert "path.resolve() != users_path" in source
+    assert "def _is_system_project_file" in source
+    assert "LOGIN_EVENTS_FILE.resolve()" in source
 
 
 def test_users_are_restored_from_configured_backup_path():
@@ -195,9 +196,18 @@ def test_projects_are_scoped_to_owner_for_non_admin_users():
     assert "if is_admin_authenticated():" in source
     assert "owner_email == _current_user_email()" in source
     assert "and _can_access_project(path)" in source
+    assert "_is_heliostock_project_file(path)" in source
     assert "def _owned_project_slug" in source
     assert "_owned_project_slug(str(payload['name']))" in source
     assert "Tu n'as pas accès à ce projet." in source
+
+
+def test_login_events_file_is_not_listed_as_project():
+    source = _source("heliostock/ui_portal.py")
+    assert "USERS_FILE.resolve()" in source
+    assert "LOGIN_EVENTS_FILE.resolve()" in source
+    assert "def _is_heliostock_project_file" in source
+    assert 'data.get("app") == "HelioStock"' in source
 
 
 def test_project_state_is_cleared_on_login_and_logout():

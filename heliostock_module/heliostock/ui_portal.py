@@ -700,6 +700,25 @@ def _project_owner_email(path: Path) -> str:
     return _email_normalise(str(data.get("owner_email", "") or data.get("created_by_email", "")))
 
 
+def _is_system_project_file(path: Path) -> bool:
+    resolved = path.resolve()
+    system_files = {
+        USERS_FILE.resolve(),
+        LOGIN_EVENTS_FILE.resolve(),
+    }
+    return resolved in system_files
+
+
+def _is_heliostock_project_file(path: Path) -> bool:
+    if _is_system_project_file(path):
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    return isinstance(data, dict) and data.get("app") == "HelioStock" and isinstance(data.get("widget_values"), dict)
+
+
 def _can_access_project(path: Path) -> bool:
     if is_admin_authenticated():
         return True
@@ -711,11 +730,10 @@ def _project_files() -> list[Path]:
     _restore_projects_from_backup()
     if not PROJECTS_DIR.exists():
         return []
-    users_path = USERS_FILE.resolve()
     files = [
         path
         for path in PROJECTS_DIR.glob("*.json")
-        if path.resolve() != users_path
+        if _is_heliostock_project_file(path)
         and _can_access_project(path)
     ]
     return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
@@ -724,11 +742,10 @@ def _project_files() -> list[Path]:
 def _has_existing_project_data() -> bool:
     if not PROJECTS_DIR.exists():
         return False
-    users_path = USERS_FILE.resolve()
     for path in PROJECTS_DIR.iterdir():
-        if path.resolve() == users_path:
+        if _is_system_project_file(path):
             continue
-        if path.is_file():
+        if path.is_file() and _is_heliostock_project_file(path):
             return True
     return False
 
