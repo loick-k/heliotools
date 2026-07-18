@@ -67,46 +67,60 @@ def test_project_payload_filters_secret_like_widget_keys(monkeypatch):
     assert payload["widget_values"] == {"solar_area_m2": 500.0}
 
 
-def test_readme_documents_project_secret_filtering_and_signed_cache():
+def test_readme_documents_project_secret_filtering_and_json_cache():
     readme = _source("README.md")
     assert "Les secrets ne sont pas sauvegardes dans les fichiers projet" in readme
     for fragment in ["`token`", "`api_key`", "`apikey`", "`secret`", "`password`"]:
         assert fragment in readme
-    assert "HELIOSTOCK_RESULT_CACHE_V1" in readme
+    assert "latest_result.json" in readme
 
 
-def test_project_result_pickle_is_limited_to_local_sidecar():
+def test_project_result_cache_uses_stable_json_artifact():
     source = _source("heliostock/ui_portal.py")
-    assert "RESULT_SIDECAR_SUFFIX" in source
-    assert "RESULT_PICKLE_MAGIC" in source
-    assert "RESULT_PICKLE_MAX_BYTES" in source
+    assert "RESULT_CACHE_FILENAME" in source
+    assert "RESULT_JSON_SCHEMA_VERSION" in source
+    assert "RESULT_JSON_MAX_BYTES" in source
+    assert "DEMAND_INPUT_FILENAME" in source
+    assert "def _project_artifact_paths" in source
     assert "def _assert_local_project_path" in source
     assert "_assert_local_project_path(path)" in source
     assert "_assert_local_project_path(path: Path)" in source
-    assert "payload.startswith(RESULT_PICKLE_MAGIC)" in source
-    assert "pickle.loads(payload[len(RESULT_PICKLE_MAGIC) :])" in source
-    assert "resolved.name.endswith(RESULT_SIDECAR_SUFFIX)" in source
-    assert "Ne jamais brancher" in source
+    assert "def _save_local_result_json" in source
+    assert "def _load_local_result_json" in source
+    assert "project_input_path(path, DEMAND_INPUT_FILENAME)" in source
+    assert "project_result_path(path, RESULT_CACHE_FILENAME)" in source
+    assert "pickle.dumps" not in source
+    assert "pickle.loads" not in source
 
 
-def test_project_result_pickle_requires_heliostock_signature(tmp_path, monkeypatch):
+def test_project_result_json_roundtrip_handles_dataframes(tmp_path, monkeypatch):
     if importlib.util.find_spec("streamlit") is None:
         return
     from heliostock import ui_portal
+    import pandas as pd
 
     projects_dir = tmp_path / "projects"
-    monkeypatch.setattr(ui_portal, "PROJECTS_DIR", projects_dir)
-    result_path = projects_dir / "demo_resultat.pkl"
+    store = ui_portal.JsonProjectStore("heliostock", app_label="HelioStock", root_dir=projects_dir)
+    monkeypatch.setattr(ui_portal, "HELIOSTOCK_PROJECT_STORE", store)
+    project_path = store.save_project(
+        payload={"app": "HelioStock", "widget_values": {}},
+        owner_email="user@example.com",
+        project_name="demo",
+        project_id="aaaaaaaa-0000-0000-0000-000000000000",
+    )
+    _, result_path = ui_portal._project_artifact_paths(project_path)
+    source_df = pd.DataFrame({"A": [1.0, 2.0], "B": ["x", "y"]})
 
-    ui_portal._save_local_result_pickle(result_path, {"ok": True})
-    assert result_path.read_bytes().startswith(ui_portal.RESULT_PICKLE_MAGIC)
-    assert ui_portal._load_local_result_pickle(result_path) == {"ok": True}
+    ui_portal._save_local_result_json(result_path, {"ok": True, "df": source_df})
+    restored = ui_portal._load_local_result_json(result_path)
 
-    unsigned_path = projects_dir / "unsigned_resultat.pkl"
-    unsigned_path.parent.mkdir(parents=True, exist_ok=True)
-    unsigned_path.write_bytes(b"not-a-heliostock-cache")
-    with pytest.raises(ValueError, match="non signé"):
-        ui_portal._load_local_result_pickle(unsigned_path)
+    assert restored["ok"] is True
+    pd.testing.assert_frame_equal(restored["df"], source_df)
+
+    invalid_path = result_path
+    invalid_path.write_text('{"app":"Autre"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="invalide"):
+        ui_portal._load_local_result_json(invalid_path)
 
 
 def test_admin_creation_is_blocked_when_project_data_already_exists():
@@ -146,10 +160,10 @@ def test_projects_are_backed_up_to_github_json_without_result_pickle():
     assert "_restore_projects_from_backup()" in source
     assert "_upsert_project_backup(" in source
     assert "_delete_project_backup(selected_path)" in source
-    assert "_save_local_result_pickle(result_path, cached_result)" in source
+    assert "_save_local_result_json(result_path, cached_result)" in source
     assert "heliostock_projects.json" in readme
-    assert "Le cache resultat" in readme
-    assert "reste local" in readme
+    assert "Le cache resultat JSON" in readme
+    assert "results/latest_result.json" in readme
 
 
 def test_login_events_are_recorded_without_secret_values():
@@ -163,26 +177,28 @@ def test_login_events_are_recorded_without_secret_values():
     assert "_github_write_json_list(" in source
 
 
-def test_solar_dashboard_is_admin_only_and_airtable_inputs_are_hidden():
+def test_solar_dashboard_access_is_configurable_and_airtable_inputs_are_hidden():
     portal_source = _source("heliostock/ui_portal.py")
     dashboard_source = _source("heliostock/solar_thermal_dashboard.py")
 
     assert "APP_HOME_LABEL" in portal_source
     assert "APP_HELIOSTOCK_LABEL" in portal_source
-    assert "if is_admin_authenticated():" in portal_source
-    assert "app_options.append(APP_DASHBOARD_LABEL)" in portal_source
+    assert "APP_ACCESS_LABELS" in portal_source
+    assert "APP_DASHBOARD_LABEL" in portal_source
+    assert "_current_user_allowed_apps()" in portal_source
     assert '"Personal Access Token Airtable"' not in dashboard_source
     assert 'st.sidebar.text_input("Base ID"' not in dashboard_source
     assert 'st.sidebar.text_input("Table ID' not in dashboard_source
     assert '_dashboard_secret("AIRTABLE_TOKEN")' in dashboard_source
 
 
-def test_opportunity_notes_app_is_admin_only_and_callable():
+def test_opportunity_notes_app_access_is_configurable_and_callable():
     portal_source = _source("heliostock/ui_portal.py")
     demo_source = _source("demo_app.py")
     app_source = _source("heliostock/opportunity_notes/streamlit_opportunity_app.py")
 
     assert "APP_OPPORTUNITY_LABEL" in portal_source
+    assert "APP_OPPORTUNITY_LABEL" in " ".join(portal_source.split("APP_ACCESS_LABELS", 1)[1].splitlines()[:4])
     assert "ui_portal.APP_OPPORTUNITY_LABEL" in demo_source
     assert "from heliostock.opportunity_notes import render_opportunity_notes_app" in demo_source
     assert "def render_opportunity_notes_app() -> None:" in app_source
@@ -190,6 +206,19 @@ def test_opportunity_notes_app_is_admin_only_and_callable():
     assert 'APP_KEY = "helionop"' in app_source
     assert 'APP_LABEL = "HelioNOP"' in app_source
     assert "PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)" in app_source
+
+
+def test_helioeco_app_is_registered_in_portal():
+    portal_source = _source("heliostock/ui_portal.py")
+    demo_source = _source("demo_app.py")
+    app_source = _source("heliostock/helioeco/streamlit_helioeco_app.py")
+
+    assert "APP_HELIOECO_LABEL" in portal_source
+    assert "APP_HELIOECO_LABEL" in " ".join(portal_source.split("APP_ACCESS_LABELS", 1)[1].splitlines()[:4])
+    assert "ui_portal.APP_HELIOECO_LABEL" in demo_source
+    assert "from heliostock.helioeco import render_helioeco_app" in demo_source
+    assert "def render_helioeco_app() -> None:" in app_source
+    assert "st.set_page_config" not in app_source
 
 
 def test_admin_panel_is_rendered_as_full_page_not_sidebar():
@@ -210,9 +239,11 @@ def test_admin_panel_is_rendered_as_full_page_not_sidebar():
 def test_projects_are_scoped_to_owner_for_non_admin_users():
     source = _source("heliostock/ui_portal.py")
     assert '"owner_email": _current_user_email()' in source
+    assert '"shared_with_emails": sorted({_email_normalise(str(email)) for email in current_shared' in source
     assert "def _can_access_project" in source
     assert "if is_admin_authenticated():" in source
-    assert "owner_email == _current_user_email()" in source
+    assert "owner_email == current_email" in source
+    assert "current_email in shared_emails" in source
     assert "and _can_access_project(path)" in source
     assert "_is_heliostock_project_file(path)" in source
     assert "HELIOSTOCK_PROJECT_STORE = JsonProjectStore" in source
@@ -221,6 +252,46 @@ def test_projects_are_scoped_to_owner_for_non_admin_users():
     assert "HELIOSTOCK_PROJECT_STORE.list_projects(owner_email=current_email)" in source
     assert '"project_id": str(st.session_state.get("heliostock_current_project_id") or uuid.uuid4())' in source
     assert "ce projet." in source
+
+
+def test_admin_can_manage_app_and_project_access():
+    source = _source("heliostock/ui_portal.py")
+    assert "APP_ACCESS_LABELS" in source
+    assert "def _user_app_access" in source
+    assert "def _update_user_app_access" in source
+    assert "def _render_app_access_admin" in source
+    assert "def _render_project_access_admin" in source
+    assert "Applications autorisées" in source
+    assert "Utilisateurs autorisés en plus du propriétaire" in source
+    assert "_render_app_access_admin(users)" in source
+    assert "_render_project_access_admin(users)" in source
+    assert "selected_access = st.multiselect" in source
+    assert "_set_project_shared_emails(selected_path, selected_shared)" in source
+
+
+def test_project_access_accepts_shared_users(tmp_path, monkeypatch):
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    store = ui_portal.JsonProjectStore("heliostock", app_label="HelioStock", root_dir=tmp_path)
+    monkeypatch.setattr(ui_portal, "HELIOSTOCK_PROJECT_STORE", store)
+    monkeypatch.setattr(ui_portal, "PROJECTS_DIR", tmp_path / "legacy")
+    project_path = store.save_project(
+        payload={
+            "app": "HelioStock",
+            "widget_values": {},
+            "shared_with_emails": ["bob@example.com"],
+        },
+        owner_email="alice@example.com",
+        project_name="Demo",
+        project_id="aaaaaaaa-0000-0000-0000-000000000000",
+    )
+
+    monkeypatch.setitem(ui_portal.st.session_state, "user", {"email": "bob@example.com", "role": "user"})
+    monkeypatch.setitem(ui_portal.st.session_state, "heliostock_admin_authenticated", False)
+
+    assert ui_portal._can_access_project(project_path)
 
 
 def test_login_events_file_is_not_listed_as_project():

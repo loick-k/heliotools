@@ -64,23 +64,37 @@ HelioStock dans un fichier JSON versionne sur GitHub. Configurer les secrets :
 - `GITHUB_BACKUP_TOKEN` : token GitHub avec droit d'ecriture sur le depot ;
 - `GITHUB_BACKUP_PROJECTS_PATH` : chemin du JSON projets, par defaut `seed_data/heliostock_projects.json`.
 
-Ce JSON conserve les parametres projet et le fichier Excel de besoins horaires encode en base64. Le cache resultat
-pickle reste local pour eviter de pousser de gros objets Python fragiles dans GitHub ; apres reboot, un projet restaure
-peut donc necessiter de relancer le calcul si le cache local n'existe plus.
+Ce JSON conserve les parametres projet et le fichier Excel de besoins horaires encode en base64. Localement, les
+fichiers annexes HelioStock sont ranges dans un dossier explicite associe au projet :
+
+- `inputs/besoins_horaires.xlsx` pour le fichier Excel importe ;
+- `results/latest_result.json` pour le dernier resultat calcule.
 
 Les secrets ne sont pas sauvegardes dans les fichiers projet. Les cles contenant `token`, `api_key`, `apikey`,
 `secret` ou `password` sont filtrees au moment de creer le payload projet. Le token Airtable doit rester dans les
 secrets Streamlit ou dans la session d'execution, jamais dans un projet exporte.
 
-Le cache de resultat utilise encore un format pickle provisoire, car l'objet de resultat contient des structures Python
-complexes. Pour limiter le risque, HelioTools ne charge que des caches locaux situes dans le dossier projet HelioStock,
-avec suffixe dedie `_resultat.pkl`, taille plafonnee et en-tete signe `HELIOSTOCK_RESULT_CACHE_V1`. Un cache ancien ou
-non signe est ignore : il faut alors relancer le calcul pour regenerer les resultats.
+Le cache resultat JSON remplace l'ancien pickle. Les tableaux pandas et dataclasses HelioStock sont encodes dans une
+structure JSON stable afin d'eviter les erreurs de deserialisation apres reboot ou rechargement Streamlit. Les anciens
+caches `_resultat.pkl` sont ignores : il faut relancer puis enregistrer le calcul pour creer `results/latest_result.json`.
 
 Pour le fichier Excel process actuellement supporte, le mapping est :
 
 - `E besoin HT kWh` / `P besoin HT kW` -> besoin HT 60 C ;
 - `E besoin BT kWh` / `P besoin BT kW` -> besoin BT 25 C.
+
+## Applications HelioTools
+
+Le portail regroupe plusieurs applications activables par utilisateur :
+
+- HelioStock : pré-dimensionnement solaire thermique, géothermie et champ de sondes ;
+- HelioNOP : note d'opportunité solaire thermique ;
+- HelioEco : simulateur économique solaire thermique CESC ;
+- Dashboard solaire thermique : suivi du parc depuis Airtable.
+
+HelioEco réutilise le moteur économique CESC déjà présent dans HelioNOP afin d'éviter deux implémentations divergentes
+des mêmes formules. Les éventuelles passerelles plus profondes entre HelioEco, HelioNOP et les futurs modules seront
+faites progressivement après validation métier.
 
 ## Integration dans une app Streamlit existante
 

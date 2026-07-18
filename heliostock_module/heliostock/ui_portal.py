@@ -1,12 +1,12 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
 import json
-import pickle
 import re
 import base64
 import hashlib
 import hmac
+import math
 import os
 import time
 import uuid
@@ -33,8 +33,10 @@ HELIOSTOCK_PROJECT_STORE = JsonProjectStore("heliostock", app_label="HelioStock"
 USERS_FILE = PROJECTS_DIR / "users.json"
 LOGIN_EVENTS_FILE = PROJECTS_DIR / "login_events.json"
 RESULT_SIDECAR_SUFFIX = "_resultat.pkl"
-RESULT_PICKLE_MAGIC = b"HELIOSTOCK_RESULT_CACHE_V1\n"
-RESULT_PICKLE_MAX_BYTES = 200 * 1024 * 1024
+RESULT_CACHE_FILENAME = "latest_result.json"
+RESULT_JSON_SCHEMA_VERSION = 1
+RESULT_JSON_MAX_BYTES = 200 * 1024 * 1024
+DEMAND_INPUT_FILENAME = "besoins_horaires.xlsx"
 DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"
 DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"
 DEFAULT_BACKUP_INSTALLATIONS_PATH = "seed_data/installations.json"
@@ -53,6 +55,8 @@ APP_HELIOSTOCK_LABEL = "HelioStock"
 APP_ADMIN_LABEL = "Administration HelioTools"
 APP_DASHBOARD_LABEL = "Dashboard solaire thermique"
 APP_OPPORTUNITY_LABEL = "HelioNOP"
+APP_HELIOECO_LABEL = "HelioEco"
+APP_ACCESS_LABELS = (APP_HELIOSTOCK_LABEL, APP_DASHBOARD_LABEL, APP_OPPORTUNITY_LABEL, APP_HELIOECO_LABEL)
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -365,7 +369,7 @@ def _restore_projects_from_backup() -> None:
         path = PROJECTS_DIR / f"{slug}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         demand_encoded = project.get("demand_excel_base64")
-        demand_path, _ = _project_sidecar_paths(path)
+        demand_path, _ = _project_artifact_paths(path)
         if isinstance(demand_encoded, str) and demand_encoded:
             try:
                 demand_path.write_bytes(base64.b64decode(demand_encoded.encode("ascii")))
@@ -434,6 +438,44 @@ def _save_users(users: list[dict[str, Any]]) -> None:
         users,
         message="chore: update heliotools users backup",
     )
+
+
+def _default_app_access(role: str) -> list[str]:
+    if str(role or "").strip().lower() == "admin":
+        return list(APP_ACCESS_LABELS)
+    return [APP_HELIOSTOCK_LABEL]
+
+
+def _user_app_access(user: dict[str, Any] | None) -> list[str]:
+    if not isinstance(user, dict):
+        return []
+    role = str(user.get("role", "user"))
+    if role == "admin":
+        return list(APP_ACCESS_LABELS)
+    configured = user.get("app_access")
+    if isinstance(configured, list):
+        allowed = [str(item) for item in configured if str(item) in APP_ACCESS_LABELS]
+        return allowed or [APP_HELIOSTOCK_LABEL]
+    return _default_app_access(role)
+
+
+def _update_user_app_access(email: str, app_access: list[str]) -> None:
+    email_norm = _email_normalise(email)
+    clean_access = [label for label in APP_ACCESS_LABELS if label in set(app_access)]
+    users = _load_users()
+    changed = False
+    for user in users:
+        if _email_normalise(str(user.get("email", ""))) != email_norm:
+            continue
+        if str(user.get("role", "user")) == "admin":
+            user["app_access"] = list(APP_ACCESS_LABELS)
+        else:
+            user["app_access"] = clean_access
+        changed = True
+        break
+    if not changed:
+        raise ValueError("Utilisateur introuvable.")
+    _save_users(users)
 
 
 def _append_login_event(*, email: str, success: bool, reason: str = "", role: str = "") -> None:
@@ -516,6 +558,7 @@ def _create_user(email: str, name: str, password: str, *, role: str = "user") ->
             "email": email_norm,
             "nom": str(name or "").strip() or email_norm,
             "role": role_value,
+            "app_access": _default_app_access(role_value),
             "password_hash": _hash_password(password),
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "active": True,
@@ -619,6 +662,7 @@ def _connect_user(email: str, password: str) -> bool:
         "email": user.get("email"),
         "nom": user.get("nom") or user.get("email"),
         "role": user.get("role", "user"),
+        "app_access": _user_app_access(user),
     }
     st.session_state["heliostock_admin_authenticated"] = user.get("role") == "admin"
     st.session_state["heliostock_admin_email"] = str(user.get("email", ""))
@@ -654,6 +698,13 @@ def _current_user_email() -> str:
     return ""
 
 
+def _current_user_allowed_apps() -> list[str]:
+    user = st.session_state.get("user")
+    if isinstance(user, dict):
+        return _user_app_access(user)
+    return []
+
+
 def _clear_project_session_state() -> None:
     for key in (
         "heliostock_last_result",
@@ -663,6 +714,7 @@ def _clear_project_session_state() -> None:
         "heliostock_demand_file_name",
         "portal_project_to_load",
         "portal_project_name",
+        "heliostock_current_project_shared_with",
     ):
         st.session_state.pop(key, None)
 
@@ -679,6 +731,43 @@ def _project_owner_email(path: Path) -> str:
     if not isinstance(data, dict):
         return ""
     return _email_normalise(str(data.get("owner_email", "") or data.get("created_by_email", "")))
+
+
+def _project_shared_emails(path: Path) -> list[str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, dict):
+        return []
+    shared = data.get("shared_with_emails", [])
+    if not isinstance(shared, list):
+        return []
+    return sorted({_email_normalise(str(email)) for email in shared if _email_normalise(str(email))})
+
+
+def _set_project_shared_emails(path: Path, emails: list[str]) -> None:
+    path = _assert_local_project_path(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Format de projet JSON invalide.")
+    owner = _project_owner_email(path)
+    clean = sorted(
+        {
+            _email_normalise(str(email))
+            for email in emails
+            if _email_normalise(str(email)) and _email_normalise(str(email)) != owner
+        }
+    )
+    data["shared_with_emails"] = clean
+    data["updated_at"] = now_iso()
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    demand_path, _ = _project_artifact_paths(path)
+    legacy_demand_path, _ = _legacy_project_sidecar_paths(path)
+    demand_bytes = demand_path.read_bytes() if demand_path.exists() else None
+    if demand_bytes is None and legacy_demand_path.exists():
+        demand_bytes = legacy_demand_path.read_bytes()
+    _upsert_project_backup(path=path, payload=data, demand_bytes=demand_bytes)
 
 
 def _is_system_project_file(path: Path) -> bool:
@@ -704,7 +793,9 @@ def _can_access_project(path: Path) -> bool:
     if is_admin_authenticated():
         return True
     owner_email = _project_owner_email(path)
-    return bool(owner_email and owner_email == _current_user_email())
+    current_email = _current_user_email()
+    shared_emails = _project_shared_emails(path)
+    return bool(current_email and (owner_email == current_email or current_email in shared_emails))
 
 
 def _project_files() -> list[Path]:
@@ -741,6 +832,25 @@ def _project_files() -> list[Path]:
     return sorted(unique_files, key=lambda path: path.stat().st_mtime, reverse=True)
 
 
+def _all_heliostock_project_files() -> list[Path]:
+    _restore_projects_from_backup()
+    roots = [PROJECTS_DIR, HELIOSTOCK_PROJECT_STORE.app_dir()]
+    files: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.json"):
+            if not _is_heliostock_project_file(path):
+                continue
+            resolved = str(path.resolve())
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            files.append(path)
+    return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+
+
 def _has_existing_project_data() -> bool:
     roots = [PROJECTS_DIR, HELIOSTOCK_PROJECT_STORE.app_dir()]
     for root in roots:
@@ -772,7 +882,7 @@ def _project_label(path: Path) -> str:
     return str(data.get("name") or path.stem)
 
 
-def _project_sidecar_paths(path: Path) -> tuple[Path, Path]:
+def _legacy_project_sidecar_paths(path: Path) -> tuple[Path, Path]:
     _assert_local_project_path(path)
     stem = path.with_suffix("")
     return (
@@ -781,77 +891,120 @@ def _project_sidecar_paths(path: Path) -> tuple[Path, Path]:
     )
 
 
-def _load_local_result_pickle(path: Path) -> Any:
-    """Charge un résultat généré localement par HelioStock.
-
-    Le format pickle est conservé provisoirement parce que les résultats
-    contiennent des objets Python complexes. La désérialisation reste limitée
-    aux caches locaux générés par l'outil, avec chemin local contrôlé, suffixe
-    dédié, taille plafonnée et en-tête signé HelioStock. Ne jamais brancher
-    cette fonction sur un upload utilisateur ou un fichier externe non maîtrisé.
-    """
-    resolved = _assert_local_project_path(path)
-    if not resolved.name.endswith(RESULT_SIDECAR_SUFFIX):
-        raise ValueError("Cache résultat HelioStock non reconnu.")
-    payload = resolved.read_bytes()
-    if len(payload) > RESULT_PICKLE_MAX_BYTES:
-        raise ValueError("Cache résultat HelioStock trop volumineux.")
-    if not payload.startswith(RESULT_PICKLE_MAGIC):
-        raise ValueError("Cache résultat HelioStock non signé par cette version.")
-    return _restore_result_cache_payload(pickle.loads(payload[len(RESULT_PICKLE_MAGIC) :]))
+def _project_artifact_paths(path: Path) -> tuple[Path, Path]:
+    _assert_local_project_path(path)
+    try:
+        demand_path = HELIOSTOCK_PROJECT_STORE.project_input_path(path, DEMAND_INPUT_FILENAME)
+        result_path = HELIOSTOCK_PROJECT_STORE.project_result_path(path, RESULT_CACHE_FILENAME)
+    except ValueError:
+        artifact_root = path.with_suffix("")
+        demand_path = artifact_root / "inputs" / DEMAND_INPUT_FILENAME
+        result_path = artifact_root / "results" / RESULT_CACHE_FILENAME
+        demand_path.parent.mkdir(parents=True, exist_ok=True)
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+    return demand_path, result_path
 
 
-def _prepare_result_cache_payload(value: Any) -> Any:
-    """Convertit les dataclasses HelioStock en structures stables pour pickle.
+def _encode_result_cache_value(value: Any) -> Any:
+    """Encode le résultat HelioStock dans un JSON stable et relisible."""
 
-    Streamlit Cloud peut recharger les modules entre deux exécutions. Pickle
-    échoue alors si un objet dataclass a été créé avec une ancienne référence
-    de classe. On sauvegarde donc les champs plutôt que l'objet Python exact.
-    """
     if isinstance(value, pd.DataFrame):
+        return {
+            "__heliostock_type__": "dataframe",
+            "orient": "split",
+            "value": json.loads(value.to_json(orient="split", date_format="iso", date_unit="s")),
+        }
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, (str, int, bool)) or value is None:
         return value
     if is_dataclass(value) and not isinstance(value, type):
         return {
-            "__heliostock_dataclass__": f"{value.__class__.__module__}.{value.__class__.__qualname__}",
+            "__heliostock_type__": "dataclass",
+            "class": f"{value.__class__.__module__}.{value.__class__.__qualname__}",
             "fields": {
-                field.name: _prepare_result_cache_payload(getattr(value, field.name))
+                field.name: _encode_result_cache_value(getattr(value, field.name))
                 for field in fields(value)
             },
         }
     if isinstance(value, dict):
-        return {key: _prepare_result_cache_payload(item) for key, item in value.items()}
+        return {str(key): _encode_result_cache_value(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_prepare_result_cache_payload(item) for item in value]
+        return [_encode_result_cache_value(item) for item in value]
     if isinstance(value, tuple):
-        return tuple(_prepare_result_cache_payload(item) for item in value)
-    return value
+        return {
+            "__heliostock_type__": "tuple",
+            "value": [_encode_result_cache_value(item) for item in value],
+        }
+    if hasattr(value, "item"):
+        try:
+            return _encode_result_cache_value(value.item())
+        except Exception:
+            pass
+    return str(value)
 
 
-def _restore_result_cache_payload(value: Any) -> Any:
-    if isinstance(value, dict) and "__heliostock_dataclass__" in value and isinstance(value.get("fields"), dict):
+def _decode_result_cache_value(value: Any) -> Any:
+    if isinstance(value, dict) and value.get("__heliostock_type__") == "dataframe":
+        frame = value.get("value", {})
+        if not isinstance(frame, dict):
+            return pd.DataFrame()
+        return pd.DataFrame(
+            data=frame.get("data", []),
+            index=frame.get("index", None),
+            columns=frame.get("columns", None),
+        )
+    if isinstance(value, dict) and value.get("__heliostock_type__") == "dataclass" and isinstance(value.get("fields"), dict):
         restored_fields = {
-            key: _restore_result_cache_payload(item)
+            key: _decode_result_cache_value(item)
             for key, item in value["fields"].items()
         }
         return SimpleNamespace(**restored_fields)
+    if isinstance(value, dict) and value.get("__heliostock_type__") == "tuple":
+        items = value.get("value", [])
+        if not isinstance(items, list):
+            return tuple()
+        return tuple(_decode_result_cache_value(item) for item in items)
     if isinstance(value, dict):
-        return {key: _restore_result_cache_payload(item) for key, item in value.items()}
+        return {key: _decode_result_cache_value(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_restore_result_cache_payload(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(_restore_result_cache_payload(item) for item in value)
+        return [_decode_result_cache_value(item) for item in value]
     return value
 
 
-def _save_local_result_pickle(path: Path, result: Any) -> None:
-    """Sauvegarde locale du dernier résultat calculé par HelioStock."""
+def _save_local_result_json(path: Path, result: Any) -> None:
+    """Sauvegarde locale stable du dernier résultat calculé par HelioStock."""
+
     resolved = _assert_local_project_path(path)
-    if not resolved.name.endswith(RESULT_SIDECAR_SUFFIX):
+    if resolved.name != RESULT_CACHE_FILENAME:
         raise ValueError("Chemin de cache résultat HelioStock invalide.")
-    payload = pickle.dumps(_prepare_result_cache_payload(result), protocol=pickle.HIGHEST_PROTOCOL)
-    if len(payload) > RESULT_PICKLE_MAX_BYTES:
+    cache_payload = {
+        "schema_version": RESULT_JSON_SCHEMA_VERSION,
+        "app": "HelioStock",
+        "created_at": now_iso(),
+        "result": _encode_result_cache_value(result),
+    }
+    payload = json.dumps(cache_payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(payload) > RESULT_JSON_MAX_BYTES:
         raise ValueError("Cache résultat HelioStock trop volumineux.")
-    resolved.write_bytes(RESULT_PICKLE_MAGIC + payload)
+    resolved.write_bytes(payload)
+
+
+def _load_local_result_json(path: Path) -> Any:
+    """Charge le cache JSON stable du dernier résultat HelioStock."""
+
+    resolved = _assert_local_project_path(path)
+    if resolved.name != RESULT_CACHE_FILENAME:
+        raise ValueError("Cache résultat HelioStock non reconnu.")
+    payload = resolved.read_bytes()
+    if len(payload) > RESULT_JSON_MAX_BYTES:
+        raise ValueError("Cache résultat HelioStock trop volumineux.")
+    data = json.loads(payload.decode("utf-8"))
+    if not isinstance(data, dict) or data.get("app") != "HelioStock":
+        raise ValueError("Cache résultat HelioStock invalide.")
+    if int(data.get("schema_version", 0) or 0) > RESULT_JSON_SCHEMA_VERSION:
+        raise ValueError("Cache résultat HelioStock créé par une version plus récente.")
+    return _decode_result_cache_value(data.get("result"))
 
 
 def _jsonable(value: Any) -> Any:
@@ -871,6 +1024,9 @@ def _project_payload(name: str) -> dict[str, Any]:
         for key in SAVEABLE_WIDGET_KEYS
         if key in st.session_state and _is_safe_project_widget_key(key)
     }
+    current_shared = st.session_state.get("heliostock_current_project_shared_with", [])
+    if not isinstance(current_shared, list):
+        current_shared = []
     return {
         "schema_version": 2,
         "app_key": HELIOSTOCK_PROJECT_STORE.app_key,
@@ -882,6 +1038,7 @@ def _project_payload(name: str) -> dict[str, Any]:
         "saved_at": now_iso(),
         "app": "HelioStock",
         "widget_values": widget_values,
+        "shared_with_emails": sorted({_email_normalise(str(email)) for email in current_shared if _email_normalise(str(email))}),
         "has_demand_excel": bool(st.session_state.get("heliostock_demand_file_bytes")),
         "has_cached_result": bool(st.session_state.get("heliostock_last_result")),
         "note": "Le fichier Excel de besoins horaires et le dernier résultat calculé sont stockés avec le projet.",
@@ -905,8 +1062,13 @@ def _load_project(path: Path) -> None:
             st.session_state[key] = value
     st.session_state["heliostock_current_project_name"] = str(data.get("name") or path.stem)
     st.session_state["heliostock_current_project_id"] = str(data.get("project_id") or path.with_suffix("").name)
-    demand_path, result_path = _project_sidecar_paths(path)
-    if demand_path.exists():
+    st.session_state["heliostock_current_project_shared_with"] = _project_shared_emails(path)
+    demand_path, result_path = _project_artifact_paths(path)
+    legacy_demand_path, legacy_result_path = _legacy_project_sidecar_paths(path)
+    if not demand_path.exists() and legacy_demand_path.exists():
+        st.session_state["heliostock_demand_file_bytes"] = legacy_demand_path.read_bytes()
+        st.session_state["heliostock_demand_file_name"] = legacy_demand_path.name
+    elif demand_path.exists():
         st.session_state["heliostock_demand_file_bytes"] = demand_path.read_bytes()
         st.session_state["heliostock_demand_file_name"] = demand_path.name
     else:
@@ -914,7 +1076,7 @@ def _load_project(path: Path) -> None:
         st.session_state.pop("heliostock_demand_file_name", None)
     if result_path.exists():
         try:
-            st.session_state["heliostock_last_result"] = _load_local_result_pickle(result_path)
+            st.session_state["heliostock_last_result"] = _load_local_result_json(result_path)
         except Exception:
             st.session_state.pop("heliostock_last_result", None)
             st.warning(
@@ -922,6 +1084,8 @@ def _load_project(path: Path) -> None:
             )
     else:
         st.session_state.pop("heliostock_last_result", None)
+        if legacy_result_path.exists():
+            st.info("Un ancien cache résultat pickle a été ignoré. Relance un calcul puis enregistre le projet.")
 
 
 def render_brand_header(*, subtitle: str = "Outil en bêta test", show_partner_logo: bool = False) -> None:
@@ -1015,6 +1179,117 @@ def _format_event_outcome(event: dict[str, Any]) -> str:
     return "Connexion réussie" if event.get("success") else "Échec"
 
 
+def _user_display_label(user: dict[str, Any]) -> str:
+    email = _email_normalise(str(user.get("email", "")))
+    name = str(user.get("nom", "") or email)
+    role = str(user.get("role", "user"))
+    return f"{name} <{email}> - {role}"
+
+
+def _project_access_label(path: Path) -> str:
+    owner = _project_owner_email(path) or "sans propriétaire"
+    return f"{_project_label(path)} - {owner}"
+
+
+def _render_app_access_admin(users: list[dict[str, Any]]) -> None:
+    st.markdown("### Accès aux applications")
+    if not users:
+        st.info("Aucun utilisateur à configurer.")
+        return
+
+    rows = [
+        {
+            "Email": user.get("email", ""),
+            "Nom": user.get("nom", ""),
+            "Rôle": user.get("role", "user"),
+            "Applications autorisées": ", ".join(_user_app_access(user)),
+        }
+        for user in users
+    ]
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+    user_labels = [_user_display_label(user) for user in users]
+    selected_label = st.selectbox("Utilisateur à modifier", options=user_labels, key="admin_app_access_user")
+    selected_user = users[user_labels.index(selected_label)]
+    selected_email = _email_normalise(str(selected_user.get("email", "")))
+    if str(selected_user.get("role", "user")) == "admin":
+        st.info("Un administrateur a accès à toutes les applications.")
+        st.multiselect(
+            "Applications autorisées",
+            options=list(APP_ACCESS_LABELS),
+            default=list(APP_ACCESS_LABELS),
+            disabled=True,
+            key=f"admin_app_access_admin_preview_{safe_slug(selected_email)}",
+        )
+        return
+
+    selected_access = st.multiselect(
+        "Applications autorisées",
+        options=list(APP_ACCESS_LABELS),
+        default=_user_app_access(selected_user),
+        key=f"admin_app_access_selected_{safe_slug(selected_email)}",
+    )
+    if st.button("Enregistrer les accès applications", type="primary", width="stretch"):
+        _update_user_app_access(selected_email, selected_access)
+        current_user = st.session_state.get("user")
+        if isinstance(current_user, dict) and _email_normalise(str(current_user.get("email", ""))) == selected_email:
+            current_user["app_access"] = selected_access
+        st.success("Accès applications mis à jour.")
+        st.rerun()
+
+
+def _render_project_access_admin(users: list[dict[str, Any]]) -> None:
+    st.markdown("### Accès aux projets HelioStock")
+    projects = _all_heliostock_project_files()
+    user_by_email = {
+        _email_normalise(str(user.get("email", ""))): user
+        for user in users
+        if _email_normalise(str(user.get("email", "")))
+    }
+
+    if not projects:
+        st.info("Aucun projet HelioStock sauvegardé.")
+        return
+
+    rows = []
+    for path in projects:
+        owner = _project_owner_email(path)
+        shared = _project_shared_emails(path)
+        explicit_access = [owner] + [email for email in shared if email != owner]
+        rows.append(
+            {
+                "Projet": _project_label(path),
+                "Propriétaire": owner,
+                "Utilisateurs autorisés": ", ".join(email for email in explicit_access if email),
+                "Accès admin": "tous les admins",
+            }
+        )
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+    project_labels = [_project_access_label(path) for path in projects]
+    selected_project_label = st.selectbox(
+        "Projet à modifier",
+        options=project_labels,
+        key="admin_project_access_project",
+    )
+    selected_path = projects[project_labels.index(selected_project_label)]
+    owner = _project_owner_email(selected_path)
+    candidate_emails = sorted(email for email in user_by_email if email != owner)
+    default_shared = [email for email in _project_shared_emails(selected_path) if email in candidate_emails]
+    selected_shared = st.multiselect(
+        "Utilisateurs autorisés en plus du propriétaire",
+        options=candidate_emails,
+        default=default_shared,
+        format_func=lambda email: _user_display_label(user_by_email.get(email, {"email": email})),
+        key=f"admin_project_access_shared_{safe_slug(str(selected_path.with_suffix('').name))}",
+    )
+    st.caption("Le propriétaire du projet et les administrateurs conservent toujours l'accès.")
+    if st.button("Enregistrer les accès projet", type="primary", width="stretch"):
+        _set_project_shared_emails(selected_path, selected_shared)
+        st.success("Accès projet mis à jour.")
+        st.rerun()
+
+
 def render_heliotools_home_page() -> None:
     """Page d'accueil du portail HelioTools après authentification."""
 
@@ -1027,6 +1302,7 @@ def render_heliotools_home_page() -> None:
     )
 
     st.markdown("### Applications disponibles")
+    allowed_apps = set(_current_user_allowed_apps())
     cards = [
         (
             APP_HELIOSTOCK_LABEL,
@@ -1034,25 +1310,31 @@ def render_heliotools_home_page() -> None:
             "Ouvrir HelioStock",
         )
     ]
+    optional_cards = [
+        (
+            APP_DASHBOARD_LABEL,
+            "Pilotage du parc solaire thermique depuis les données Airtable.",
+            "Ouvrir le dashboard",
+        ),
+        (
+            APP_OPPORTUNITY_LABEL,
+            "Réalisation de notes d'opportunité solaire thermique.",
+            "Ouvrir HelioNOP",
+        ),
+        (
+            APP_HELIOECO_LABEL,
+            "Simulation économique solaire thermique centrée sur P1', P2, P4, aides et temps de retour.",
+            "Ouvrir HelioEco",
+        ),
+    ]
+    cards = [card for card in cards + optional_cards if card[0] in allowed_apps]
     if is_admin_authenticated():
-        cards.extend(
-            [
-                (
-                    APP_DASHBOARD_LABEL,
-                    "Pilotage du parc solaire thermique depuis les données Airtable.",
-                    "Ouvrir le dashboard",
-                ),
-                (
-                    APP_OPPORTUNITY_LABEL,
-                    "Réalisation de notes d'opportunité solaire thermique.",
-                    "Ouvrir HelioNOP",
-                ),
-                (
-                    APP_ADMIN_LABEL,
-                    "Gestion des comptes, rôles et connexions au portail.",
-                    "Administrer",
-                ),
-            ]
+        cards.append(
+            (
+                APP_ADMIN_LABEL,
+                "Gestion des comptes, rôles et connexions au portail.",
+                "Administrer",
+            )
         )
 
     columns = st.columns(2)
@@ -1133,6 +1415,9 @@ def render_admin_dashboard_page() -> None:
     else:
         st.info("Aucun utilisateur enregistré.")
 
+    _render_app_access_admin(users)
+    _render_project_access_admin(users)
+
     st.markdown("### Connexions récentes")
     if events:
         events_df = pd.DataFrame(
@@ -1168,11 +1453,10 @@ def render_portal_sidebar() -> str:
                 st.rerun()
             st.divider()
 
-        app_options = [APP_HOME_LABEL, APP_HELIOSTOCK_LABEL]
+        allowed_apps = _current_user_allowed_apps()
+        app_options = [APP_HOME_LABEL] + [label for label in APP_ACCESS_LABELS if label in allowed_apps]
         if is_admin_authenticated():
             app_options.append(APP_ADMIN_LABEL)
-            app_options.append(APP_DASHBOARD_LABEL)
-            app_options.append(APP_OPPORTUNITY_LABEL)
         requested_app = st.session_state.pop("portal_app_requested", None)
         if requested_app in app_options:
             st.session_state["portal_app"] = requested_app
@@ -1203,9 +1487,12 @@ def render_portal_sidebar() -> str:
                         st.success("Projet chargé.")
                         st.rerun()
                     if c2.button("Supprimer", width="stretch"):
-                        demand_path, result_path = _project_sidecar_paths(selected_path)
+                        demand_path, result_path = _project_artifact_paths(selected_path)
+                        legacy_demand_path, legacy_result_path = _legacy_project_sidecar_paths(selected_path)
                         demand_path.unlink(missing_ok=True)
                         result_path.unlink(missing_ok=True)
+                        legacy_demand_path.unlink(missing_ok=True)
+                        legacy_result_path.unlink(missing_ok=True)
                         _delete_project_backup(selected_path)
                         selected_path.unlink(missing_ok=True)
                         st.session_state.pop("heliostock_current_project_name", None)
@@ -1273,12 +1560,15 @@ def render_project_save_controls() -> None:
                 project_name=str(payload["name"]),
                 project_id=str(payload.get("project_id", "")) or None,
             )
-            demand_path, result_path = _project_sidecar_paths(path)
+            demand_path, result_path = _project_artifact_paths(path)
+            legacy_demand_path, legacy_result_path = _legacy_project_sidecar_paths(path)
             demand_bytes = st.session_state.get("heliostock_demand_file_bytes")
             if demand_bytes:
                 demand_path.write_bytes(bytes(demand_bytes))
+                legacy_demand_path.unlink(missing_ok=True)
             else:
                 demand_path.unlink(missing_ok=True)
+                legacy_demand_path.unlink(missing_ok=True)
             _upsert_project_backup(
                 path=path,
                 payload=payload,
@@ -1286,9 +1576,11 @@ def render_project_save_controls() -> None:
             )
             cached_result = st.session_state.get("heliostock_last_result")
             if cached_result is not None:
-                _save_local_result_pickle(result_path, cached_result)
+                _save_local_result_json(result_path, cached_result)
+                legacy_result_path.unlink(missing_ok=True)
             else:
                 result_path.unlink(missing_ok=True)
+                legacy_result_path.unlink(missing_ok=True)
             st.session_state["heliostock_current_project_name"] = str(payload["name"])
             st.session_state["heliostock_current_project_id"] = str(payload["project_id"])
             st.success(f"Projet enregistré : {payload['name']}")

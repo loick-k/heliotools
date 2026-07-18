@@ -72,3 +72,17 @@ elif selected_app == ui_portal.APP_OPPORTUNITY_LABEL:
     except Exception:
         _show_startup_error("HelioNOP a rencontré une erreur.")
 
+elif selected_app == ui_portal.APP_HELIOECO_LABEL:
+    try:
+        from heliostock.helioeco import render_helioeco_app
+
+        render_helioeco_app()
+    except ModuleNotFoundError as exc:
+        st.error(
+            "HelioEco nécessite des dépendances optionnelles. "
+            "Vérifie que `plotly` et `pandas` sont installés, puis relance l'application."
+        )
+        st.caption(str(exc))
+    except Exception:
+        _show_startup_error("HelioEco a rencontré une erreur.")
+

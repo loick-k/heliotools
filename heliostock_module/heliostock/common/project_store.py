@@ -36,6 +36,8 @@ class JsonProjectStore:
 
     Layout:
     ~/.heliotools/projects/<app_key>/<owner_email_slug>/<project>.json
+    ~/.heliotools/projects/<app_key>/<owner_email_slug>/<project>/inputs/...
+    ~/.heliotools/projects/<app_key>/<owner_email_slug>/<project>/results/...
 
     The payload remains application-specific. This keeps the current JSON
     workflow simple while preparing a future database backend.
@@ -66,6 +68,28 @@ class JsonProjectStore:
     def project_path(self, *, owner_email: str, project_id: str, project_name: str) -> Path:
         project_slug = safe_slug(project_name)
         return self.owner_dir(owner_email) / f"{project_slug}_{str(project_id)[:8]}.json"
+
+    def project_artifact_dir(self, path: Path) -> Path:
+        """Directory used for application-specific files linked to a project."""
+
+        resolved = self.assert_project_path(path)
+        return resolved.with_suffix("")
+
+    def project_inputs_dir(self, path: Path) -> Path:
+        return self.project_artifact_dir(path) / "inputs"
+
+    def project_results_dir(self, path: Path) -> Path:
+        return self.project_artifact_dir(path) / "results"
+
+    def project_input_path(self, path: Path, filename: str) -> Path:
+        directory = self.project_inputs_dir(path)
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory / safe_slug(filename, fallback="input")
+
+    def project_result_path(self, path: Path, filename: str) -> Path:
+        directory = self.project_results_dir(path)
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory / safe_slug(filename, fallback="result.json")
 
     def assert_project_path(self, path: Path) -> Path:
         app_root = self.app_dir().resolve()
