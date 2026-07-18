@@ -215,8 +215,11 @@ def test_projects_are_scoped_to_owner_for_non_admin_users():
     assert "owner_email == _current_user_email()" in source
     assert "and _can_access_project(path)" in source
     assert "_is_heliostock_project_file(path)" in source
-    assert "def _owned_project_slug" in source
-    assert "_owned_project_slug(str(payload['name']))" in source
+    assert "HELIOSTOCK_PROJECT_STORE = JsonProjectStore" in source
+    assert "HELIOSTOCK_PROJECT_STORE.save_project(" in source
+    assert "HELIOSTOCK_PROJECT_STORE.app_dir().rglob(\"*.json\")" in source
+    assert "HELIOSTOCK_PROJECT_STORE.list_projects(owner_email=current_email)" in source
+    assert '"project_id": str(st.session_state.get("heliostock_current_project_id") or uuid.uuid4())' in source
     assert "ce projet." in source
 
 
@@ -253,6 +256,31 @@ def test_app_lazily_imports_heavy_dashboards_after_login():
     before_auth_gate = source.split("if not _is_user_authenticated():", 1)[0]
     assert "from heliostock.streamlit_module import render_heliostock_hourly" not in before_auth_gate
     assert "from heliostock.streamlit_module import render_heliostock_hourly" in source
+
+
+def test_home_cards_do_not_mutate_selectbox_state_after_widget_creation():
+    source = _source("heliostock/ui_portal.py")
+    home_block = source.split("def render_heliotools_home_page", 1)[1].split(
+        "def render_admin_dashboard_page",
+        1,
+    )[0]
+    sidebar_block = source.split("def render_portal_sidebar", 1)[1].split(
+        "def render_heliostock_solver_selector",
+        1,
+    )[0]
+    assert 'st.session_state["portal_app_requested"] = title' in home_block
+    assert 'st.session_state["portal_app"] = title' not in home_block
+    assert 'requested_app = st.session_state.pop("portal_app_requested", None)' in sidebar_block
+    assert 'st.session_state["portal_app"] = requested_app' in sidebar_block
+
+
+def test_login_portal_uses_discreet_beta_copy():
+    source = _source("heliostock/ui_portal.py")
+    login_block = source.split("def render_admin_login", 1)[1].split("def render_login_portal", 1)[0]
+    assert "Outil en bêta test" in source
+    assert "Version bêta test" in login_block
+    assert "espaces protégés" not in login_block
+    assert "Atlansun" not in login_block
 
 
 def test_portal_uses_short_github_timeout_and_session_user_cache():

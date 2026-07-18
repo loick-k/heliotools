@@ -25,6 +25,19 @@ from pyairtable import Api
 from streamlit_folium import st_folium
 
 from .dashboard_data_cleaning import group_small_categories, join_values, to_float, to_year
+from .pdf_report import (
+    draw_bar_chart as pdf_draw_bar_chart,
+    draw_installation_map as pdf_draw_installation_map,
+    draw_kpi_cards as pdf_draw_kpi_cards,
+    draw_line_chart as pdf_draw_line_chart,
+    draw_log_scatter_chart as pdf_draw_log_scatter_chart,
+    draw_pie_chart as pdf_draw_pie_chart,
+    draw_report_footer as pdf_draw_report_footer,
+    draw_report_header as pdf_draw_report_header,
+    draw_wrapped_text as pdf_draw_wrapped_text,
+)
+
+_draw_line_chart = pdf_draw_line_chart
 
 # ---------------------------------------------------------------------------
 # Configuration de la page
@@ -385,329 +398,6 @@ def _pdf_numeric(value: object) -> float:
         return 0.0
 
 
-def _pdf_short_label(value: object, max_chars: int = 26) -> str:
-    try:
-        if pd.notna(value) and float(value).is_integer():
-            label = str(int(float(value)))
-            return label if len(label) <= max_chars else f"{label[: max_chars - 1]}…"
-    except (TypeError, ValueError):
-        pass
-    label = str(value or "Non renseigné")
-    return label if len(label) <= max_chars else f"{label[: max_chars - 1]}…"
-
-
-def _draw_pdf_header(canvas, *, title: str, subtitle: str, width: float, height: float) -> None:
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 18)
-    canvas.drawString(34, height - 38, title)
-    canvas.setFont("Helvetica", 9)
-    canvas.setFillColorRGB(0.47, 0.49, 0.55)
-    canvas.drawString(34, height - 56, subtitle)
-    canvas.setStrokeColorRGB(0.88, 0.9, 0.94)
-    canvas.line(34, height - 68, width - 34, height - 68)
-
-
-def _draw_pdf_footer(canvas, *, page_number: int, width: float) -> None:
-    canvas.setFont("Helvetica", 8)
-    canvas.setFillColorRGB(0.55, 0.57, 0.64)
-    canvas.drawRightString(width - 34, 24, f"Page {page_number}")
-
-
-def _draw_wrapped_pdf_text(
-    canvas,
-    text: str,
-    *,
-    x: float,
-    y: float,
-    max_chars: int,
-    leading: float = 11,
-    font: str = "Helvetica",
-    size: int = 8,
-) -> float:
-    canvas.setFont(font, size)
-    for line in _wrap_text(text, width=max_chars):
-        canvas.drawString(x, y, line)
-        y -= leading
-    return y
-
-
-def _draw_kpi_cards(canvas, metrics: list[tuple[str, str]], *, x: float, y: float, width: float) -> float:
-    cols = min(4, max(1, len(metrics)))
-    gap = 10
-    card_w = (width - gap * (cols - 1)) / cols
-    card_h = 54
-    for idx, (label, value) in enumerate(metrics):
-        col = idx % cols
-        row = idx // cols
-        cx = x + col * (card_w + gap)
-        cy = y - row * (card_h + 10)
-        canvas.setFillColorRGB(0.97, 0.98, 1.0)
-        canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
-        canvas.roundRect(cx, cy - card_h, card_w, card_h, 7, fill=1, stroke=1)
-        canvas.setFillColorRGB(0.45, 0.47, 0.53)
-        canvas.setFont("Helvetica", 8)
-        canvas.drawString(cx + 10, cy - 16, label)
-        canvas.setFillColorRGB(0.18, 0.19, 0.25)
-        canvas.setFont("Helvetica-Bold", 16)
-        canvas.drawString(cx + 10, cy - 40, value)
-    rows = math.ceil(len(metrics) / cols)
-    return y - rows * (card_h + 10)
-
-
-def _draw_bar_chart(
-    canvas,
-    data: pd.DataFrame,
-    *,
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-    title: str,
-    label_col: str,
-    value_col: str,
-    color: tuple[float, float, float],
-    max_items: int = 10,
-) -> None:
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(x, y + height + 16, title)
-    chart = data[[label_col, value_col]].copy().head(max_items)
-    if chart.empty:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnée.")
-        return
-    chart[value_col] = chart[value_col].map(_pdf_numeric)
-    max_value = max(chart[value_col].max(), 1.0)
-    canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
-    for step in range(5):
-        gy = y + (height * step / 4)
-        canvas.line(x + 28, gy, x + width, gy)
-    bar_area_w = width - 36
-    bar_w = min(22, max(8, bar_area_w / max(len(chart), 1) * 0.56))
-    slot = bar_area_w / max(len(chart), 1)
-    canvas.setFont("Helvetica", 7)
-    for idx, row in chart.iterrows():
-        value = _pdf_numeric(row[value_col])
-        bx = x + 32 + idx * slot + (slot - bar_w) / 2
-        bh = height * value / max_value
-        canvas.setFillColorRGB(*color)
-        canvas.rect(bx, y, bar_w, bh, fill=1, stroke=0)
-        canvas.setFillColorRGB(0.38, 0.4, 0.48)
-        canvas.drawCentredString(bx + bar_w / 2, y - 9, _pdf_short_label(row[label_col], 10))
-        canvas.drawCentredString(bx + bar_w / 2, y + bh + 3, _fmt_number(value))
-
-
-def _draw_horizontal_bar_chart(
-    canvas,
-    data: pd.DataFrame,
-    *,
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-    title: str,
-    label_col: str,
-    value_col: str,
-    colors: list[tuple[float, float, float]],
-    value_suffix: str = "",
-    max_items: int = 8,
-) -> None:
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(x, y + height + 16, title)
-    chart = data[[label_col, value_col]].copy().head(max_items)
-    if chart.empty:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnée.")
-        return
-    chart[value_col] = chart[value_col].map(_pdf_numeric)
-    max_value = max(chart[value_col].max(), 1.0)
-    label_w = min(142, width * 0.43)
-    bar_x = x + label_w + 8
-    bar_w_max = width - label_w - 46
-    row_h = min(18, height / max(len(chart), 1))
-    canvas.setFont("Helvetica", 8)
-    for row_idx, (_, row) in enumerate(chart.iterrows()):
-        cy = y + height - (row_idx + 1) * row_h + 4
-        value = _pdf_numeric(row[value_col])
-        bar_w = bar_w_max * value / max_value
-        canvas.setFillColorRGB(0.32, 0.34, 0.42)
-        canvas.drawRightString(x + label_w, cy + 2, _pdf_short_label(row[label_col], 28))
-        canvas.setFillColorRGB(*colors[row_idx % len(colors)])
-        canvas.roundRect(bar_x, cy, bar_w, 8, 2, fill=1, stroke=0)
-        canvas.setFillColorRGB(0.32, 0.34, 0.42)
-        canvas.drawString(bar_x + bar_w + 4, cy + 1, _fmt_number(value, 0, value_suffix))
-
-
-def _draw_line_chart(
-    canvas,
-    data: pd.DataFrame,
-    *,
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-    title: str,
-    x_col: str,
-    y_col: str,
-    y_axis_label: str = "",
-) -> None:
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(x, y + height + 16, title)
-    if x_col not in data.columns or y_col not in data.columns:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnée.")
-        return
-    chart = data[[x_col, y_col]].dropna().copy()
-    if chart.empty:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnée.")
-        return
-    chart[x_col] = chart[x_col].map(_pdf_numeric)
-    chart[y_col] = chart[y_col].map(_pdf_numeric)
-    min_x, max_x = chart[x_col].min(), chart[x_col].max()
-    max_y = max(chart[y_col].max(), 1.0)
-    canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
-    canvas.setFillColorRGB(0.38, 0.4, 0.48)
-    canvas.setFont("Helvetica", 7)
-    for step in range(5):
-        gy = y + (height * step / 4)
-        canvas.line(x + 28, gy, x + width, gy)
-        canvas.drawRightString(x + 24, gy - 3, _fmt_number(max_y * step / 4))
-    points = []
-    for _, row in chart.iterrows():
-        px = x + 32 if max_x == min_x else x + 32 + (width - 36) * (row[x_col] - min_x) / (max_x - min_x)
-        py = y + height * row[y_col] / max_y
-        points.append((px, py))
-    canvas.setStrokeColorRGB(0.0, 0.42, 0.8)
-    canvas.setLineWidth(1.5)
-    for start, end in zip(points, points[1:]):
-        canvas.line(start[0], start[1], end[0], end[1])
-    canvas.setFillColorRGB(0.0, 0.42, 0.8)
-    for px, py in points:
-        canvas.circle(px, py, 2.2, fill=1, stroke=0)
-    canvas.setFillColorRGB(0.38, 0.4, 0.48)
-    canvas.setFont("Helvetica", 7)
-    if y_axis_label:
-        canvas.drawString(x + 28, y + height + 3, y_axis_label)
-    canvas.drawString(x + 28, y - 10, _fmt_number(min_x))
-    canvas.drawRightString(x + width, y - 10, _fmt_number(max_x))
-
-
-def _draw_pie_chart(
-    canvas,
-    data: pd.DataFrame,
-    *,
-    x: float,
-    y: float,
-    radius: float,
-    title: str,
-    label_col: str,
-    value_col: str,
-    colors: list[tuple[float, float, float]],
-    max_items: int = 7,
-) -> None:
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(x, y + radius * 2 + 16, title)
-    chart = data[[label_col, value_col]].copy().head(max_items)
-    if chart.empty:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + radius, "Aucune donnée.")
-        return
-    chart[value_col] = chart[value_col].map(_pdf_numeric)
-    total = chart[value_col].sum()
-    if total <= 0:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + radius, "Aucune donnée.")
-        return
-    start = 90
-    for idx, row in chart.iterrows():
-        extent = 360 * _pdf_numeric(row[value_col]) / total
-        canvas.setFillColorRGB(*colors[idx % len(colors)])
-        canvas.wedge(x, y, x + radius * 2, y + radius * 2, start, extent, fill=1, stroke=0)
-        start += extent
-    legend_x = x + radius * 2 + 18
-    legend_y = y + radius * 2 - 4
-    canvas.setFont("Helvetica", 8)
-    for idx, row in chart.iterrows():
-        pct = 100 * _pdf_numeric(row[value_col]) / total
-        ly = legend_y - idx * 13
-        canvas.setFillColorRGB(*colors[idx % len(colors)])
-        canvas.rect(legend_x, ly - 7, 7, 7, fill=1, stroke=0)
-        canvas.setFillColorRGB(0.32, 0.34, 0.42)
-        canvas.drawString(legend_x + 10, ly - 7, f"{_pdf_short_label(row[label_col], 22)} - {pct:.0f} %")
-
-
-def _draw_scatter_chart(
-    canvas,
-    data: pd.DataFrame,
-    *,
-    x: float,
-    y: float,
-    width: float,
-    height: float,
-    title: str,
-) -> None:
-    canvas.setFillColorRGB(0.18, 0.19, 0.25)
-    canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(x, y + height + 16, title)
-    chart = data.dropna(subset=["Superficie (m²)", "Production annuelle (MWh)"]).copy()
-    if chart.empty:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnée.")
-        return
-    chart = chart[
-        (chart["Superficie (m²)"].map(_pdf_numeric) > 0)
-        & (chart["Production annuelle (MWh)"].map(_pdf_numeric) > 0)
-    ].copy()
-    if chart.empty:
-        canvas.setFont("Helvetica", 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnée avec surface et production strictement positives.")
-        return
-    min_x = max(chart["Superficie (m²)"].map(_pdf_numeric).min(), 1.0)
-    max_x = max(chart["Superficie (m²)"].map(_pdf_numeric).max(), min_x)
-    log_min = math.floor(math.log10(min_x))
-    log_max = math.ceil(math.log10(max_x))
-    tick_values = [10**power for power in range(log_min, log_max + 1)]
-    if not tick_values:
-        tick_values = [min_x, max_x]
-    min_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).min(), 1.0)
-    max_y = max(chart["Production annuelle (MWh)"].map(_pdf_numeric).max(), min_y)
-    log_y_min = math.floor(math.log10(min_y))
-    log_y_max = math.ceil(math.log10(max_y))
-    y_tick_values = [10**power for power in range(log_y_min, log_y_max + 1)]
-    if not y_tick_values:
-        y_tick_values = [min_y, max_y]
-    canvas.setStrokeColorRGB(0.9, 0.92, 0.96)
-    canvas.setFillColorRGB(0.38, 0.4, 0.48)
-    canvas.setFont("Helvetica", 7)
-    log_y_span = max(log_y_max - log_y_min, 1e-9)
-    for tick in y_tick_values:
-        gy = y + height * (math.log10(tick) - log_y_min) / log_y_span
-        canvas.line(x + 28, gy, x + width, gy)
-        canvas.drawRightString(x + 24, gy - 3, _fmt_number(tick))
-    log_span = max(log_max - log_min, 1e-9)
-    for tick in tick_values:
-        gx = x + 28 + (width - 36) * (math.log10(tick) - log_min) / log_span
-        canvas.line(gx, y, gx, y + height)
-        canvas.drawCentredString(gx, y - 11, _fmt_number(tick))
-    canvas.setFillColorRGB(0.0, 0.7, 0.62)
-    for _, row in chart.head(120).iterrows():
-        surface = max(_pdf_numeric(row["Superficie (m²)"]), min_x)
-        px = x + 28 + (width - 36) * (math.log10(surface) - log_min) / log_span
-        production = max(_pdf_numeric(row["Production annuelle (MWh)"]), min_y)
-        py = y + height * (math.log10(production) - log_y_min) / log_y_span
-        canvas.circle(px, py, 2.4, fill=1, stroke=0)
-    canvas.setFillColorRGB(0.38, 0.4, 0.48)
-    canvas.setFont("Helvetica", 7)
-    canvas.drawCentredString(x + width / 2, y - 24, "Surface de capteurs installée (m², axe logarithmique)")
-    canvas.drawString(x + 28, y + height + 3, "Production annuelle (MWh/an, axe logarithmique)")
-    canvas.setFillColorRGB(0.5, 0.52, 0.58)
-    canvas.drawString(x + 28, y - 36, "Axes log : comparaison lisible des petites, moyennes et grandes installations.")
-
-
 def _overview_pdf_bytes(
     *,
     df_f: pd.DataFrame,
@@ -723,7 +413,7 @@ def _overview_pdf_bytes(
     chart_tables = _overview_export_tables(df_f)
 
     page = 1
-    _draw_pdf_header(
+    pdf_draw_report_header(
         canvas,
         title="Dashboard solaire thermique - vue d'ensemble",
         subtitle=f"Export généré le {generated_at} - données filtrées affichées dans la vue d'ensemble",
@@ -737,15 +427,15 @@ def _overview_pdf_bytes(
     canvas.setFillColorRGB(0.42, 0.44, 0.52)
     fy = y - 16
     for label, value in filters:
-        fy = _draw_wrapped_pdf_text(canvas, f"{label} : {value}", x=34, y=fy, max_chars=80)
+        fy = pdf_draw_wrapped_text(canvas, f"{label} : {value}", x=34, y=fy, max_chars=80)
     y = min(y, fy) - 8
 
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 12)
     canvas.drawString(34, y, "Indicateurs clés")
-    y = _draw_kpi_cards(canvas, _filtered_summary_metrics(df_f), x=34, y=y - 10, width=page_width - 68)
+    y = pdf_draw_kpi_cards(canvas, _filtered_summary_metrics(df_f), x=34, y=y - 10, width=page_width - 68)
 
-    _draw_bar_chart(
+    pdf_draw_bar_chart(
         canvas,
         chart_tables["Installations par département"],
         x=34,
@@ -757,7 +447,7 @@ def _overview_pdf_bytes(
         value_col="Nombre",
         color=(0.96, 0.64, 0.0),
     )
-    _draw_pie_chart(
+    pdf_draw_pie_chart(
         canvas,
         chart_tables["Répartition par secteur"],
         x=456,
@@ -768,18 +458,18 @@ def _overview_pdf_bytes(
         value_col="Nombre",
         colors=PDF_CHART_COLORS,
     )
-    _draw_pdf_footer(canvas, page_number=page, width=page_width)
+    pdf_draw_report_footer(canvas, page_number=page, width=page_width)
     canvas.showPage()
 
     page += 1
-    _draw_pdf_header(
+    pdf_draw_report_header(
         canvas,
         title="Graphiques de la vue d'ensemble",
         subtitle="Répartition, évolution temporelle et surfaces - mêmes filtres que l'écran",
         width=page_width,
         height=page_height,
     )
-    _draw_pie_chart(
+    pdf_draw_pie_chart(
         canvas,
         chart_tables["Répartition par état"],
         x=34,
@@ -790,7 +480,7 @@ def _overview_pdf_bytes(
         value_col="Nombre",
         colors=PDF_CHART_COLORS,
     )
-    _draw_line_chart(
+    pdf_draw_line_chart(
         canvas,
         chart_tables["Évolution cumulée"],
         x=440,
@@ -802,7 +492,7 @@ def _overview_pdf_bytes(
         y_col="Cumulé",
         y_axis_label="Nombre cumulé d'installations",
     )
-    _draw_bar_chart(
+    pdf_draw_bar_chart(
         canvas,
         chart_tables["Surface installée par année"],
         x=34,
@@ -815,7 +505,7 @@ def _overview_pdf_bytes(
         color=(0.18, 0.53, 0.67),
         max_items=18,
     )
-    _draw_line_chart(
+    pdf_draw_line_chart(
         canvas,
         chart_tables["Surface cumulée"],
         x=440,
@@ -827,18 +517,18 @@ def _overview_pdf_bytes(
         y_col="Surface cumulée (m²)",
         y_axis_label="Surface cumulée (m²)",
     )
-    _draw_pdf_footer(canvas, page_number=page, width=page_width)
+    pdf_draw_report_footer(canvas, page_number=page, width=page_width)
     canvas.showPage()
 
     page += 1
-    _draw_pdf_header(
+    pdf_draw_report_header(
         canvas,
         title="Surfaces et production",
         subtitle="Analyse des surfaces installées et de la production annuelle - mêmes filtres que l'écran",
         width=page_width,
         height=page_height,
     )
-    _draw_pie_chart(
+    pdf_draw_pie_chart(
         canvas,
         chart_tables["Superficie par secteur"],
         x=34,
@@ -849,7 +539,7 @@ def _overview_pdf_bytes(
         value_col="Superficie (m²)",
         colors=PDF_CHART_COLORS,
     )
-    _draw_scatter_chart(
+    pdf_draw_log_scatter_chart(
         canvas,
         chart_tables["Superficie vs production annuelle"],
         x=440,
@@ -858,7 +548,27 @@ def _overview_pdf_bytes(
         height=190,
         title="Production annuelle selon la surface installée",
     )
-    _draw_pdf_footer(canvas, page_number=page, width=page_width)
+    pdf_draw_report_footer(canvas, page_number=page, width=page_width)
+    canvas.showPage()
+
+    page += 1
+    pdf_draw_report_header(
+        canvas,
+        title="Carte des installations",
+        subtitle="Fond standard rues détaillées - cadrage automatique sur les installations filtrées",
+        width=page_width,
+        height=page_height,
+    )
+    pdf_draw_installation_map(
+        canvas,
+        df_f,
+        x=48,
+        y=86,
+        width=page_width - 96,
+        height=page_height - 178,
+        colors=MAP_POINT_COLORS,
+    )
+    pdf_draw_report_footer(canvas, page_number=page, width=page_width)
     canvas.save()
     return buffer.getvalue()
 

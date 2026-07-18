@@ -10,4 +10,5 @@ requests>=2.31,<3
 folium>=0.16,<1
 streamlit-folium>=0.20,<1
 reportlab>=4,<5
+Pillow>=10,<12
 pytest>=8,<9

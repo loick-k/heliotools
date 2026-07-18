@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import os
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,7 +20,7 @@ from urllib import request as urlrequest
 import streamlit as st
 import pandas as pd
 
-from .common.project_store import normalize_email, now_iso, safe_slug
+from .common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -28,6 +29,7 @@ HELIOSTOCK_NOTICE = MODULE_DIR / "NOTICE_MODELE_HELIOSTOCK.md"
 HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
+HELIOSTOCK_PROJECT_STORE = JsonProjectStore("heliostock", app_label="HelioStock")
 USERS_FILE = PROJECTS_DIR / "users.json"
 LOGIN_EVENTS_FILE = PROJECTS_DIR / "login_events.json"
 RESULT_SIDECAR_SUFFIX = "_resultat.pkl"
@@ -656,6 +658,7 @@ def _clear_project_session_state() -> None:
     for key in (
         "heliostock_last_result",
         "heliostock_current_project_name",
+        "heliostock_current_project_id",
         "heliostock_demand_file_bytes",
         "heliostock_demand_file_name",
         "portal_project_to_load",
@@ -666,12 +669,6 @@ def _clear_project_session_state() -> None:
 
 def _safe_project_slug(name: str) -> str:
     return safe_slug(name, fallback="projet_heliostock")
-
-
-def _owned_project_slug(name: str) -> str:
-    owner = _safe_project_slug(_current_user_email() or "anonymous")
-    project = _safe_project_slug(name)
-    return f"{owner}_{project}"[:120]
 
 
 def _project_owner_email(path: Path) -> str:
@@ -712,33 +709,56 @@ def _can_access_project(path: Path) -> bool:
 
 def _project_files() -> list[Path]:
     _restore_projects_from_backup()
-    if not PROJECTS_DIR.exists():
-        return []
-    files = [
-        path
-        for path in PROJECTS_DIR.glob("*.json")
-        if _is_heliostock_project_file(path)
-        and _can_access_project(path)
-    ]
-    return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+    files: list[Path] = []
+    seen: set[str] = set()
+    if PROJECTS_DIR.exists():
+        files.extend(
+            path
+            for path in PROJECTS_DIR.glob("*.json")
+            if _is_heliostock_project_file(path)
+            and _can_access_project(path)
+        )
+    current_email = _current_user_email()
+    if is_admin_authenticated() and HELIOSTOCK_PROJECT_STORE.app_dir().exists():
+        files.extend(
+            path
+            for path in HELIOSTOCK_PROJECT_STORE.app_dir().rglob("*.json")
+            if _is_heliostock_project_file(path)
+        )
+    elif current_email:
+        files.extend(
+            project.path
+            for project in HELIOSTOCK_PROJECT_STORE.list_projects(owner_email=current_email)
+            if _is_heliostock_project_file(project.path)
+        )
+    unique_files: list[Path] = []
+    for path in files:
+        resolved = str(path.resolve())
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique_files.append(path)
+    return sorted(unique_files, key=lambda path: path.stat().st_mtime, reverse=True)
 
 
 def _has_existing_project_data() -> bool:
-    if not PROJECTS_DIR.exists():
-        return False
-    for path in PROJECTS_DIR.iterdir():
-        if _is_system_project_file(path):
+    roots = [PROJECTS_DIR, HELIOSTOCK_PROJECT_STORE.app_dir()]
+    for root in roots:
+        if not root.exists():
             continue
-        if path.is_file() and _is_heliostock_project_file(path):
-            return True
+        for path in root.rglob("*.json"):
+            if _is_system_project_file(path):
+                continue
+            if path.is_file() and _is_heliostock_project_file(path):
+                return True
     return False
 
 
 def _assert_local_project_path(path: Path) -> Path:
-    project_root = PROJECTS_DIR.resolve()
     resolved = path.resolve()
-    if project_root != resolved and project_root not in resolved.parents:
-        raise ValueError("Le fichier projet doit se trouver dans le dossier local HelioStock.")
+    roots = [PROJECTS_DIR.resolve(), HELIOSTOCK_PROJECT_STORE.app_dir().resolve()]
+    if not any(root == resolved or root in resolved.parents for root in roots):
+        raise ValueError("Le fichier projet doit se trouver dans un dossier projet HelioStock.")
     return resolved
 
 
@@ -853,6 +873,9 @@ def _project_payload(name: str) -> dict[str, Any]:
     }
     return {
         "schema_version": 2,
+        "app_key": HELIOSTOCK_PROJECT_STORE.app_key,
+        "app_label": HELIOSTOCK_PROJECT_STORE.app_label,
+        "project_id": str(st.session_state.get("heliostock_current_project_id") or uuid.uuid4()),
         "name": name.strip() or "Projet HelioStock",
         "owner_email": _current_user_email(),
         "created_by_email": _current_user_email(),
@@ -881,6 +904,7 @@ def _load_project(path: Path) -> None:
         if key in SAVEABLE_WIDGET_KEYS:
             st.session_state[key] = value
     st.session_state["heliostock_current_project_name"] = str(data.get("name") or path.stem)
+    st.session_state["heliostock_current_project_id"] = str(data.get("project_id") or path.with_suffix("").name)
     demand_path, result_path = _project_sidecar_paths(path)
     if demand_path.exists():
         st.session_state["heliostock_demand_file_bytes"] = demand_path.read_bytes()
@@ -900,7 +924,7 @@ def _load_project(path: Path) -> None:
         st.session_state.pop("heliostock_last_result", None)
 
 
-def render_brand_header(*, subtitle: str = "Portail des outils solaires Atlansun") -> None:
+def render_brand_header(*, subtitle: str = "Outil en bêta test", show_partner_logo: bool = False) -> None:
     col_title, col_logo = st.columns([2, 1])
     with col_title:
         logo_col, _ = st.columns([9, 11])
@@ -911,6 +935,8 @@ def render_brand_header(*, subtitle: str = "Portail des outils solaires Atlansun
             st.title("HelioTools")
         st.markdown(f"##### {subtitle}")
     with col_logo:
+        if not show_partner_logo:
+            return
         logo_left, _ = st.columns(2)
         with logo_left:
             if ATLANSUN_LOGO.exists():
@@ -963,8 +989,7 @@ def render_admin_login(*, compact: bool = False) -> bool:
 
         if not compact:
             st.markdown(
-                "Connecte-toi pour accéder aux espaces protégés : dashboard solaire thermique, "
-                "projets sauvegardés et futures passerelles Heliopilot."
+                "Version bêta test. L'accès est limité aux comptes autorisés pendant la phase de validation."
             )
         st.subheader("Connexion")
         with st.form(f"form_login_{'compact' if compact else 'page'}"):
@@ -993,7 +1018,7 @@ def _format_event_outcome(event: dict[str, Any]) -> str:
 def render_heliotools_home_page() -> None:
     """Page d'accueil du portail HelioTools après authentification."""
 
-    render_brand_header(subtitle="Suite d'outils solaires Atlansun")
+    render_brand_header(subtitle="Suite d'outils en bêta test")
     user = st.session_state.get("user") if isinstance(st.session_state.get("user"), dict) else {}
     role = str(user.get("role", "user"))
     st.caption(
@@ -1037,7 +1062,7 @@ def render_heliotools_home_page() -> None:
                 st.subheader(title)
                 st.write(description)
                 if st.button(button_label, key=f"home_open_{index}", width="stretch"):
-                    st.session_state["portal_app"] = title
+                    st.session_state["portal_app_requested"] = title
                     st.rerun()
 
     st.info(
@@ -1148,6 +1173,9 @@ def render_portal_sidebar() -> str:
             app_options.append(APP_ADMIN_LABEL)
             app_options.append(APP_DASHBOARD_LABEL)
             app_options.append(APP_OPPORTUNITY_LABEL)
+        requested_app = st.session_state.pop("portal_app_requested", None)
+        if requested_app in app_options:
+            st.session_state["portal_app"] = requested_app
         if st.session_state.get("portal_app") not in app_options:
             st.session_state["portal_app"] = app_options[0]
         app_name = st.selectbox(
@@ -1238,10 +1266,13 @@ def render_project_save_controls() -> None:
         default_name = st.session_state.get("heliostock_current_project_name", "")
         project_name = st.text_input("Nom du projet", value=str(default_name), key="portal_project_name")
         if st.button("Enregistrer le projet", type="primary", width="stretch"):
-            PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
             payload = _project_payload(project_name)
-            path = PROJECTS_DIR / f"{_owned_project_slug(str(payload['name']))}.json"
-            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            path = HELIOSTOCK_PROJECT_STORE.save_project(
+                payload=payload,
+                owner_email=_current_user_email(),
+                project_name=str(payload["name"]),
+                project_id=str(payload.get("project_id", "")) or None,
+            )
             demand_path, result_path = _project_sidecar_paths(path)
             demand_bytes = st.session_state.get("heliostock_demand_file_bytes")
             if demand_bytes:
@@ -1259,6 +1290,7 @@ def render_project_save_controls() -> None:
             else:
                 result_path.unlink(missing_ok=True)
             st.session_state["heliostock_current_project_name"] = str(payload["name"])
+            st.session_state["heliostock_current_project_id"] = str(payload["project_id"])
             st.success(f"Projet enregistré : {payload['name']}")
 
 
