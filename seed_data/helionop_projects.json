@@ -1,7 +1,7 @@
 [
   {
     "slug": "ehpad-la-petite-montagne_8a80e1e1",
-    "saved_at": "2026-07-18T22:45:22",
+    "saved_at": "2026-07-19T21:01:56",
     "owner_email": "loick@atlansun.fr",
     "project_id": "8a80e1e1-0124-4ca7-ad2d-25ca1ce8088a",
     "name": "EHPAD La Petite Montagne",
@@ -13,7 +13,7 @@
       "name": "EHPAD La Petite Montagne",
       "owner_email": "loick@atlansun.fr",
       "created_at": "2026-07-18T22:26:30",
-      "updated_at": "2026-07-18T22:45:22",
+      "updated_at": "2026-07-19T21:01:56",
       "site": {
         "project_name": "EHPAD La Petite Montagne",
         "airtable_id": "1367",
@@ -176,8 +176,8 @@
       "economic": {
         "typologie": "CESC",
         "surface_m2": 41.76,
-        "productivity_kwh_m2_year": 500.0,
-        "reference_energy_cost_eur_mwh": 75.0,
+        "productivity_kwh_m2_year": 560.0,
+        "reference_energy_cost_eur_mwh": 105.0,
         "reference_energy_inflation_percent": 3.0,
         "years": 20,
         "works_cost_eur_m2": 1563.0,
@@ -442,27 +442,27 @@
           "default_productivity_kwh_m2_year": 500.0
         },
         "economic": {
-          "annual_production_mwh": 20.88,
-          "average_reference_energy_cost_eur_mwh": 122.88281016302057,
+          "annual_production_mwh": 23.3856,
+          "average_reference_energy_cost_eur_mwh": 172.0359342282288,
           "investment_cost_eur": 70199.88,
           "ademe_aid_eur_per_mwh_year_used": 1260.0,
-          "works_aid_uncapped_eur": 26308.8,
+          "works_aid_uncapped_eur": 29465.856,
           "works_aid_cap_eur": 42426.072,
-          "aid_total_eur": 29759.1,
-          "aid_rate": 0.4239195280675693,
-          "net_investment_eur": 40440.780000000006,
-          "annual_savings_eur": 1521.7930762038693,
-          "raw_payback_years": 26.5744276487839,
-          "solar_heat_cost_eur_mwh": 146.8409482758621,
+          "aid_total_eur": 32916.156,
+          "aid_rate": 0.4688919126357481,
+          "net_investment_eur": 37283.724,
+          "annual_savings_eur": 2964.129943487668,
+          "raw_payback_years": 12.578302810885228,
+          "solar_heat_cost_eur_mwh": 125.00084667487684,
           "heat_cost_p1_eur_mwh": 6.0,
-          "heat_cost_p2_eur_mwh": 44.0,
-          "heat_cost_p4_eur_mwh": 96.84094827586209,
-          "savings_over_period_eur": -10004.91847592262,
+          "heat_cost_p2_eur_mwh": 39.285714285714285,
+          "heat_cost_p4_eur_mwh": 79.71513238916256,
+          "savings_over_period_eur": 21998.874869753352,
           "cost_lines": [
             {
               "category": "P1' - Coût de l'énergie",
               "label": "Coût élec.",
-              "total_cost_eur": 125.27999999999999,
+              "total_cost_eur": 140.3136,
               "ademe_aid_eur": null,
               "net_cost_eur": null,
               "cost_eur_mwh_year": 6.0
@@ -473,7 +473,7 @@
               "total_cost_eur": 918.7199999999999,
               "ademe_aid_eur": null,
               "net_cost_eur": null,
-              "cost_eur_mwh_year": 44.0
+              "cost_eur_mwh_year": 39.285714285714285
             },
             {
               "category": "P4 - Investissement initial",
@@ -481,22 +481,22 @@
               "total_cost_eur": 4929.0,
               "ademe_aid_eur": 3450.2999999999997,
               "net_cost_eur": 1478.7000000000003,
-              "cost_eur_mwh_year": 96.84094827586209
+              "cost_eur_mwh_year": 79.71513238916256
             },
             {
               "category": "P4 - Investissement initial",
               "label": "Travaux - CESC",
               "total_cost_eur": 65270.88,
-              "ademe_aid_eur": 26308.8,
-              "net_cost_eur": 38962.08,
+              "ademe_aid_eur": 29465.856,
+              "net_cost_eur": 35805.024,
               "cost_eur_mwh_year": null
             },
             {
               "category": "P4 - Investissement initial",
               "label": "Total",
               "total_cost_eur": 70199.88,
-              "ademe_aid_eur": 29759.1,
-              "net_cost_eur": 40440.780000000006,
+              "ademe_aid_eur": 32916.156,
+              "net_cost_eur": 37283.724,
               "cost_eur_mwh_year": null
             }
           ]
