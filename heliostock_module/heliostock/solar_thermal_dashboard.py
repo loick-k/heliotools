@@ -377,6 +377,16 @@ def _active_filters_summary(
     ]
 
 
+def _overview_pdf_signature(df_f: pd.DataFrame, filters: list[tuple[str, str]]) -> tuple:
+    return (
+        len(df_f),
+        tuple(filters),
+        _fmt_number(df_f["Superficie (m²)"].sum(), 3),
+        _fmt_number(df_f["Production annuelle (MWh)"].sum(), 3),
+        _fmt_number(df_f["Aide ADEME (€)"].sum(), 3),
+    )
+
+
 def _wrap_text(text: str, width: int = 105) -> list[str]:
     words = str(text).split()
     lines: list[str] = []
@@ -730,13 +740,37 @@ def render_solar_thermal_dashboard() -> None:
 
     # --- Vue d'ensemble --------------------------------------------------------
     if section == "Vue d'ensemble":
-        pdf_bytes = _overview_pdf_bytes(df_f=df_f, filters=active_filters)
-        st.download_button(
-            "Télécharger la vue d'ensemble en PDF",
-            data=pdf_bytes,
-            file_name=f"dashboard_solaire_thermique_vue_ensemble_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-            mime="application/pdf",
-        )
+        pdf_signature = _overview_pdf_signature(df_f, active_filters)
+        if st.session_state.get("solar_dashboard_pdf_signature") != pdf_signature:
+            st.session_state.pop("solar_dashboard_overview_pdf", None)
+            st.session_state.pop("solar_dashboard_overview_pdf_name", None)
+            st.session_state["solar_dashboard_pdf_signature"] = pdf_signature
+
+        pdf_col_prepare, pdf_col_download = st.columns([1, 2])
+        with pdf_col_prepare:
+            if st.button("Préparer le PDF", help="Le PDF est généré uniquement à la demande pour éviter de ralentir l'ouverture du dashboard."):
+                with st.spinner("Génération du PDF en cours..."):
+                    st.session_state["solar_dashboard_overview_pdf"] = _overview_pdf_bytes(
+                        df_f=df_f,
+                        filters=active_filters,
+                    )
+                    st.session_state["solar_dashboard_overview_pdf_name"] = (
+                        f"dashboard_solaire_thermique_vue_ensemble_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+                    )
+        with pdf_col_download:
+            pdf_bytes = st.session_state.get("solar_dashboard_overview_pdf")
+            if pdf_bytes:
+                st.download_button(
+                    "Télécharger la vue d'ensemble en PDF",
+                    data=pdf_bytes,
+                    file_name=st.session_state.get(
+                        "solar_dashboard_overview_pdf_name",
+                        "dashboard_solaire_thermique_vue_ensemble.pdf",
+                    ),
+                    mime="application/pdf",
+                )
+            else:
+                st.caption("Le PDF n'est pas généré automatiquement : clique sur Préparer le PDF après avoir réglé les filtres.")
 
         c1, c2, c3, c4 = st.columns(4)
         summary_metrics = _filtered_summary_metrics(df_f)
