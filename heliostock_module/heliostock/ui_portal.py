@@ -751,6 +751,34 @@ def _project_shared_emails(path: Path) -> list[str]:
     return sorted({_email_normalise(str(email)) for email in shared if _email_normalise(str(email))})
 
 
+def _project_unique_key(path: Path) -> str:
+    """Logical project identity used to merge legacy and project_store files."""
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return f"path:{path.resolve()}"
+    if not isinstance(data, dict):
+        return f"path:{path.resolve()}"
+    project_id = str(data.get("project_id") or "").strip()
+    owner = _email_normalise(str(data.get("owner_email", "") or data.get("created_by_email", "")))
+    if project_id:
+        return f"id:{owner}:{project_id}"
+    return f"path:{path.resolve()}"
+
+
+def _dedupe_project_files(files: list[Path]) -> list[Path]:
+    """Keep one visible entry when a project exists in legacy and new storage."""
+
+    unique: dict[str, Path] = {}
+    for path in files:
+        key = _project_unique_key(path)
+        current = unique.get(key)
+        if current is None or path.stat().st_mtime > current.stat().st_mtime:
+            unique[key] = path
+    return sorted(unique.values(), key=lambda path: path.stat().st_mtime, reverse=True)
+
+
 def _set_project_shared_emails(path: Path, emails: list[str]) -> None:
     path = _assert_local_project_path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -806,7 +834,6 @@ def _can_access_project(path: Path) -> bool:
 def _project_files() -> list[Path]:
     _restore_projects_from_backup()
     files: list[Path] = []
-    seen: set[str] = set()
     if PROJECTS_DIR.exists():
         files.extend(
             path
@@ -827,33 +854,21 @@ def _project_files() -> list[Path]:
             for project in HELIOSTOCK_PROJECT_STORE.list_projects(owner_email=current_email)
             if _is_heliostock_project_file(project.path)
         )
-    unique_files: list[Path] = []
-    for path in files:
-        resolved = str(path.resolve())
-        if resolved in seen:
-            continue
-        seen.add(resolved)
-        unique_files.append(path)
-    return sorted(unique_files, key=lambda path: path.stat().st_mtime, reverse=True)
+    return _dedupe_project_files(files)
 
 
 def _all_heliostock_project_files() -> list[Path]:
     _restore_projects_from_backup()
     roots = [PROJECTS_DIR, HELIOSTOCK_PROJECT_STORE.app_dir()]
     files: list[Path] = []
-    seen: set[str] = set()
     for root in roots:
         if not root.exists():
             continue
         for path in root.rglob("*.json"):
             if not _is_heliostock_project_file(path):
                 continue
-            resolved = str(path.resolve())
-            if resolved in seen:
-                continue
-            seen.add(resolved)
             files.append(path)
-    return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+    return _dedupe_project_files(files)
 
 
 def _has_existing_project_data() -> bool:

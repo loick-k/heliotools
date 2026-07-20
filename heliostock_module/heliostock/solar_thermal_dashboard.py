@@ -68,6 +68,18 @@ CHART_COLORS = [
 ]
 OTHER_CATEGORY_COLOR = "#6B7280"
 MAP_POINT_COLORS = CHART_COLORS
+FIXED_CATEGORY_COLORS = {
+    "Santé": "#22B2A6",
+    "Industrie": "#8233a8",
+    "Logement collectif": "#486DAC",
+    "Camping": "#FCBF24",
+    "Agriculture et Elevage": "#497c5e",
+    "Piscine et centre aquatique": "#5AC1D0",
+    "Bâtiment public": "#ff8734",
+    "Bâtiment sportif et loisirs": "#ff7899",
+    "Non renseigné": "#D9E1EF",
+    "Autres": OTHER_CATEGORY_COLOR,
+}
 PDF_CHART_COLORS = [
     (0.133, 0.698, 0.651),
     (0.282, 0.427, 0.675),
@@ -83,6 +95,18 @@ PDF_CHART_COLORS = [
     (0.914, 0.278, 0.239),
     (0.286, 0.486, 0.369),
 ]
+
+
+def _hex_to_pdf_rgb(color: str) -> tuple[float, float, float]:
+    color = color.strip().lstrip("#")
+    if len(color) != 6:
+        return (0.42, 0.45, 0.51)
+    return tuple(int(color[index : index + 2], 16) / 255.0 for index in (0, 2, 4))  # type: ignore[return-value]
+
+
+def _pdf_colors_for_labels(labels: list[object] | pd.Series) -> list[tuple[float, float, float]]:
+    color_map = _category_color_map([str(label or "Non renseigné") for label in labels])
+    return [_hex_to_pdf_rgb(color_map.get(str(label or "Non renseigné"), OTHER_CATEGORY_COLOR)) for label in labels]
 
 # Tables liées utilisées pour résoudre les champs de type "lien vers un
 # enregistrement" (Ville, Secteurs, Type d'installation, Etat) en libellés
@@ -283,9 +307,21 @@ def _category_color_map(categories: list[str] | set[str], *, palette: list[str] 
     palette = palette or CHART_COLORS
     labels = sorted({str(category or "Non renseigné") for category in categories if str(category or "").strip()})
     color_map = {
-        label: palette[index % len(palette)]
-        for index, label in enumerate(label for label in labels if label != "Autres")
+        label: FIXED_CATEGORY_COLORS[label]
+        for label in labels
+        if label in FIXED_CATEGORY_COLORS
     }
+    used_colors = set(color_map.values())
+    palette_cursor = 0
+    for label in labels:
+        if label in color_map or label == "Autres":
+            continue
+        while palette[palette_cursor % len(palette)] in used_colors:
+            palette_cursor += 1
+        color = palette[palette_cursor % len(palette)]
+        color_map[label] = color
+        used_colors.add(color)
+        palette_cursor += 1
     color_map["Autres"] = OTHER_CATEGORY_COLOR
     return color_map
 
@@ -531,7 +567,7 @@ def _overview_pdf_bytes(
         title="Répartition par secteur",
         label_col="Secteur",
         value_col="Nombre",
-        colors=PDF_CHART_COLORS,
+        colors=_pdf_colors_for_labels(chart_tables["Répartition par secteur"]["Secteur"]),
     )
     pdf_draw_pie_chart(
         canvas,
@@ -600,7 +636,7 @@ def _overview_pdf_bytes(
         title="Superficie par secteur",
         label_col="Secteur",
         value_col="Superficie (m²)",
-        colors=PDF_CHART_COLORS,
+        colors=_pdf_colors_for_labels(chart_tables["Superficie par secteur"]["Secteur"]),
     )
     pdf_draw_line_chart(
         canvas,
