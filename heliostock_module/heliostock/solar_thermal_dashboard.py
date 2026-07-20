@@ -52,40 +52,36 @@ GEOCODER_APPS_SCRIPT_URL = (
 )
 GEOCODING_MAX_WORKERS = 6
 CHART_COLORS = [
-    "#1F77B4",  # bleu
-    "#2CA02C",  # vert
-    "#D62728",  # rouge
-    "#9467BD",  # violet
-    "#FF7F0E",  # orange
-    "#17BECF",  # cyan
-    "#8C564B",  # brun
-    "#E377C2",  # rose
-    "#BCBD22",  # olive
-    "#7F3C8D",  # prune
-    "#11A579",  # vert emeraude
-    "#3969AC",  # bleu profond
-    "#F2B701",  # jaune
-    "#E73F74",  # magenta
-    "#80BA5A",  # vert clair
-    "#E68310",  # orange fonce
-    "#008695",  # bleu-vert
-    "#CF1C90",  # fuchsia
-    "#F97B72",  # corail
-    "#4B4B8F",  # indigo
+    "#22B2A6",
+    "#486DAC",
+    "#D9E1EF",
+    "#FCBF24",
+    "#5AC1D0",
+    "#B4CD39",
+    "#ff8734",
+    "#ff7899",
+    "#8233a8",
+    "#cf1259",
+    "#c29389",
+    "#e9473d",
+    "#497c5e",
 ]
 OTHER_CATEGORY_COLOR = "#6B7280"
 MAP_POINT_COLORS = CHART_COLORS
 PDF_CHART_COLORS = [
-    (0.95, 0.63, 0.0),
-    (0.0, 0.45, 0.7),
-    (0.84, 0.37, 0.0),
-    (0.0, 0.62, 0.45),
-    (0.8, 0.47, 0.65),
-    (0.34, 0.71, 0.91),
-    (0.42, 0.45, 0.5),
-    (0.9, 0.62, 0.0),
-    (0.36, 0.29, 0.69),
-    (0.55, 0.7, 0.41),
+    (0.133, 0.698, 0.651),
+    (0.282, 0.427, 0.675),
+    (0.851, 0.882, 0.937),
+    (0.988, 0.749, 0.141),
+    (0.353, 0.757, 0.816),
+    (0.706, 0.804, 0.224),
+    (1.0, 0.529, 0.204),
+    (1.0, 0.471, 0.6),
+    (0.51, 0.2, 0.659),
+    (0.812, 0.071, 0.349),
+    (0.761, 0.576, 0.537),
+    (0.914, 0.278, 0.239),
+    (0.286, 0.486, 0.369),
 ]
 
 # Tables liées utilisées pour résoudre les champs de type "lien vers un
