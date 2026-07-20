@@ -1565,13 +1565,6 @@ def render_heliostock_notice_page() -> None:
     )
     spacer.empty()
     st.caption("Notice méthodologique et limites d'utilisation du modèle.")
-    st.download_button(
-        "Télécharger la notice",
-        data=notice_text.encode("utf-8"),
-        file_name=HELIOSTOCK_NOTICE.name,
-        mime="text/markdown",
-        width="stretch",
-    )
     st.divider()
     st.markdown(notice_text)
 
