@@ -11,6 +11,8 @@ from .app_service import ParametricRange
 from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
+from .geocoding_service import GeocodingServiceError, search_addresses
+from .gmi_service import GMIServiceError, check_gmi_zoning, discover_gmi_layers, select_layer
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, SolarInputs
 from .load_profiles import (
@@ -38,6 +40,38 @@ def _widget_default(key: str, value):
     """Avoid Streamlit's warning when a loaded project already set the widget state."""
 
     return {} if key in st.session_state else {"value": value}
+
+
+@st.cache_data(ttl=86_400, show_spinner=False)
+def _cached_gmi_layers() -> list[dict[str, object]]:
+    return discover_gmi_layers()
+
+
+@st.cache_data(ttl=3_600, show_spinner=False)
+def _cached_gmi_check(latitude: float, longitude: float, layer_name: str, layer_title: str) -> dict[str, object]:
+    return check_gmi_zoning(
+        latitude=latitude,
+        longitude=longitude,
+        layer_name=layer_name,
+        layer_title=layer_title,
+    )
+
+
+@st.cache_data(ttl=86_400, show_spinner=False)
+def _cached_address_search(query: str) -> list[dict[str, object]]:
+    return search_addresses(query=query, limit=5)
+
+
+def _address_candidate_label(candidate: dict[str, object]) -> str:
+    label = str(candidate.get("label") or "Adresse trouvée")
+    context = str(candidate.get("context") or "")
+    score = candidate.get("score")
+    details = []
+    if context and context.lower() not in label.lower():
+        details.append(context)
+    if isinstance(score, (float, int)):
+        details.append(f"pertinence {score * 100:.0f} %")
+    return f"{label} - {' · '.join(details)}" if details else label
 
 
 def _process_template_excel_bytes() -> bytes:
@@ -571,6 +605,121 @@ def render_geothermal_form(
         recharge_credit=0.60,
         reduced_borefield_safety_factor=float(geo_fixed.reduced_borefield_safety_factor),
     )
+
+
+def render_gmi_verification_block() -> None:
+    with st.expander("4 bis) Vérification géothermie de minime importance (GMI)", expanded=False):
+        st.caption(
+            "Ce bloc interroge le zonage cartographique GMI du BRGM à partir d'une adresse ou de coordonnées. "
+            "Il sert d'aide réglementaire préliminaire : il ne remplace pas l'analyse complète du projet, ni les autres critères GMI."
+        )
+
+        with st.form("heliostock_gmi_address_form", clear_on_submit=False):
+            address_query = st.text_input(
+                "Adresse du projet",
+                placeholder="Ex. 10 rue de la Paix, 44000 Nantes",
+                key="gmi_address_query",
+            )
+            search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
+
+        if search_submitted:
+            try:
+                with st.spinner("Recherche dans la Base Adresse Nationale..."):
+                    st.session_state["gmi_address_candidates"] = _cached_address_search(address_query)
+            except (GeocodingServiceError, ValueError) as exc:
+                st.session_state["gmi_address_candidates"] = []
+                st.error(str(exc))
+            else:
+                if not st.session_state["gmi_address_candidates"]:
+                    st.warning("Aucune adresse correspondante n'a été trouvée.")
+
+        candidates = st.session_state.get("gmi_address_candidates", [])
+        if candidates:
+            selected_index = st.selectbox(
+                "Adresse proposée",
+                options=range(len(candidates)),
+                format_func=lambda index: _address_candidate_label(candidates[index]),
+                key="gmi_selected_address_candidate",
+            )
+            selected_candidate = candidates[int(selected_index)]
+            if st.button("Utiliser cette adresse", width="stretch", key="gmi_use_selected_address"):
+                st.session_state["gmi_latitude"] = float(selected_candidate["latitude"])
+                st.session_state["gmi_longitude"] = float(selected_candidate["longitude"])
+                st.session_state["gmi_selected_address_label"] = str(selected_candidate["label"])
+                st.session_state.pop("gmi_result", None)
+                st.rerun()
+
+        if st.session_state.get("gmi_selected_address_label"):
+            st.success(f"Adresse retenue : {st.session_state['gmi_selected_address_label']}")
+
+        c1, c2 = st.columns(2)
+        latitude = c1.number_input(
+            "Latitude",
+            min_value=-90.0,
+            max_value=90.0,
+            format="%.7f",
+            key="gmi_latitude",
+            **_widget_default("gmi_latitude", 47.2184),
+        )
+        longitude = c2.number_input(
+            "Longitude",
+            min_value=-180.0,
+            max_value=180.0,
+            format="%.7f",
+            key="gmi_longitude",
+            **_widget_default("gmi_longitude", -1.5536),
+        )
+
+        p1, p2 = st.columns(2)
+        exchanger_label = p1.radio(
+            "Type d'échangeur",
+            options=("Fermé - sondes géothermiques", "Ouvert - nappe"),
+            horizontal=True,
+            key="gmi_exchanger_label",
+        )
+        exchanger_type = "ferme" if str(exchanger_label).startswith("Fermé") else "ouvert"
+        depth_max_m = p2.selectbox(
+            "Profondeur maximale étudiée",
+            options=(50, 100, 200),
+            format_func=lambda value: f"10 à {value} m",
+            key="gmi_depth_max_m",
+        )
+
+        if st.button("Vérifier le zonage GMI", type="primary", width="stretch", key="gmi_check_button"):
+            try:
+                with st.spinner("Interrogation du service cartographique BRGM..."):
+                    layers = _cached_gmi_layers()
+                    selected_layer = select_layer(layers, exchanger_type=exchanger_type, depth_max_m=int(depth_max_m))
+                    st.session_state["gmi_result"] = _cached_gmi_check(
+                        round(float(latitude), 7),
+                        round(float(longitude), 7),
+                        str(selected_layer["name"]),
+                        str(selected_layer["title"]),
+                    )
+            except (GMIServiceError, ValueError) as exc:
+                st.error(str(exc))
+
+        result = st.session_state.get("gmi_result")
+        if isinstance(result, dict):
+            zone = str(result.get("zone") or "inconnu")
+            zone_messages = {
+                "vert": ("Zone verte", "success", "Le zonage cartographique ne signale pas de contrainte particulière GMI."),
+                "orange": ("Zone orange", "warning", "Le projet nécessite une attention réglementaire renforcée et des vérifications complémentaires."),
+                "rouge": ("Zone rouge", "error", "Le zonage cartographique indique une zone défavorable ou interdite selon la couche interrogée."),
+                "aucune_donnee": ("Aucune donnée retournée", "warning", "Le service n'a pas renvoyé d'objet cartographique au point interrogé."),
+                "inconnu": ("Classement non interprété", "warning", "Le service a répondu, mais HelioStock n'a pas pu interpréter automatiquement la classe."),
+            }
+            title, level, message = zone_messages.get(zone, zone_messages["inconnu"])
+            getattr(st, level)(f"{title} - {message}")
+            st.caption(
+                f"Couche BRGM interrogée : {result.get('layer_title', result.get('layer_name', 'n.d.'))} ; "
+                f"objets retournés : {result.get('feature_count', 'n.d.')}."
+            )
+
+        st.info(
+            "Rappel : la GMI ne se limite pas au zonage cartographique. Les critères de profondeur, puissance, débit, "
+            "températures, distance aux ouvrages sensibles et contexte hydrogéologique restent à vérifier."
+        )
 
 
 def render_economics_form() -> EconomicsInputs:

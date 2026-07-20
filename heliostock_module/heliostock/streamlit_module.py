@@ -13,6 +13,7 @@ from .ui_forms import (
     render_demand_form,
     render_economics_form,
     render_geothermal_form,
+    render_gmi_verification_block,
     render_parametric_forms,
     render_solar_form,
     render_weather_form,
@@ -133,6 +134,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
         hourly_demand_override=demand_form.hourly_demand_override,
         process_bt_target_c=demand_form.process_bt_target_c,
     )
+    render_gmi_verification_block()
     economics_inputs = render_economics_form()
     calculation_selection = CalculationSelection(
         calculation_profile="calcul_final",
