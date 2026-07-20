@@ -312,16 +312,9 @@ def _category_color_map(categories: list[str] | set[str], *, palette: list[str] 
         if label in FIXED_CATEGORY_COLORS
     }
     used_colors = set(color_map.values())
-    palette_cursor = 0
-    for label in labels:
-        if label in color_map or label == "Autres":
-            continue
-        while palette[palette_cursor % len(palette)] in used_colors:
-            palette_cursor += 1
-        color = palette[palette_cursor % len(palette)]
-        color_map[label] = color
-        used_colors.add(color)
-        palette_cursor += 1
+    available_palette = [color for color in palette if color not in used_colors] or list(palette)
+    for index, label in enumerate(label for label in labels if label not in color_map and label != "Autres"):
+        color_map[label] = available_palette[index % len(available_palette)]
     color_map["Autres"] = OTHER_CATEGORY_COLOR
     return color_map
 
