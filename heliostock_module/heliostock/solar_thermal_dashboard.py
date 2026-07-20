@@ -300,7 +300,7 @@ def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
     dep_counts = _counts_table(df_f, "Département")
     secteur_counts = group_small_categories(_counts_table(df_f, "Secteur"), "Secteur", "Nombre", seuil_pct=3.0)
     type_counts = group_small_categories(
-        _counts_table(df_f, "Type d'installation"), "Type d'installation", "Nombre", seuil_pct=3.0
+        _counts_table(df_f, "Type d'installation"), "Type d'installation", "Nombre", seuil_pct=1.0
     )
     etat_counts = group_small_categories(_counts_table(df_f, "Etat"), "Etat", "Nombre", seuil_pct=3.0)
     superficie_departement = _surface_by_category(df_f, "Département")
