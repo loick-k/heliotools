@@ -68,7 +68,7 @@ CHART_COLORS = [
 ]
 OTHER_CATEGORY_COLOR = "#6B7280"
 MAP_POINT_COLORS = CHART_COLORS
-FIXED_CATEGORY_COLORS = {
+FIXED_SECTOR_COLORS = {
     "Santé": "#22B2A6",
     "Industrie": "#8233a8",
     "Logement collectif": "#486DAC",
@@ -80,6 +80,7 @@ FIXED_CATEGORY_COLORS = {
     "Non renseigné": "#D9E1EF",
     "Autres": OTHER_CATEGORY_COLOR,
 }
+FIXED_CATEGORY_COLORS = FIXED_SECTOR_COLORS
 PDF_CHART_COLORS = [
     (0.133, 0.698, 0.651),
     (0.282, 0.427, 0.675),
@@ -104,9 +105,36 @@ def _hex_to_pdf_rgb(color: str) -> tuple[float, float, float]:
     return tuple(int(color[index : index + 2], 16) / 255.0 for index in (0, 2, 4))  # type: ignore[return-value]
 
 
+def _sector_parts(label: object) -> list[str]:
+    parts = [part.strip() for part in str(label or "").split(",")]
+    return [part for part in parts if part] or ["Non renseigné"]
+
+
+def _canonical_sector_label(label: object) -> str:
+    raw = _sector_parts(label)[0]
+    normalised = raw.casefold().replace("é", "e").replace("è", "e").replace("ê", "e").replace("à", "a")
+    aliases = {
+        "sante": "Santé",
+        "industrie": "Industrie",
+        "logement collectif": "Logement collectif",
+        "camping": "Camping",
+        "agriculture et elevage": "Agriculture et Elevage",
+        "piscine et centre aquatique": "Piscine et centre aquatique",
+        "batiment public": "Bâtiment public",
+        "batiment sportif et loisirs": "Bâtiment sportif et loisirs",
+        "autres": "Autres",
+        "non renseigne": "Non renseigné",
+    }
+    return aliases.get(normalised, raw or "Non renseigné")
+
+
+def _sector_color(label: object) -> str:
+    return FIXED_SECTOR_COLORS.get(_canonical_sector_label(label), OTHER_CATEGORY_COLOR)
+
+
 def _pdf_colors_for_labels(labels: list[object] | pd.Series) -> list[tuple[float, float, float]]:
     color_map = _category_color_map([str(label or "Non renseigné") for label in labels])
-    return [_hex_to_pdf_rgb(color_map.get(str(label or "Non renseigné"), OTHER_CATEGORY_COLOR)) for label in labels]
+    return [_hex_to_pdf_rgb(color_map.get(str(label or "Non renseigné"), _sector_color(label))) for label in labels]
 
 # Tables liées utilisées pour résoudre les champs de type "lien vers un
 # enregistrement" (Ville, Secteurs, Type d'installation, Etat) en libellés
@@ -305,11 +333,11 @@ def _counts_table(df_f: pd.DataFrame, column: str, value_label: str = "Nombre") 
 
 def _category_color_map(categories: list[str] | set[str], *, palette: list[str] | None = None) -> dict[str, str]:
     palette = palette or CHART_COLORS
-    labels = sorted({str(category or "Non renseigné") for category in categories if str(category or "").strip()})
+    labels = sorted({str(category or "Non renseigné").strip() for category in categories if str(category or "").strip()})
     color_map = {
-        label: FIXED_CATEGORY_COLORS[label]
+        label: FIXED_CATEGORY_COLORS[_canonical_sector_label(label)]
         for label in labels
-        if label in FIXED_CATEGORY_COLORS
+        if _canonical_sector_label(label) in FIXED_CATEGORY_COLORS
     }
     used_colors = set(color_map.values())
     available_palette = [color for color in palette if color not in used_colors] or list(palette)
@@ -324,9 +352,11 @@ def _sector_color_map(df_f: pd.DataFrame) -> dict[str, str]:
         return {"Autres": OTHER_CATEGORY_COLOR}
     sectors = set()
     for cell in df_f["Secteur"].fillna("Non renseigné"):
-        cell_label = str(cell).strip() or "Non renseigné"
+        raw_label = str(cell or "Non renseigné")
+        cell_label = raw_label.strip() or "Non renseigné"
+        sectors.add(raw_label)
         sectors.add(cell_label)
-        sectors.update(sector.strip() or "Non renseigné" for sector in cell_label.split(","))
+        sectors.update(_sector_parts(cell_label))
     sectors.add("Autres")
     return _category_color_map(sectors)
 
