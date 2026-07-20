@@ -189,5 +189,5 @@ def test_map_uses_individual_colored_points_without_permanent_labels():
 
     assert "MarkerCluster" not in source
     assert "folium.CircleMarker(" in source
-    assert "fill_color=couleur_secteur[secteur]" in source
+    assert "fill_color=couleur_secteur.get(secteur, OTHER_CATEGORY_COLOR)" in source
     assert "folium.DivIcon(" not in source

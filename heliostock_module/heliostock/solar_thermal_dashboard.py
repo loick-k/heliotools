@@ -52,27 +52,29 @@ GEOCODER_APPS_SCRIPT_URL = (
 )
 GEOCODING_MAX_WORKERS = 6
 CHART_COLORS = [
-    "#F2A000",
     "#0072B2",
-    "#D55E00",
     "#009E73",
-    "#CC79A7",
+    "#E15759",
     "#56B4E9",
-    "#6B7280",
-    "#E69F00",
     "#5B4AB0",
+    "#F28E2B",
+    "#76B7B2",
+    "#EDC948",
+    "#B07AA1",
+    "#59A14F",
+    "#FF9DA7",
+    "#9C755F",
+    "#4E79A7",
+    "#AF7AA1",
+    "#8CD17D",
+    "#B6992D",
+    "#499894",
+    "#D37295",
+    "#FABFD2",
     "#8CB369",
 ]
-MAP_POINT_COLORS = [
-    "#0072B2",
-    "#009E73",
-    "#F2A000",
-    "#CC79A7",
-    "#D55E00",
-    "#56B4E9",
-    "#6B7280",
-    "#7E57C2",
-]
+OTHER_CATEGORY_COLOR = "#6B7280"
+MAP_POINT_COLORS = CHART_COLORS
 PDF_CHART_COLORS = [
     (0.95, 0.63, 0.0),
     (0.0, 0.45, 0.7),
@@ -279,6 +281,29 @@ def _counts_table(df_f: pd.DataFrame, column: str, value_label: str = "Nombre") 
     table = df_f[column].fillna("Non renseigné").value_counts().reset_index()
     table.columns = [column, value_label]
     return table
+
+
+def _category_color_map(categories: list[str] | set[str], *, palette: list[str] | None = None) -> dict[str, str]:
+    palette = palette or CHART_COLORS
+    labels = sorted({str(category or "Non renseigné") for category in categories if str(category or "").strip()})
+    color_map = {
+        label: palette[index % len(palette)]
+        for index, label in enumerate(label for label in labels if label != "Autres")
+    }
+    color_map["Autres"] = OTHER_CATEGORY_COLOR
+    return color_map
+
+
+def _sector_color_map(df_f: pd.DataFrame) -> dict[str, str]:
+    if df_f.empty or "Secteur" not in df_f:
+        return {"Autres": OTHER_CATEGORY_COLOR}
+    sectors = set()
+    for cell in df_f["Secteur"].fillna("Non renseigné"):
+        cell_label = str(cell).strip() or "Non renseigné"
+        sectors.add(cell_label)
+        sectors.update(sector.strip() or "Non renseigné" for sector in cell_label.split(","))
+    sectors.add("Autres")
+    return _category_color_map(sectors)
 
 
 def _surface_by_category(df_f: pd.DataFrame, column: str) -> pd.DataFrame:
@@ -782,10 +807,12 @@ def render_solar_thermal_dashboard() -> None:
         st.divider()
 
         overview_tables = _overview_export_tables(df_f)
+        sector_color_map = _sector_color_map(df_f)
 
         col_a, col_b = st.columns(2)
 
         with col_a:
+            dep_order = overview_tables["Installations par département"]["Département"].tolist()
             fig_dep = px.bar(
                 overview_tables["Installations par département"],
                 x="Département",
@@ -793,11 +820,13 @@ def render_solar_thermal_dashboard() -> None:
                 title="Installations par département",
                 color_discrete_sequence=["#f4a300"],
                 labels={"Nombre": "Nombre d'installations"},
+                category_orders={"Département": dep_order},
             )
             fig_dep.update_layout(showlegend=False)
             st.plotly_chart(fig_dep, width="stretch")
 
         with col_b:
+            surface_dep_order = overview_tables["Superficie par département"]["Département"].tolist()
             fig_surface_dep = px.bar(
                 overview_tables["Superficie par département"],
                 x="Département",
@@ -808,6 +837,7 @@ def render_solar_thermal_dashboard() -> None:
                     "Département": "Département",
                     "Superficie (m²)": "Surface de capteurs installée (m²)",
                 },
+                category_orders={"Département": surface_dep_order},
             )
             fig_surface_dep.update_layout(showlegend=False)
             st.plotly_chart(fig_surface_dep, width="stretch")
@@ -822,7 +852,7 @@ def render_solar_thermal_dashboard() -> None:
                 values="Nombre",
                 color="Secteur",
                 title="Répartition par secteur",
-                color_discrete_sequence=CHART_COLORS,
+                color_discrete_map=sector_color_map,
                 labels={"Nombre": "Nombre d'installations", "Secteur": "Secteur"},
             )
             fig_secteur.update_traces(textposition="inside", textinfo="percent")
@@ -912,7 +942,7 @@ def render_solar_thermal_dashboard() -> None:
                     values="Superficie (m²)",
                     color="Secteur",
                     title="Superficie (m²) par secteur",
-                    color_discrete_sequence=CHART_COLORS,
+                    color_discrete_map=sector_color_map,
                     labels={"Superficie (m²)": "Surface de capteurs installée (m²)", "Secteur": "Secteur"},
                 )
                 fig_superficie_secteur.update_traces(textposition="inside", textinfo="percent")
@@ -984,6 +1014,7 @@ def render_solar_thermal_dashboard() -> None:
                 color="Secteur",
                 log_x=True,
                 log_y=True,
+                color_discrete_map=sector_color_map,
                 hover_name="Ville",
                 hover_data=["Application", "Année de mise en service"],
                 labels={
@@ -1098,12 +1129,7 @@ def render_solar_thermal_dashboard() -> None:
                         control=True,
                     ).add_to(carte)
                     folium.LayerControl(collapsed=True).add_to(carte)
-                secteurs_uniques = sorted(
-                    {p.get("Secteur") or "Non renseigné" for p in points}
-                )
-                couleur_secteur = {
-                    s: MAP_POINT_COLORS[i % len(MAP_POINT_COLORS)] for i, s in enumerate(secteurs_uniques)
-                }
+                couleur_secteur = _sector_color_map(df_f)
 
                 for p in points:
                     secteur = p.get("Secteur") or "Non renseigné"
@@ -1134,7 +1160,7 @@ def render_solar_thermal_dashboard() -> None:
                         color="#ffffff",
                         weight=1,
                         fill=True,
-                        fill_color=couleur_secteur[secteur],
+                        fill_color=couleur_secteur.get(secteur, OTHER_CATEGORY_COLOR),
                         fill_opacity=0.95,
                     ).add_to(carte)
 
