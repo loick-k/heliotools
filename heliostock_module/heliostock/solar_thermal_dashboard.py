@@ -281,10 +281,29 @@ def _counts_table(df_f: pd.DataFrame, column: str, value_label: str = "Nombre") 
     return table
 
 
+def _surface_by_category(df_f: pd.DataFrame, column: str) -> pd.DataFrame:
+    if df_f.empty or column not in df_f or "Superficie (m²)" not in df_f:
+        return pd.DataFrame(columns=[column, "Superficie (m²)"])
+    surface_df = df_f.dropna(subset=["Superficie (m²)"]).copy()
+    if surface_df.empty:
+        return pd.DataFrame(columns=[column, "Superficie (m²)"])
+    surface_df[column] = surface_df[column].fillna("Non renseigné")
+    return (
+        surface_df.groupby(column)["Superficie (m²)"]
+        .sum()
+        .reset_index()
+        .sort_values("Superficie (m²)", ascending=False)
+    )
+
+
 def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
     dep_counts = _counts_table(df_f, "Département")
     secteur_counts = group_small_categories(_counts_table(df_f, "Secteur"), "Secteur", "Nombre", seuil_pct=3.0)
+    type_counts = group_small_categories(
+        _counts_table(df_f, "Type d'installation"), "Type d'installation", "Nombre", seuil_pct=3.0
+    )
     etat_counts = group_small_categories(_counts_table(df_f, "Etat"), "Etat", "Nombre", seuil_pct=3.0)
+    superficie_departement = _surface_by_category(df_f, "Département")
     installations_par_annee = (
         df_f.dropna(subset=["Année de mise en service"])
         .groupby("Année de mise en service")
@@ -325,7 +344,9 @@ def _overview_export_tables(df_f: pd.DataFrame) -> dict[str, pd.DataFrame]:
     ].copy()
     return {
         "Installations par département": dep_counts,
+        "Superficie par département": superficie_departement,
         "Répartition par secteur": secteur_counts,
+        "Répartition par typologie": type_counts,
         "Répartition par état": etat_counts,
         "Évolution cumulée": evolution_cumulee,
         "Nouvelles installations par année": installations_par_annee,
@@ -447,16 +468,17 @@ def _overview_pdf_bytes(
         value_col="Nombre",
         color=(0.96, 0.64, 0.0),
     )
-    pdf_draw_pie_chart(
+    pdf_draw_bar_chart(
         canvas,
-        chart_tables["Répartition par secteur"],
+        chart_tables["Superficie par département"],
         x=456,
         y=92,
-        radius=74,
-        title="Répartition par secteur",
-        label_col="Secteur",
-        value_col="Nombre",
-        colors=PDF_CHART_COLORS,
+        width=350,
+        height=175,
+        title="Surface installée par département",
+        label_col="Département",
+        value_col="Superficie (m²)",
+        color=(0.0, 0.62, 0.45),
     )
     pdf_draw_report_footer(canvas, page_number=page, width=page_width)
     canvas.showPage()
@@ -464,17 +486,39 @@ def _overview_pdf_bytes(
     page += 1
     pdf_draw_report_header(
         canvas,
-        title="Graphiques de la vue d'ensemble",
-        subtitle="Répartition, évolution temporelle et surfaces - mêmes filtres que l'écran",
+        title="Répartitions de la vue d'ensemble",
+        subtitle="Secteur, typologie et état - mêmes filtres que l'écran",
         width=page_width,
         height=page_height,
     )
     pdf_draw_pie_chart(
         canvas,
-        chart_tables["Répartition par état"],
+        chart_tables["Répartition par secteur"],
         x=34,
-        y=322,
-        radius=70,
+        y=304,
+        radius=58,
+        title="Répartition par secteur",
+        label_col="Secteur",
+        value_col="Nombre",
+        colors=PDF_CHART_COLORS,
+    )
+    pdf_draw_pie_chart(
+        canvas,
+        chart_tables["Répartition par typologie"],
+        x=300,
+        y=304,
+        radius=58,
+        title="Répartition par typologie",
+        label_col="Type d'installation",
+        value_col="Nombre",
+        colors=PDF_CHART_COLORS,
+    )
+    pdf_draw_pie_chart(
+        canvas,
+        chart_tables["Répartition par état"],
+        x=566,
+        y=304,
+        radius=58,
         title="Répartition par état",
         label_col="Etat",
         value_col="Nombre",
@@ -483,8 +527,8 @@ def _overview_pdf_bytes(
     pdf_draw_line_chart(
         canvas,
         chart_tables["Évolution cumulée"],
-        x=440,
-        y=330,
+        x=34,
+        y=82,
         width=350,
         height=160,
         title="Évolution cumulée du nombre d'installations",
@@ -495,7 +539,7 @@ def _overview_pdf_bytes(
     pdf_draw_bar_chart(
         canvas,
         chart_tables["Surface installée par année"],
-        x=34,
+        x=440,
         y=82,
         width=360,
         height=170,
@@ -504,18 +548,6 @@ def _overview_pdf_bytes(
         value_col="Superficie (m²)",
         color=(0.18, 0.53, 0.67),
         max_items=18,
-    )
-    pdf_draw_line_chart(
-        canvas,
-        chart_tables["Surface cumulée"],
-        x=440,
-        y=82,
-        width=350,
-        height=170,
-        title="Surface cumulée installée",
-        x_col="Année de mise en service",
-        y_col="Surface cumulée (m²)",
-        y_axis_label="Surface cumulée (m²)",
     )
     pdf_draw_report_footer(canvas, page_number=page, width=page_width)
     canvas.showPage()
@@ -538,6 +570,18 @@ def _overview_pdf_bytes(
         label_col="Secteur",
         value_col="Superficie (m²)",
         colors=PDF_CHART_COLORS,
+    )
+    pdf_draw_line_chart(
+        canvas,
+        chart_tables["Surface cumulée"],
+        x=34,
+        y=82,
+        width=350,
+        height=170,
+        title="Surface cumulée installée",
+        x_col="Année de mise en service",
+        y_col="Surface cumulée (m²)",
+        y_axis_label="Surface cumulée (m²)",
     )
     pdf_draw_log_scatter_chart(
         canvas,
@@ -703,15 +747,13 @@ def render_solar_thermal_dashboard() -> None:
 
         st.divider()
 
+        overview_tables = _overview_export_tables(df_f)
+
         col_a, col_b = st.columns(2)
 
         with col_a:
-            dep_counts = (
-                df_f["Département"].fillna("Non renseigné").value_counts().reset_index()
-            )
-            dep_counts.columns = ["Département", "Nombre"]
             fig_dep = px.bar(
-                dep_counts,
+                overview_tables["Installations par département"],
                 x="Département",
                 y="Nombre",
                 title="Installations par département",
@@ -722,13 +764,24 @@ def render_solar_thermal_dashboard() -> None:
             st.plotly_chart(fig_dep, width="stretch")
 
         with col_b:
-            secteur_counts = (
-                df_f["Secteur"].fillna("Non renseigné").value_counts().reset_index()
+            fig_surface_dep = px.bar(
+                overview_tables["Superficie par département"],
+                x="Département",
+                y="Superficie (m²)",
+                title="Surface installée par département",
+                color_discrete_sequence=["#009E73"],
+                labels={
+                    "Département": "Département",
+                    "Superficie (m²)": "Surface de capteurs installée (m²)",
+                },
             )
-            secteur_counts.columns = ["Secteur", "Nombre"]
-            secteur_counts = group_small_categories(
-                secteur_counts, "Secteur", "Nombre", seuil_pct=3.0
-            )
+            fig_surface_dep.update_layout(showlegend=False)
+            st.plotly_chart(fig_surface_dep, width="stretch")
+
+        col_c, col_d = st.columns(2)
+
+        with col_c:
+            secteur_counts = overview_tables["Répartition par secteur"]
             fig_secteur = px.pie(
                 secteur_counts,
                 names="Secteur",
@@ -742,17 +795,29 @@ def render_solar_thermal_dashboard() -> None:
             fig_secteur.update_layout(legend_title_text="Secteur")
             st.plotly_chart(fig_secteur, width="stretch")
 
+        with col_d:
+            type_counts = overview_tables["Répartition par typologie"]
+            fig_type = px.pie(
+                type_counts,
+                names="Type d'installation",
+                values="Nombre",
+                color="Type d'installation",
+                title="Répartition par typologie d'installation",
+                color_discrete_sequence=CHART_COLORS,
+                labels={
+                    "Nombre": "Nombre d'installations",
+                    "Type d'installation": "Typologie d'installation",
+                },
+            )
+            fig_type.update_traces(textposition="inside", textinfo="percent")
+            fig_type.update_layout(legend_title_text="Typologie")
+            st.plotly_chart(fig_type, width="stretch")
+
         col_e, col_f = st.columns(2)
 
         with col_e:
-            etat_counts = (
-                df_f["Etat"].fillna("Non renseigné").value_counts().reset_index()
-            )
-            etat_counts.columns = ["Etat", "Nombre"]
-            etat_counts = group_small_categories(
-                etat_counts, "Etat", "Nombre", seuil_pct=3.0
-            )
-            fig_etat = px.pie(
+            etat_counts = overview_tables["Répartition par état"]
+            fig_secteur = px.pie(
                 etat_counts,
                 names="Etat",
                 values="Nombre",
@@ -761,20 +826,13 @@ def render_solar_thermal_dashboard() -> None:
                 color_discrete_sequence=CHART_COLORS,
                 labels={"Nombre": "Nombre d'installations", "Etat": "État"},
             )
-            fig_etat.update_traces(textposition="inside", textinfo="percent")
-            fig_etat.update_layout(legend_title_text="État")
-            st.plotly_chart(fig_etat, width="stretch")
+            fig_secteur.update_traces(textposition="inside", textinfo="percent")
+            fig_secteur.update_layout(legend_title_text="État")
+            st.plotly_chart(fig_secteur, width="stretch")
 
         with col_f:
-            evol = (
-                df_f.dropna(subset=["Année de mise en service"])
-                .groupby("Année de mise en service")
-                .size()
-                .reset_index(name="Nombre")
-                .sort_values("Année de mise en service")
-            )
+            evol = overview_tables["Évolution cumulée"]
             if not evol.empty:
-                evol["Cumulé"] = evol["Nombre"].cumsum()
                 fig_evol = px.line(
                     evol,
                     x="Année de mise en service",
@@ -793,13 +851,7 @@ def render_solar_thermal_dashboard() -> None:
         col_g, col_h = st.columns(2)
 
         with col_g:
-            installations_par_annee = (
-                df_f.dropna(subset=["Année de mise en service"])
-                .groupby("Année de mise en service")
-                .size()
-                .reset_index(name="Nombre")
-                .sort_values("Année de mise en service")
-            )
+            installations_par_annee = overview_tables["Nouvelles installations par année"]
             if not installations_par_annee.empty:
                 fig_annee = px.bar(
                     installations_par_annee,
@@ -818,19 +870,8 @@ def render_solar_thermal_dashboard() -> None:
                 st.info("Pas assez de données d'année pour ce graphique.")
 
         with col_h:
-            superficie_df = df_f.dropna(subset=["Superficie (m²)"]).copy()
-            if not superficie_df.empty:
-                superficie_df["Secteur"] = superficie_df["Secteur"].fillna(
-                    "Non renseigné"
-                )
-                superficie_secteur = (
-                    superficie_df.groupby("Secteur")["Superficie (m²)"]
-                    .sum()
-                    .reset_index()
-                )
-                superficie_secteur = group_small_categories(
-                    superficie_secteur, "Secteur", "Superficie (m²)", seuil_pct=3.0
-                )
+            superficie_secteur = overview_tables["Superficie par secteur"]
+            if not superficie_secteur.empty:
                 fig_superficie_secteur = px.pie(
                     superficie_secteur,
                     names="Secteur",
@@ -849,13 +890,7 @@ def render_solar_thermal_dashboard() -> None:
         col_i, col_j = st.columns(2)
 
         with col_i:
-            surface_par_annee = (
-                df_f.dropna(subset=["Année de mise en service", "Superficie (m²)"])
-                .groupby("Année de mise en service")["Superficie (m²)"]
-                .sum()
-                .reset_index()
-                .sort_values("Année de mise en service")
-            )
+            surface_par_annee = overview_tables["Surface installée par année"]
             if not surface_par_annee.empty:
                 fig_surface_annee = px.bar(
                     surface_par_annee,
@@ -874,9 +909,8 @@ def render_solar_thermal_dashboard() -> None:
                 st.info("Pas assez de données de superficie annuelle pour ce graphique.")
 
         with col_j:
-            surface_cumulee = surface_par_annee.copy() if "surface_par_annee" in locals() else pd.DataFrame()
+            surface_cumulee = overview_tables["Surface cumulée"]
             if not surface_cumulee.empty:
-                surface_cumulee["Surface cumulée (m²)"] = surface_cumulee["Superficie (m²)"].cumsum()
                 fig_surface_cumulee = px.line(
                     surface_cumulee,
                     x="Année de mise en service",
