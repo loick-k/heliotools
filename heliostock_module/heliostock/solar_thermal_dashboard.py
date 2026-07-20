@@ -52,26 +52,26 @@ GEOCODER_APPS_SCRIPT_URL = (
 )
 GEOCODING_MAX_WORKERS = 6
 CHART_COLORS = [
-    "#0072B2",
-    "#009E73",
-    "#E15759",
-    "#56B4E9",
-    "#5B4AB0",
-    "#F28E2B",
-    "#76B7B2",
-    "#EDC948",
-    "#B07AA1",
-    "#59A14F",
-    "#FF9DA7",
-    "#9C755F",
-    "#4E79A7",
-    "#AF7AA1",
-    "#8CD17D",
-    "#B6992D",
-    "#499894",
-    "#D37295",
-    "#FABFD2",
-    "#8CB369",
+    "#1F77B4",  # bleu
+    "#2CA02C",  # vert
+    "#D62728",  # rouge
+    "#9467BD",  # violet
+    "#FF7F0E",  # orange
+    "#17BECF",  # cyan
+    "#8C564B",  # brun
+    "#E377C2",  # rose
+    "#BCBD22",  # olive
+    "#7F3C8D",  # prune
+    "#11A579",  # vert emeraude
+    "#3969AC",  # bleu profond
+    "#F2B701",  # jaune
+    "#E73F74",  # magenta
+    "#80BA5A",  # vert clair
+    "#E68310",  # orange fonce
+    "#008695",  # bleu-vert
+    "#CF1C90",  # fuchsia
+    "#F97B72",  # corail
+    "#4B4B8F",  # indigo
 ]
 OTHER_CATEGORY_COLOR = "#6B7280"
 MAP_POINT_COLORS = CHART_COLORS
