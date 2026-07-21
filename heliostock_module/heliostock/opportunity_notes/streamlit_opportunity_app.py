@@ -66,6 +66,7 @@ from .pdf_export import build_opportunity_note_pdf
 from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..epw_reader import read_epw_hourly_weather_from_zip
+from ..ui_architectural_constraints import render_architectural_constraints_test
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 from .. import ui_portal
 
@@ -810,15 +811,16 @@ def render_opportunity_notes_app() -> None:
     # ---------------------------------------------------------------------------
     # Onglets de saisie et résultats.
     # ---------------------------------------------------------------------------
-    tab_site, tab_energy, tab_needs, tab_loop, tab_sizing, tab_economics, tab_export = st.tabs(
+    tab_site, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(
         [
             "1. Projet",
             "2. Eau froide",
             "3. Besoins ECS",
             "4. Bouclage sanitaire",
             "5. Prédimensionnement",
-            "6. Économie",
-            "7. Synthèse / export",
+            "6. Contraintes architecturales",
+            "7. Économie",
+            "8. Synthèse / export",
         ]
     )
     
@@ -1657,7 +1659,10 @@ def render_opportunity_notes_app() -> None:
             f"{number(opportunity_results.estimated_solar_production_mwh_year, 1)} MWh/an",
             f"{number(sizing_inputs.productivity_kwh_m2_year, 0)} kWh/m².an",
         )
-    
+
+    with tab_architecture:
+        render_architectural_constraints_test(state_prefix="helionop")
+
     # ---------------------------------------------------------------------------
     # Modèle économique raccordé au pré-dimensionnement.
     # ---------------------------------------------------------------------------
