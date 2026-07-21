@@ -4,15 +4,17 @@ from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
 
+import folium
 import pandas as pd
 import streamlit as st
+from streamlit_folium import st_folium
 
 from .app_service import ParametricRange
 from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
 from .geocoding_service import GeocodingServiceError, search_addresses
-from .gmi_service import GMIServiceError, check_gmi_zoning, discover_gmi_layers, select_layer
+from .gmi_service import GMIServiceError, WMS_URL, check_gmi_zoning, discover_gmi_layers, select_layer
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, SolarInputs
 from .load_profiles import (
@@ -72,6 +74,63 @@ def _address_candidate_label(candidate: dict[str, object]) -> str:
     if isinstance(score, (float, int)):
         details.append(f"pertinence {score * 100:.0f} %")
     return f"{label} - {' · '.join(details)}" if details else label
+
+
+def _build_gmi_map(
+    *,
+    latitude: float,
+    longitude: float,
+    address_label: str,
+    result: dict[str, object] | None,
+) -> folium.Map:
+    zone = str(result.get("zone")) if isinstance(result, dict) else ""
+    marker_colors = {"vert": "green", "orange": "orange", "rouge": "red"}
+    marker_color = marker_colors.get(zone, "blue")
+
+    map_object = folium.Map(
+        location=[latitude, longitude],
+        zoom_start=15,
+        control_scale=True,
+        tiles="OpenStreetMap",
+    )
+
+    if isinstance(result, dict) and result.get("wms_layer_name"):
+        folium.WmsTileLayer(
+            url=WMS_URL,
+            layers=str(result["wms_layer_name"]),
+            name="Zonage réglementaire GMI - BRGM",
+            fmt="image/png",
+            transparent=True,
+            version="1.3.0",
+            overlay=True,
+            control=True,
+            opacity=0.5,
+            show=True,
+        ).add_to(map_object)
+
+    popup_lines = [address_label or "Point étudié"]
+    popup_lines.append(f"Latitude : {latitude:.7f}")
+    popup_lines.append(f"Longitude : {longitude:.7f}")
+    if zone:
+        popup_lines.append(f"Classement détecté : {zone}")
+
+    folium.Marker(
+        location=[latitude, longitude],
+        tooltip=address_label or "Point étudié",
+        popup="<br>".join(popup_lines),
+        icon=folium.Icon(color=marker_color, icon="info-sign"),
+    ).add_to(map_object)
+    folium.Circle(
+        location=[latitude, longitude],
+        radius=12,
+        color=marker_color,
+        fill=True,
+        fill_opacity=0.25,
+        tooltip="Emplacement interrogé",
+    ).add_to(map_object)
+    if isinstance(result, dict) and result.get("wms_layer_name"):
+        folium.LayerControl(collapsed=False).add_to(map_object)
+    return map_object
 
 
 def _process_template_excel_bytes() -> bytes:
@@ -700,6 +759,19 @@ def render_gmi_verification_block() -> None:
                 st.error(str(exc))
 
         result = st.session_state.get("gmi_result")
+        address_label = str(st.session_state.get("gmi_selected_address_label") or "Point étudié")
+        st_folium(
+            _build_gmi_map(
+                latitude=float(latitude),
+                longitude=float(longitude),
+                address_label=address_label,
+                result=result if isinstance(result, dict) else None,
+            ),
+            height=420,
+            width="stretch",
+            returned_objects=[],
+            key="gmi_zoning_map",
+        )
         if isinstance(result, dict):
             zone = str(result.get("zone") or "inconnu")
             zone_messages = {

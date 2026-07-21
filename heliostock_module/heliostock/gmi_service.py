@@ -8,6 +8,7 @@ import requests
 
 
 WFS_URL = "https://mapsref.brgm.fr/wxs/geothermie/gmi_total"
+WMS_URL = "https://mapsref.brgm.fr/wxs/geothermie/gmi_total"
 REQUEST_TIMEOUT = (8, 45)
 USER_AGENT = "HelioTools-GMI/0.1"
 
@@ -25,6 +26,10 @@ def _normalize(value: object) -> str:
     text = "".join(char for char in text if not unicodedata.combining(char))
     text = text.lower().replace("_", " ").replace("-", " ")
     return re.sub(r"\s+", " ", text).strip()
+
+
+def wms_layer_name(wfs_layer_name: str) -> str:
+    return str(wfs_layer_name or "").split(":", 1)[-1]
 
 
 def _get(params: dict[str, object]) -> requests.Response:
@@ -199,6 +204,7 @@ def check_gmi_zoning(latitude: float, longitude: float, layer_name: str, layer_t
     return {
         "zone": _zone_from_properties(features) if features else "aucune_donnee",
         "layer_name": layer_name,
+        "wms_layer_name": wms_layer_name(layer_name),
         "layer_title": layer_title or layer_name,
         "feature_count": len(features),
     }
