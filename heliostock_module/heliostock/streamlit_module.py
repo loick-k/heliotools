@@ -166,7 +166,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
     with input_tabs[3]:
         solar_form = render_solar_form(process_ht_target_c=demand_form.process_ht_target_c)
     with input_tabs[4]:
-        render_architectural_constraints_test(state_prefix="heliostock", show_address_inputs=False, show_map=False)
+        render_architectural_constraints_test(state_prefix="heliostock", show_address_inputs=False, show_map=True)
     with input_tabs[5]:
         geothermal_form = render_geothermal_form(
             hourly_weather=weather_form.hourly_weather,
@@ -175,7 +175,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
             process_bt_target_c=demand_form.process_bt_target_c,
         )
     with input_tabs[6]:
-        render_gmi_verification_block(use_project_location=True, show_map=False)
+        render_gmi_verification_block(use_project_location=True, show_map=True)
     with input_tabs[7]:
         economics_inputs = render_economics_form()
     calculation_selection = CalculationSelection(

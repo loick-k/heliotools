@@ -145,13 +145,25 @@ def render_heliostock_project_form() -> HelioStockProjectForm:
     if address:
         st.success(f"Adresse retenue : {address}")
         _propagate_project_location_to_checks()
-        st_folium(
+        map_state = st_folium(
             _project_map(latitude, longitude, address),
             height=360,
             width="stretch",
-            returned_objects=[],
+            returned_objects=["last_clicked"],
             key="heliostock_project_address_map",
         )
+        st.caption("Clique sur la carte pour déplacer le point exact du projet. Les contrôles GMI et patrimoniaux utiliseront ce point.")
+        clicked = map_state.get("last_clicked") if isinstance(map_state, dict) else None
+        if isinstance(clicked, dict) and clicked.get("lat") is not None and clicked.get("lng") is not None:
+            clicked_latitude = float(clicked["lat"])
+            clicked_longitude = float(clicked["lng"])
+            if abs(clicked_latitude - latitude) > 1e-7 or abs(clicked_longitude - longitude) > 1e-7:
+                st.session_state["heliostock_project_latitude"] = clicked_latitude
+                st.session_state["heliostock_project_longitude"] = clicked_longitude
+                st.session_state.pop("gmi_result", None)
+                st.session_state.pop("heliostock_architectural_result", None)
+                _propagate_project_location_to_checks()
+                st.rerun()
     else:
         st.info("Recherche une adresse pour alimenter automatiquement les blocs GMI et contraintes architecturales.")
 
