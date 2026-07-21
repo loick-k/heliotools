@@ -33,6 +33,11 @@ def test_airtable_token_is_not_project_saveable():
     assert '"airtable_base_id"' in saveable_block
     assert '"airtable_table_id"' in saveable_block
     assert '"solar_daily_buffer_l_per_m2"' in saveable_block
+    assert '"gmi_latitude"' in saveable_block
+    assert '"gmi_longitude"' in saveable_block
+    assert '"gmi_exchanger_label"' in saveable_block
+    assert '"gmi_depth_max_m"' in saveable_block
+    assert '"gmi_result"' in saveable_block
     assert "FORBIDDEN_PROJECT_KEY_FRAGMENTS" in source
     assert "_is_safe_project_widget_key(key)" in source
 

@@ -65,6 +65,12 @@ def test_calculation_snapshot_hash_is_stable_and_sensitive():
         calculation_selection=CalculationSelection(technical_simulation_years=25),
         pac_parametric=ParametricRange(False, 0.0, 0.0, 1.0),
         solar_parametric=ParametricRange(False, 0.0, 0.0, 1.0),
+        gmi={
+            "latitude": 47.2184,
+            "longitude": -1.5536,
+            "exchanger_label": "Fermé - sondes géothermiques",
+            "depth_max_m": 200,
+        },
     )
     snapshot = build_calculation_snapshot(**base_kwargs)
     assert stable_snapshot_hash(snapshot) == stable_snapshot_hash(build_calculation_snapshot(**base_kwargs))
@@ -76,3 +82,7 @@ def test_calculation_snapshot_hash_is_stable_and_sensitive():
     changed_scope = dict(base_kwargs)
     changed_scope["demand_scope"] = "bt_only"
     assert stable_snapshot_hash(snapshot) != stable_snapshot_hash(build_calculation_snapshot(**changed_scope))
+
+    changed_gmi = dict(base_kwargs)
+    changed_gmi["gmi"] = dict(base_kwargs["gmi"], depth_max_m=100)
+    assert stable_snapshot_hash(snapshot) != stable_snapshot_hash(build_calculation_snapshot(**changed_gmi))

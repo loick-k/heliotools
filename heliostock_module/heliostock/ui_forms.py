@@ -92,10 +92,18 @@ def _build_gmi_map(
     longitude: float,
     address_label: str,
     result: dict[str, object] | None,
+    wms_layer_name_value: str = "",
+    wms_layer_title: str = "",
 ) -> folium.Map:
     zone = str(result.get("zone")) if isinstance(result, dict) else ""
     marker_colors = {"vert": "green", "orange": "orange", "rouge": "red"}
     marker_color = marker_colors.get(zone, "blue")
+    layer_name = str((result.get("wms_layer_name") if isinstance(result, dict) else None) or wms_layer_name_value or "")
+    layer_title = str(
+        (result.get("layer_title") if isinstance(result, dict) else None)
+        or wms_layer_title
+        or "Zonage réglementaire GMI - BRGM"
+    )
 
     map_object = folium.Map(
         location=[latitude, longitude],
@@ -104,11 +112,11 @@ def _build_gmi_map(
         tiles="OpenStreetMap",
     )
 
-    if isinstance(result, dict) and result.get("wms_layer_name"):
+    if layer_name:
         folium.WmsTileLayer(
             url=WMS_URL,
-            layers=str(result["wms_layer_name"]),
-            name="Zonage réglementaire GMI - BRGM",
+            layers=layer_name,
+            name=f"Zonage cartographique GMI - {layer_title}",
             fmt="image/png",
             transparent=True,
             version="1.3.0",
@@ -138,7 +146,7 @@ def _build_gmi_map(
         fill_opacity=0.25,
         tooltip="Emplacement interrogé",
     ).add_to(map_object)
-    if isinstance(result, dict) and result.get("wms_layer_name"):
+    if layer_name:
         folium.LayerControl(collapsed=False).add_to(map_object)
     return map_object
 
@@ -753,12 +761,24 @@ def render_gmi_verification_block() -> None:
             format_func=lambda value: f"10 à {value} m",
             key="gmi_depth_max_m",
         )
+        selected_layer_for_map: dict[str, object] | None = None
+        try:
+            selected_layer_for_map = select_layer(
+                _cached_gmi_layers(),
+                exchanger_type=exchanger_type,
+                depth_max_m=int(depth_max_m),
+            )
+        except (GMIServiceError, ValueError) as exc:
+            st.caption(f"Couche cartographique GMI non disponible pour l'affichage : {exc}")
 
         if st.button("Vérifier le zonage GMI", type="primary", width="stretch", key="gmi_check_button"):
             try:
                 with st.spinner("Interrogation du service cartographique BRGM..."):
-                    layers = _cached_gmi_layers()
-                    selected_layer = select_layer(layers, exchanger_type=exchanger_type, depth_max_m=int(depth_max_m))
+                    selected_layer = selected_layer_for_map or select_layer(
+                        _cached_gmi_layers(),
+                        exchanger_type=exchanger_type,
+                        depth_max_m=int(depth_max_m),
+                    )
                     st.session_state["gmi_result"] = _cached_gmi_check(
                         round(float(latitude), 7),
                         round(float(longitude), 7),
@@ -770,6 +790,11 @@ def render_gmi_verification_block() -> None:
 
         result = st.session_state.get("gmi_result")
         address_label = str(st.session_state.get("gmi_selected_address_label") or "Point étudié")
+        wms_layer_name_value = ""
+        wms_layer_title = ""
+        if isinstance(selected_layer_for_map, dict):
+            wms_layer_name_value = wms_layer_name(str(selected_layer_for_map.get("name", "")))
+            wms_layer_title = str(selected_layer_for_map.get("title", ""))
         if st.session_state.get("gmi_selected_address_label") or isinstance(result, dict):
             st_folium(
                 _build_gmi_map(
@@ -777,12 +802,19 @@ def render_gmi_verification_block() -> None:
                     longitude=float(longitude),
                     address_label=address_label,
                     result=result if isinstance(result, dict) else None,
+                    wms_layer_name_value=wms_layer_name_value,
+                    wms_layer_title=wms_layer_title,
                 ),
                 height=420,
                 width="stretch",
                 returned_objects=[],
                 key="gmi_zoning_map",
             )
+            if wms_layer_name_value or (isinstance(result, dict) and result.get("wms_layer_name")):
+                st.caption(
+                    "La couche colorée affichée correspond au zonage cartographique GMI BRGM pour le type "
+                    "d'échangeur et la profondeur sélectionnés."
+                )
         else:
             st.caption("La carte GMI s'affichera après sélection d'une adresse ou vérification du point.")
         if isinstance(result, dict):

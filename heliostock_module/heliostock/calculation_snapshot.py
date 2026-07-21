@@ -66,6 +66,7 @@ def build_calculation_snapshot(
     calculation_selection: Any,
     pac_parametric: Any,
     solar_parametric: Any,
+    gmi: Any | None = None,
 ) -> dict[str, Any]:
     return {
         "weather": {
@@ -99,6 +100,7 @@ def build_calculation_snapshot(
             "pac": _jsonable(pac_parametric),
             "solar": _jsonable(solar_parametric),
         },
+        "gmi": _jsonable(gmi or {}),
     }
 
 

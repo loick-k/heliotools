@@ -102,6 +102,15 @@ def _snapshot_from_forms(
         calculation_selection=calculation_selection,
         pac_parametric=parametric_forms.pac,
         solar_parametric=parametric_forms.solar,
+        gmi={
+            "address_query": st.session_state.get("gmi_address_query"),
+            "selected_address_label": st.session_state.get("gmi_selected_address_label"),
+            "latitude": st.session_state.get("gmi_latitude"),
+            "longitude": st.session_state.get("gmi_longitude"),
+            "exchanger_label": st.session_state.get("gmi_exchanger_label"),
+            "depth_max_m": st.session_state.get("gmi_depth_max_m"),
+            "result": st.session_state.get("gmi_result"),
+        },
     )
     return snapshot, stable_snapshot_hash(snapshot)
 
@@ -284,6 +293,8 @@ def render_heliostock_hourly() -> pd.DataFrame:
                 "Des parametres ont ete modifies depuis. Relance le calcul pour mettre a jour les resultats."
             )
         scenario = last_result["scenario"]
+        input_snapshot = last_result.get("input_snapshot", {})
+        gmi_context = input_snapshot.get("gmi", {}) if isinstance(input_snapshot, dict) else {}
         from .heliostock_pdf_export import build_heliostock_overview_pdf
 
         st.download_button(
@@ -292,6 +303,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                 scenario,
                 calculation_id=calculation_id,
                 calculated_at=calculated_at,
+                gmi_context=gmi_context,
             ),
             file_name=f"heliostock_synthese_{calculation_id}.pdf",
             mime="application/pdf",

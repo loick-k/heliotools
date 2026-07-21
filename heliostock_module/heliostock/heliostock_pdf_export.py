@@ -122,6 +122,57 @@ def _draw_note(canvas, text: str, *, x: float, y: float, width: float) -> float:
     return y
 
 
+def _gmi_conclusion_lines(gmi_context: dict[str, Any] | None) -> list[str]:
+    if not isinstance(gmi_context, dict):
+        return ["Analyse de zone GMI non disponible dans ce calcul."]
+    result = gmi_context.get("result")
+    if not isinstance(result, dict):
+        return ["Analyse de zone GMI non réalisée ou non sauvegardée avec ce calcul."]
+
+    zone = str(result.get("zone") or result.get("status") or "").strip().lower()
+    zone_label = str(result.get("zone_label") or result.get("label") or zone or "non déterminée")
+    address = str(gmi_context.get("selected_address_label") or gmi_context.get("address_query") or "").strip()
+    exchanger = str(gmi_context.get("exchanger_label") or "").strip()
+    depth = gmi_context.get("depth_max_m")
+
+    if zone == "vert":
+        conclusion = "Conclusion GMI : zone verte selon la couche cartographique interrogée."
+    elif zone == "orange":
+        conclusion = "Conclusion GMI : zone orange, une vérification réglementaire et hydrogéologique renforcée est à prévoir."
+    elif zone == "rouge":
+        conclusion = "Conclusion GMI : zone rouge, le projet doit être interprété comme défavorable au titre du zonage cartographique GMI."
+    elif zone in {"aucune_donnee", "no_data"}:
+        conclusion = "Conclusion GMI : aucune donnée cartographique exploitable au point interrogé."
+    else:
+        conclusion = f"Conclusion GMI : statut {zone_label}."
+
+    details = []
+    if address:
+        details.append(address)
+    if exchanger:
+        details.append(exchanger)
+    if depth not in (None, ""):
+        details.append(f"profondeur {depth} m")
+    if details:
+        conclusion = f"{conclusion} Point étudié : {' - '.join(str(item) for item in details)}."
+
+    lines = [conclusion]
+    feature_count = result.get("feature_count")
+    layer_title = str(result.get("layer_title") or "").strip()
+    if layer_title:
+        lines.append(f"Couche cartographique utilisée : {layer_title}.")
+    if feature_count not in (None, ""):
+        lines.append(f"Nombre d'entités cartographiques intersectées : {feature_count}.")
+    return lines
+
+
+def _draw_gmi_conclusion(canvas, gmi_context: dict[str, Any] | None, *, x: float, y: float, width: float) -> float:
+    y = _draw_section_title(canvas, "Conclusion analyse zone GMI", x=x, y=y)
+    for line in _gmi_conclusion_lines(gmi_context):
+        y = _draw_note(canvas, line, x=x, y=y, width=width)
+    return y
+
+
 def _numeric_frame(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     if df.empty or any(column not in df.columns for column in columns):
         return pd.DataFrame()
@@ -350,13 +401,14 @@ def _draw_simple_bar_chart(
     title: str,
     y_label: str,
     color: tuple[float, float, float],
+    max_items: int = 8,
 ) -> None:
     data = df[[label_col, value_col]].copy() if not df.empty and {label_col, value_col}.issubset(df.columns) else pd.DataFrame()
     if data.empty:
         _draw_no_data(canvas, x=x, y=y, width=width, height=height, title=title)
         return
     data[value_col] = pd.to_numeric(data[value_col], errors="coerce").fillna(0.0)
-    data = data.dropna().head(8)
+    data = data.dropna().head(max_items)
     for label, raw_name in SCENARIOS:
         data.loc[data[label_col].astype(str) == raw_name, label_col] = label
 
@@ -620,6 +672,77 @@ def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: f
     )
 
 
+def _draw_monthly_analysis_charts_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
+    _draw_header(canvas, title="HelioStock - analyses mensuelles", subtitle=subtitle, width=width, height=height)
+    chart_w = (width - 92) / 2
+    chart_h = 205
+    left_x = 34
+    right_x = 58 + chart_w
+    top_y = height - 92 - chart_h
+    bottom_y = 72
+    month_df = scenario.hourly_by_month_df
+
+    _draw_simple_bar_chart(
+        canvas,
+        month_df,
+        label_col="Mois",
+        value_col="Taux couverture solaire HT (%)",
+        x=left_x,
+        y=top_y,
+        width=chart_w,
+        height=chart_h,
+        title=f"Couverture solaire HT - scénario B, année {scenario.simulation_year_displayed}",
+        y_label="%",
+        color=ENERGY_COLORS["Solaire thermique"],
+        max_items=12,
+    )
+    _draw_grouped_bar_chart(
+        canvas,
+        month_df,
+        categories_col="Mois",
+        series_cols=[
+            ("PAC géothermie BT", "BT PAC (MWh)", (0.09, 0.64, 0.29)),
+            ("Appoint gaz BT", "Appoint BT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+        ],
+        x=right_x,
+        y=top_y,
+        width=chart_w,
+        height=chart_h,
+        title=f"Couverture PAC géothermie BT - scénario B, année {scenario.simulation_year_displayed}",
+        y_label="MWh/mois",
+    )
+    _draw_grouped_bar_chart(
+        canvas,
+        month_df,
+        categories_col="Mois",
+        series_cols=[
+            ("Production solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
+            ("Injection BTES", "Injection BTES (MWh)", ENERGY_COLORS["Injection solaire BTES"]),
+        ],
+        x=left_x,
+        y=bottom_y,
+        width=chart_w,
+        height=chart_h,
+        title=f"Production solaire ECS et injection BTES - scénario B, année {scenario.simulation_year_displayed}",
+        y_label="MWh/mois",
+    )
+    _draw_grouped_bar_chart(
+        canvas,
+        month_df,
+        categories_col="Mois",
+        series_cols=[
+            ("Production solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
+            ("Appoint gaz HT", "Appoint HT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+        ],
+        x=right_x,
+        y=bottom_y,
+        width=chart_w,
+        height=chart_h,
+        title=f"Couverture besoin HT - scénario B, année {scenario.simulation_year_displayed}",
+        y_label="MWh/mois",
+    )
+
+
 def _draw_economic_chart(canvas, scenario: ScenarioResult, *, x: float, y: float, width: float, height: float) -> None:
     _draw_simple_bar_chart(
         canvas,
@@ -641,6 +764,7 @@ def build_heliostock_overview_pdf(
     *,
     calculation_id: str = "",
     calculated_at: str = "",
+    gmi_context: dict[str, Any] | None = None,
 ) -> bytes:
     """Build a compact PDF export from the already-computed HelioStock result."""
 
@@ -690,6 +814,8 @@ def build_heliostock_overview_pdf(
         y=y,
         width=page_width - 68,
     )
+    y -= 6
+    _draw_gmi_conclusion(canvas, gmi_context, x=34, y=y, width=page_width - 68)
     page_number = 1
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
@@ -717,6 +843,11 @@ def build_heliostock_overview_pdf(
     page_number += 1
 
     _draw_display_year_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
+    _draw_footer(canvas, page_number=page_number, width=page_width)
+    canvas.showPage()
+    page_number += 1
+
+    _draw_monthly_analysis_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
     page_number += 1
