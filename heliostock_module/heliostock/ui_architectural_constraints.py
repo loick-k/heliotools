@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import folium
 import streamlit as st
+from streamlit_folium import st_folium
 
 from .architectural_patrimony_service import (
     CATEGORY_CONFIG,
@@ -11,13 +13,18 @@ from .architectural_patrimony_service import (
     analyse_patrimoine,
     compact_feature_properties,
 )
-from .architectural_static_map import StaticMapError, render_static_map
 from .geocoding_service import GeocodingServiceError, search_addresses
 
 
 DEFAULT_LATITUDE = 47.2184
 DEFAULT_LONGITUDE = -1.5536
 MAP_ZOOM = 17
+
+CATEGORY_MAP_COLORS = {
+    "AC1": "#c026d3",
+    "AC2": "#15803d",
+    "AC4": "#2563eb",
+}
 
 PROJECT_TYPES = (
     "Capteurs intégrés ou surimposés sur toiture inclinée",
@@ -104,6 +111,110 @@ def _render_interpretation(result: dict[str, Any], project_type: str) -> None:
         st.success(
             "Aucune servitude AC1, AC2 ou AC4 n'a été détectée au droit du point dans les données interrogées."
         )
+
+
+def _iter_result_features(result: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(result, dict):
+        return []
+    collections = result.get("feature_collections")
+    if not isinstance(collections, dict):
+        return []
+    features: list[dict[str, Any]] = []
+    for category in CATEGORY_CONFIG:
+        collection = collections.get(category)
+        if not isinstance(collection, dict):
+            continue
+        for feature in collection.get("features", []):
+            if isinstance(feature, dict):
+                features.append(feature)
+    return features
+
+
+def _feature_popup_html(feature: dict[str, Any]) -> str:
+    properties = dict(feature.get("properties") or {})
+    title = str(properties.get("_display_title") or properties.get("_category_title") or "Protection patrimoniale")
+    category = str(properties.get("_category") or "")
+    details = str(properties.get("_display_details") or "")
+    endpoint = str(properties.get("_source_endpoint") or "")
+    parts = [f"<b>{category} - {title}</b>" if category else f"<b>{title}</b>"]
+    if details and details != title:
+        parts.append(details)
+    if endpoint:
+        parts.append(f"Source GPU : {endpoint}")
+    return "<br>".join(parts)
+
+
+def _build_architectural_map(
+    *,
+    latitude: float,
+    longitude: float,
+    address: str,
+    result: dict[str, Any] | None,
+) -> folium.Map:
+    map_object = folium.Map(
+        location=[latitude, longitude],
+        zoom_start=MAP_ZOOM,
+        tiles="OpenStreetMap",
+        control_scale=True,
+    )
+    folium.Marker(
+        [latitude, longitude],
+        tooltip=address or "Projet",
+        popup=folium.Popup(f"<b>{address or 'Projet'}</b><br>{latitude:.6f}, {longitude:.6f}", max_width=280),
+        icon=folium.Icon(color="red", icon="info-sign"),
+    ).add_to(map_object)
+
+    bounds: list[list[float]] = [[latitude, longitude]]
+    has_geojson_layer = False
+    for feature in _iter_result_features(result):
+        geometry = feature.get("geometry")
+        if not isinstance(geometry, dict):
+            continue
+        category = str((feature.get("properties") or {}).get("_category") or "")
+        color = CATEGORY_MAP_COLORS.get(category, "#64748b")
+        layer = folium.GeoJson(
+            feature,
+            name=f"{category} - {CATEGORY_CONFIG.get(category, {}).get('short_title', 'Protection')}",
+            style_function=lambda _feature, color=color: {
+                "fillColor": color,
+                "color": color,
+                "weight": 2,
+                "fillOpacity": 0.22,
+            },
+            marker=folium.CircleMarker(
+                radius=7,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.75,
+            ),
+            tooltip=folium.Tooltip(_feature_popup_html(feature), sticky=True),
+            popup=folium.Popup(_feature_popup_html(feature), max_width=360),
+        )
+        layer.add_to(map_object)
+        has_geojson_layer = True
+        try:
+            feature_bounds = layer.get_bounds()
+        except Exception:
+            feature_bounds = []
+        for point in feature_bounds or []:
+            if isinstance(point, list) and len(point) >= 2:
+                bounds.append([float(point[0]), float(point[1])])
+
+    folium.Circle(
+        [latitude, longitude],
+        radius=25,
+        color="#ef4444",
+        fill=False,
+        weight=2,
+        tooltip="Repère projet",
+    ).add_to(map_object)
+
+    if has_geojson_layer:
+        folium.LayerControl(collapsed=False).add_to(map_object)
+    if len(bounds) > 1:
+        map_object.fit_bounds(bounds, padding=(24, 24))
+    return map_object
 
 
 def render_architectural_constraints_test(*, state_prefix: str = "shared") -> None:
