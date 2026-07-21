@@ -15,7 +15,7 @@ from .engine import HeatPumpConfig, MonthlyDemand, cop_from_source_temperature
 from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
 from .geocoding_service import GeocodingServiceError, search_addresses
-from .gmi_service import GMIServiceError, WMS_URL, check_gmi_zoning, discover_gmi_layers, select_layer
+from .gmi_service import GMIServiceError, WMS_URL, check_gmi_zoning, discover_gmi_layers, select_layer, wms_layer_name
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, SolarInputs
 from .load_profiles import (
