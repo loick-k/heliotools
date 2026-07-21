@@ -82,6 +82,10 @@ def _propagate_project_location_to_checks() -> None:
 def render_heliostock_project_form() -> HelioStockProjectForm:
     """Render the HelioStock project identity and shared address block."""
 
+    pending_city = st.session_state.pop("heliostock_city_pending", None)
+    if pending_city:
+        st.session_state["heliostock_city"] = str(pending_city)
+
     st.subheader("Projet")
     st.caption(
         "Ces informations décrivent le projet étudié. L'adresse retenue est réutilisée par la vérification GMI "
@@ -129,7 +133,7 @@ def render_heliostock_project_form() -> HelioStockProjectForm:
             st.session_state["heliostock_project_longitude"] = float(selected_candidate["longitude"])
             st.session_state["heliostock_project_address_label"] = str(selected_candidate["label"])
             if selected_candidate.get("city"):
-                st.session_state["heliostock_city"] = str(selected_candidate["city"])
+                st.session_state["heliostock_city_pending"] = str(selected_candidate["city"])
             st.session_state.pop("gmi_result", None)
             st.session_state.pop("heliostock_architectural_result", None)
             _propagate_project_location_to_checks()
