@@ -1097,10 +1097,10 @@ def _render_monthly_tab(
 
 
 def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_id: str) -> None:
-    st.markdown("### Etude parametrique géothermie seule : puissance PAC")
+    st.markdown("### Étude paramétrique géothermie seule : puissance PAC")
     st.caption("Dans cette étude, la surface solaire est forcée à 0. Le gaz couvre le besoin HT et le complément BT.")
     if parametric_pac_df.empty:
-        st.info("Active l'étude paramétrique dans l'expander `8) Etude parametrique PAC geothermie`, puis relance le calcul.")
+        st.info("Active l'étude paramétrique dans l'expander `7) Étude paramétrique PAC`, puis relance le calcul.")
         return
 
     pac_cost_column = "Coût chaleur géothermie + appoint gaz (EUR/MWh)"
@@ -1123,9 +1123,9 @@ def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_i
 
 
 def _render_parametric_solar_tab(parametric_surface_df: pd.DataFrame, *, calculation_id: str) -> None:
-    st.markdown("### Etude parametrique sur la surface solaire thermique")
+    st.markdown("### Étude paramétrique sur la surface solaire thermique")
     if parametric_surface_df.empty:
-        st.info("Active l'étude paramétrique dans l'expander `9) Etude parametrique surface solaire`, puis relance le calcul.")
+        st.info("Active l'étude paramétrique dans l'expander `8) Étude paramétrique solaire + injection BTES`, puis relance le calcul.")
         return
 
     best_cost_column = "Coût chaleur Mix ENR (EUR/MWh)"
