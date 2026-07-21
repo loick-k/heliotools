@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from contextlib import contextmanager
 from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,6 +43,15 @@ def _widget_default(key: str, value):
     """Avoid Streamlit's warning when a loaded project already set the widget state."""
 
     return {} if key in st.session_state else {"value": value}
+
+
+@contextmanager
+def _top_level_input_section(title: str, *, expanded: bool = True):
+    if st.session_state.get("heliostock_input_tabs_enabled", False):
+        yield
+    else:
+        with st.expander(title, expanded=expanded):
+            yield
 
 
 @st.cache_data(ttl=86_400, show_spinner=False)
@@ -222,7 +232,7 @@ class ParametricFormsResult:
 
 
 def render_weather_form() -> WeatherFormResult:
-    with st.expander("1) Météo", expanded=True):
+    with _top_level_input_section("1) Météo", expanded=True):
         c1, c2, c3 = st.columns(3)
         tilt_deg = c1.number_input(
             "Inclinaison capteurs (°)",
@@ -311,7 +321,7 @@ def render_weather_form() -> WeatherFormResult:
 
 
 def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
-    with st.expander("2) Besoins process", expanded=True):
+    with _top_level_input_section("2) Besoins process", expanded=True):
         st.caption(
             "Importe un fichier Excel au pas de temps horaire pour charger le profil de besoin du site. "
             "Le fichier doit contenir 8760 lignes, soit une année complète, avec une colonne pour le besoin haute "
@@ -434,7 +444,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
 
 
 def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
-    with st.expander("3) Champ solaire et ballon journalier", expanded=True):
+    with _top_level_input_section("3) Champ solaire et ballon journalier", expanded=True):
         if st.session_state.get("solar_collector_name") not in COLLECTOR_LIBRARY:
             st.session_state["solar_collector_name"] = list(COLLECTOR_LIBRARY.keys())[0]
         collector_name = st.selectbox("Bibliothèque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0, key="solar_collector_name")
@@ -503,7 +513,7 @@ def render_geothermal_form(
     process_bt_target_c: float,
 ) -> GeothermalFormResult:
     pre_peak_bt_power_kw = _peak_bt_power_kw(hourly_weather, demands, hourly_demand_override)
-    with st.expander("4) Géothermie PAC et champ de sondes", expanded=True):
+    with _top_level_input_section("4) Géothermie PAC et champ de sondes", expanded=True):
         st.caption(
             "Bloc simplifié : la PAC est dimensionnée en % du Pmax BT. Le prédimensionnement propose un nombre de sondes, "
             "mais le nombre effectivement simulé reste modifiable ci-dessous."
@@ -667,7 +677,7 @@ def render_geothermal_form(
 
 
 def render_gmi_verification_block() -> None:
-    with st.expander("5) Vérification géothermie de minime importance (GMI)", expanded=False):
+    with _top_level_input_section("5) Vérification géothermie de minime importance (GMI)", expanded=False):
         st.caption(
             "Ce bloc interroge le zonage cartographique GMI du BRGM à partir d'une adresse ou de coordonnées. "
             "Il sert d'aide réglementaire préliminaire : il ne remplace pas l'analyse complète du projet, ni les autres critères GMI."
@@ -760,18 +770,21 @@ def render_gmi_verification_block() -> None:
 
         result = st.session_state.get("gmi_result")
         address_label = str(st.session_state.get("gmi_selected_address_label") or "Point étudié")
-        st_folium(
-            _build_gmi_map(
-                latitude=float(latitude),
-                longitude=float(longitude),
-                address_label=address_label,
-                result=result if isinstance(result, dict) else None,
-            ),
-            height=420,
-            width="stretch",
-            returned_objects=[],
-            key="gmi_zoning_map",
-        )
+        if st.session_state.get("gmi_selected_address_label") or isinstance(result, dict):
+            st_folium(
+                _build_gmi_map(
+                    latitude=float(latitude),
+                    longitude=float(longitude),
+                    address_label=address_label,
+                    result=result if isinstance(result, dict) else None,
+                ),
+                height=420,
+                width="stretch",
+                returned_objects=[],
+                key="gmi_zoning_map",
+            )
+        else:
+            st.caption("La carte GMI s'affichera après sélection d'une adresse ou vérification du point.")
         if isinstance(result, dict):
             zone = str(result.get("zone") or "inconnu")
             zone_messages = {
@@ -795,7 +808,7 @@ def render_gmi_verification_block() -> None:
 
 
 def render_economics_form() -> EconomicsInputs:
-    with st.expander("6) Économie", expanded=False):
+    with _top_level_input_section("6) Économie", expanded=False):
         st.caption(
             "Référence de chaleur évitée : appoint gaz. Les coûts sont décomposés par générateur : "
             "solaire thermique, géothermie PAC et appoint gaz."
@@ -839,14 +852,8 @@ def render_economics_form() -> EconomicsInputs:
     )
 
 
-def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> ParametricFormsResult:
-    if disabled:
-        return ParametricFormsResult(
-            pac=ParametricRange(False, 50.0, 100.0, 10.0),
-            solar=ParametricRange(False, max(0.0, float(area_m2) * 0.5), max(50.0, float(area_m2) * 1.5), 250.0),
-        )
-
-    with st.expander("7) Étude paramétrique PAC", expanded=False):
+def render_pac_parametric_form(*, disabled: bool = False) -> ParametricRange:
+    with _top_level_input_section("7) Étude paramétrique PAC", expanded=False):
         enable_pac_power_parametric = st.checkbox("Activer l'étude paramétrique sur la puissance PAC", value=False, key="param_pac_enabled")
         pp1, pp2, pp3 = st.columns(3)
         param_pac_fraction_min_pct = pp1.number_input("P PAC min (% Pmax BT)", min_value=1.0, max_value=150.0, value=50.0, step=5.0, key="param_pac_min_pct")
@@ -859,7 +866,16 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             "Limite de sécurité : 25 points."
         )
 
-    with st.expander("8) Étude paramétrique solaire + injection BTES", expanded=False):
+    return ParametricRange(
+        enabled=bool(enable_pac_power_parametric) and not disabled,
+        minimum=float(param_pac_fraction_min_pct),
+        maximum=float(param_pac_fraction_max_pct),
+        step=float(param_pac_fraction_step_pct),
+    )
+
+
+def render_solar_parametric_form(area_m2: float, *, disabled: bool = False) -> ParametricRange:
+    with _top_level_input_section("8) Étude paramétrique solaire + injection BTES", expanded=False):
         enable_solar_surface_parametric = st.checkbox("Activer l'étude paramétrique sur la surface solaire", value=False, key="param_solar_enabled")
         p1, p2, p3 = st.columns(3)
         param_surface_min_m2 = p1.number_input("Surface min étudiée (m²)", min_value=0.0, value=max(0.0, float(area_m2) * 0.5), step=50.0, key="param_surface_min_m2")
@@ -870,18 +886,23 @@ def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> Parame
             "le taux EnR global et la couverture solaire HT. Limite de sécurité : 25 points."
         )
 
+    return ParametricRange(
+        enabled=bool(enable_solar_surface_parametric) and not disabled,
+        minimum=float(param_surface_min_m2),
+        maximum=float(param_surface_max_m2),
+        step=float(param_surface_step_m2),
+    )
+
+
+def render_parametric_forms(area_m2: float, *, disabled: bool = False) -> ParametricFormsResult:
+    if disabled:
+        return ParametricFormsResult(
+            pac=ParametricRange(False, 50.0, 100.0, 10.0),
+            solar=ParametricRange(False, max(0.0, float(area_m2) * 0.5), max(50.0, float(area_m2) * 1.5), 250.0),
+        )
+
     return ParametricFormsResult(
-        pac=ParametricRange(
-            enabled=bool(enable_pac_power_parametric) and not disabled,
-            minimum=float(param_pac_fraction_min_pct),
-            maximum=float(param_pac_fraction_max_pct),
-            step=float(param_pac_fraction_step_pct),
-        ),
-        solar=ParametricRange(
-            enabled=bool(enable_solar_surface_parametric) and not disabled,
-            minimum=float(param_surface_min_m2),
-            maximum=float(param_surface_max_m2),
-            step=float(param_surface_step_m2),
-        ),
+        pac=render_pac_parametric_form(disabled=disabled),
+        solar=render_solar_parametric_form(area_m2, disabled=disabled),
     )
 
