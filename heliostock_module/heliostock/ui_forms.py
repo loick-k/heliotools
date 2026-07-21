@@ -684,68 +684,82 @@ def render_geothermal_form(
     )
 
 
-def render_gmi_verification_block() -> None:
+def render_gmi_verification_block(*, use_project_location: bool = False, show_map: bool = True) -> None:
     with _top_level_input_section("5) Vérification géothermie de minime importance (GMI)", expanded=False):
         st.caption(
             "Ce bloc interroge le zonage cartographique GMI du BRGM à partir d'une adresse ou de coordonnées. "
             "Il sert d'aide réglementaire préliminaire : il ne remplace pas l'analyse complète du projet, ni les autres critères GMI."
         )
 
-        with st.form("heliostock_gmi_address_form", clear_on_submit=False):
-            address_query = st.text_input(
-                "Adresse du projet",
-                placeholder="Ex. 10 rue de la Paix, 44000 Nantes",
-                key="gmi_address_query",
-            )
-            search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
-
-        if search_submitted:
-            try:
-                with st.spinner("Recherche dans la Base Adresse Nationale..."):
-                    st.session_state["gmi_address_candidates"] = _cached_address_search(address_query)
-            except (GeocodingServiceError, ValueError) as exc:
-                st.session_state["gmi_address_candidates"] = []
-                st.error(str(exc))
+        if use_project_location:
+            project_address = str(st.session_state.get("heliostock_project_address_label") or "")
+            latitude = float(st.session_state.get("heliostock_project_latitude", 47.2184))
+            longitude = float(st.session_state.get("heliostock_project_longitude", -1.5536))
+            st.session_state["gmi_address_query"] = project_address
+            st.session_state["gmi_selected_address_label"] = project_address
+            st.session_state["gmi_latitude"] = latitude
+            st.session_state["gmi_longitude"] = longitude
+            if project_address:
+                st.success(f"Adresse projet utilisée : {project_address}")
             else:
-                if not st.session_state["gmi_address_candidates"]:
-                    st.warning("Aucune adresse correspondante n'a été trouvée.")
+                st.warning("Aucune adresse projet n'est encore retenue. Renseigne l'adresse dans l'onglet Projet.")
+            st.write(f"**Coordonnées utilisées :** {latitude:.7f}, {longitude:.7f}")
+        else:
+            with st.form("heliostock_gmi_address_form", clear_on_submit=False):
+                address_query = st.text_input(
+                    "Adresse du projet",
+                    placeholder="Ex. 10 rue de la Paix, 44000 Nantes",
+                    key="gmi_address_query",
+                )
+                search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
 
-        candidates = st.session_state.get("gmi_address_candidates", [])
-        if candidates:
-            selected_index = st.selectbox(
-                "Adresse proposée",
-                options=range(len(candidates)),
-                format_func=lambda index: _address_candidate_label(candidates[index]),
-                key="gmi_selected_address_candidate",
+            if search_submitted:
+                try:
+                    with st.spinner("Recherche dans la Base Adresse Nationale..."):
+                        st.session_state["gmi_address_candidates"] = _cached_address_search(address_query)
+                except (GeocodingServiceError, ValueError) as exc:
+                    st.session_state["gmi_address_candidates"] = []
+                    st.error(str(exc))
+                else:
+                    if not st.session_state["gmi_address_candidates"]:
+                        st.warning("Aucune adresse correspondante n'a été trouvée.")
+
+            candidates = st.session_state.get("gmi_address_candidates", [])
+            if candidates:
+                selected_index = st.selectbox(
+                    "Adresse proposée",
+                    options=range(len(candidates)),
+                    format_func=lambda index: _address_candidate_label(candidates[index]),
+                    key="gmi_selected_address_candidate",
+                )
+                selected_candidate = candidates[int(selected_index)]
+                if st.button("Utiliser cette adresse", width="stretch", key="gmi_use_selected_address"):
+                    st.session_state["gmi_latitude"] = float(selected_candidate["latitude"])
+                    st.session_state["gmi_longitude"] = float(selected_candidate["longitude"])
+                    st.session_state["gmi_selected_address_label"] = str(selected_candidate["label"])
+                    st.session_state.pop("gmi_result", None)
+                    st.rerun()
+
+            if st.session_state.get("gmi_selected_address_label"):
+                st.success(f"Adresse retenue : {st.session_state['gmi_selected_address_label']}")
+
+            c1, c2 = st.columns(2)
+            latitude = c1.number_input(
+                "Latitude",
+                min_value=-90.0,
+                max_value=90.0,
+                format="%.7f",
+                key="gmi_latitude",
+                **_widget_default("gmi_latitude", 47.2184),
             )
-            selected_candidate = candidates[int(selected_index)]
-            if st.button("Utiliser cette adresse", width="stretch", key="gmi_use_selected_address"):
-                st.session_state["gmi_latitude"] = float(selected_candidate["latitude"])
-                st.session_state["gmi_longitude"] = float(selected_candidate["longitude"])
-                st.session_state["gmi_selected_address_label"] = str(selected_candidate["label"])
-                st.session_state.pop("gmi_result", None)
-                st.rerun()
-
-        if st.session_state.get("gmi_selected_address_label"):
-            st.success(f"Adresse retenue : {st.session_state['gmi_selected_address_label']}")
-
-        c1, c2 = st.columns(2)
-        latitude = c1.number_input(
-            "Latitude",
-            min_value=-90.0,
-            max_value=90.0,
-            format="%.7f",
-            key="gmi_latitude",
-            **_widget_default("gmi_latitude", 47.2184),
-        )
-        longitude = c2.number_input(
-            "Longitude",
-            min_value=-180.0,
-            max_value=180.0,
-            format="%.7f",
-            key="gmi_longitude",
-            **_widget_default("gmi_longitude", -1.5536),
-        )
+            longitude = c2.number_input(
+                "Longitude",
+                min_value=-180.0,
+                max_value=180.0,
+                format="%.7f",
+                key="gmi_longitude",
+                **_widget_default("gmi_longitude", -1.5536),
+            )
 
         p1, p2 = st.columns(2)
         exchanger_label = p1.radio(
@@ -795,7 +809,7 @@ def render_gmi_verification_block() -> None:
         if isinstance(selected_layer_for_map, dict):
             wms_layer_name_value = wms_layer_name(str(selected_layer_for_map.get("name", "")))
             wms_layer_title = str(selected_layer_for_map.get("title", ""))
-        if st.session_state.get("gmi_selected_address_label") or isinstance(result, dict):
+        if show_map and (st.session_state.get("gmi_selected_address_label") or isinstance(result, dict)):
             st_folium(
                 _build_gmi_map(
                     latitude=float(latitude),
@@ -815,7 +829,7 @@ def render_gmi_verification_block() -> None:
                     "La couche colorée affichée correspond au zonage cartographique GMI BRGM pour le type "
                     "d'échangeur et la profondeur sélectionnés."
                 )
-        else:
+        elif show_map:
             st.caption("La carte GMI s'affichera après sélection d'une adresse ou vérification du point.")
         if isinstance(result, dict):
             zone = str(result.get("zone") or "inconnu")

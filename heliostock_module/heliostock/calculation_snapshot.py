@@ -67,8 +67,10 @@ def build_calculation_snapshot(
     pac_parametric: Any,
     solar_parametric: Any,
     gmi: Any | None = None,
+    project: Any | None = None,
 ) -> dict[str, Any]:
     return {
+        "project": _jsonable(project or {}),
         "weather": {
             "region": weather_region,
             "station": weather_station,

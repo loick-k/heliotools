@@ -217,7 +217,12 @@ def _build_architectural_map(
     return map_object
 
 
-def render_architectural_constraints_test(*, state_prefix: str = "shared") -> None:
+def render_architectural_constraints_test(
+    *,
+    state_prefix: str = "shared",
+    show_address_inputs: bool = True,
+    show_map: bool = True,
+) -> None:
     """Render a preliminary heritage constraint check for solar thermal projects."""
 
     _ensure_default_state(state_prefix)
@@ -228,68 +233,73 @@ def render_architectural_constraints_test(*, state_prefix: str = "shared") -> No
         "l'Urbanisme. Cette analyse ne vaut pas autorisation d'urbanisme ni avis de l'Architecte des bâtiments de France."
     )
 
-    with st.form(f"{state_prefix}_architectural_address_form", clear_on_submit=False):
-        address_query = st.text_input(
-            "Adresse du projet",
-            placeholder="Ex. 10 rue de Strasbourg, 44000 Nantes",
-            key=_state_key(state_prefix, "address_query"),
-        )
-        search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
+    if show_address_inputs:
+        with st.form(f"{state_prefix}_architectural_address_form", clear_on_submit=False):
+            address_query = st.text_input(
+                "Adresse du projet",
+                placeholder="Ex. 10 rue de Strasbourg, 44000 Nantes",
+                key=_state_key(state_prefix, "address_query"),
+            )
+            search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
 
-    if search_submitted:
-        try:
-            with st.spinner("Recherche de l'adresse..."):
-                st.session_state[_state_key(state_prefix, "address_candidates")] = _cached_architectural_address_search(
-                    address_query
-                )
-        except (GeocodingServiceError, ValueError) as exc:
-            st.session_state[_state_key(state_prefix, "address_candidates")] = []
-            st.error(str(exc))
-        else:
-            if not st.session_state[_state_key(state_prefix, "address_candidates")]:
-                st.warning("Aucune adresse correspondante n'a été trouvée.")
+        if search_submitted:
+            try:
+                with st.spinner("Recherche de l'adresse..."):
+                    st.session_state[_state_key(state_prefix, "address_candidates")] = _cached_architectural_address_search(
+                        address_query
+                    )
+            except (GeocodingServiceError, ValueError) as exc:
+                st.session_state[_state_key(state_prefix, "address_candidates")] = []
+                st.error(str(exc))
+            else:
+                if not st.session_state[_state_key(state_prefix, "address_candidates")]:
+                    st.warning("Aucune adresse correspondante n'a été trouvée.")
 
-    candidates = st.session_state.get(_state_key(state_prefix, "address_candidates"), [])
-    if candidates:
-        selected_index = st.selectbox(
-            "Adresse proposée",
-            options=range(len(candidates)),
-            format_func=lambda index: _candidate_label(candidates[index]),
-            key=_state_key(state_prefix, "selected_address_candidate"),
-        )
-        if st.button("Utiliser cette adresse", width="stretch", key=_state_key(state_prefix, "use_selected_address")):
-            candidate = candidates[int(selected_index)]
-            st.session_state[_state_key(state_prefix, "latitude")] = float(candidate["latitude"])
-            st.session_state[_state_key(state_prefix, "longitude")] = float(candidate["longitude"])
-            st.session_state[_state_key(state_prefix, "selected_address")] = str(candidate["label"])
-            st.session_state[_state_key(state_prefix, "result")] = None
-            st.rerun()
+        candidates = st.session_state.get(_state_key(state_prefix, "address_candidates"), [])
+        if candidates:
+            selected_index = st.selectbox(
+                "Adresse proposée",
+                options=range(len(candidates)),
+                format_func=lambda index: _candidate_label(candidates[index]),
+                key=_state_key(state_prefix, "selected_address_candidate"),
+            )
+            if st.button("Utiliser cette adresse", width="stretch", key=_state_key(state_prefix, "use_selected_address")):
+                candidate = candidates[int(selected_index)]
+                st.session_state[_state_key(state_prefix, "latitude")] = float(candidate["latitude"])
+                st.session_state[_state_key(state_prefix, "longitude")] = float(candidate["longitude"])
+                st.session_state[_state_key(state_prefix, "selected_address")] = str(candidate["label"])
+                st.session_state[_state_key(state_prefix, "result")] = None
+                st.rerun()
 
     selected_address = str(st.session_state.get(_state_key(state_prefix, "selected_address")) or "")
     if selected_address:
         st.success(f"Adresse retenue : {selected_address}")
 
-    with st.expander("Saisie manuelle des coordonnées", expanded=False):
-        col_lat, col_lon = st.columns(2)
-        latitude = col_lat.number_input(
-            "Latitude",
-            min_value=-90.0,
-            max_value=90.0,
-            format="%.7f",
-            key=_state_key(state_prefix, "latitude"),
-            on_change=_coordinates_changed,
-            args=(state_prefix,),
-        )
-        longitude = col_lon.number_input(
-            "Longitude",
-            min_value=-180.0,
-            max_value=180.0,
-            format="%.7f",
-            key=_state_key(state_prefix, "longitude"),
-            on_change=_coordinates_changed,
-            args=(state_prefix,),
-        )
+    if show_address_inputs:
+        with st.expander("Saisie manuelle des coordonnées", expanded=False):
+            col_lat, col_lon = st.columns(2)
+            latitude = col_lat.number_input(
+                "Latitude",
+                min_value=-90.0,
+                max_value=90.0,
+                format="%.7f",
+                key=_state_key(state_prefix, "latitude"),
+                on_change=_coordinates_changed,
+                args=(state_prefix,),
+            )
+            longitude = col_lon.number_input(
+                "Longitude",
+                min_value=-180.0,
+                max_value=180.0,
+                format="%.7f",
+                key=_state_key(state_prefix, "longitude"),
+                on_change=_coordinates_changed,
+                args=(state_prefix,),
+            )
 
+    else:
+        latitude = float(st.session_state.get(_state_key(state_prefix, "latitude"), DEFAULT_LATITUDE))
+        longitude = float(st.session_state.get(_state_key(state_prefix, "longitude"), DEFAULT_LONGITUDE))
     st.write(f"**Coordonnées :** {float(latitude):.7f}, {float(longitude):.7f}")
 
     project_type = st.selectbox(
@@ -326,42 +336,61 @@ def render_architectural_constraints_test(*, state_prefix: str = "shared") -> No
                 for error in result["errors"]:
                     st.write(f"- {error}")
 
-    st.markdown("#### Carte")
-    if selected_address or isinstance(result, dict):
-        try:
-            map_image = render_static_map(
+    if show_map:
+        st.markdown("#### Carte")
+    if show_map and (selected_address or isinstance(result, dict)):
+        st_folium(
+            _build_architectural_map(
                 latitude=float(latitude),
                 longitude=float(longitude),
-                result=result if isinstance(result, dict) else None,
                 address=selected_address,
-                zoom=MAP_ZOOM,
-                width=900,
-                height=560,
-            )
-        except (StaticMapError, ValueError) as exc:
-            st.error(f"Impossible de générer la carte : {exc}")
-        else:
-            st.image(
-                map_image,
-                width="stretch",
-                caption=(
-                    "Le marqueur rouge correspond au projet. Les protections détectées sont superposées lorsqu'une "
-                    "géométrie est disponible."
-                ),
-            )
-    else:
+                result=result if isinstance(result, dict) else None,
+            ),
+            height=420,
+            width="stretch",
+            returned_objects=[],
+            key=_state_key(state_prefix, "map"),
+        )
+        st.caption(
+            "Le marqueur rouge correspond au projet. Les protections détectées sont superposées lorsqu'une "
+            "géométrie est disponible."
+        )
+    elif show_map:
         st.caption("La carte s'affichera après sélection d'une adresse ou analyse du point.")
 
     if isinstance(result, dict):
         with st.expander("Détail des données patrimoniales", expanded=False):
+            counts_df = pd.DataFrame(
+                [
+                    {
+                        "Catégorie": category,
+                        "Protection": str(config["title"]),
+                        "Objets détectés": int(result.get("counts", {}).get(category, 0)),
+                    }
+                    for category, config in CATEGORY_CONFIG.items()
+                ]
+            )
+            st.dataframe(counts_df, width="stretch", hide_index=True)
+            displayed_feature_count = 0
             for category, config in CATEGORY_CONFIG.items():
                 features = result["feature_collections"][category]["features"]
                 if not features:
                     continue
+                displayed_feature_count += len(features)
                 st.markdown(f"**{category} - {config['title']} ({len(features)})**")
                 for index, feature in enumerate(features, start=1):
                     st.write(f"Objet {index}")
                     st.json(compact_feature_properties(feature))
+            if displayed_feature_count == 0:
+                st.info(
+                    "Aucune protection patrimoniale AC1, AC2 ou AC4 n'a été retournée au droit du point interrogé."
+                )
+            query_scope = result.get("query_scope")
+            if isinstance(query_scope, dict):
+                st.caption(
+                    "Périmètre interrogé : "
+                    + " ; ".join(f"{key} = {value}" for key, value in query_scope.items())
+                )
 
         export_payload = {
             "address": selected_address,
