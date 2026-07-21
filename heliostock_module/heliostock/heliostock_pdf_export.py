@@ -402,6 +402,7 @@ def _draw_simple_bar_chart(
     y_label: str,
     color: tuple[float, float, float],
     max_items: int = 8,
+    y_max_override: float | None = None,
 ) -> None:
     data = df[[label_col, value_col]].copy() if not df.empty and {label_col, value_col}.issubset(df.columns) else pd.DataFrame()
     if data.empty:
@@ -419,7 +420,10 @@ def _draw_simple_bar_chart(
     plot_y = y + 34
     plot_w = width - 68
     plot_h = height - 66
-    y_max = max(1.0, float(data[value_col].max()) * 1.12)
+    if y_max_override is None:
+        y_max = max(1.0, float(data[value_col].max()) * 1.12)
+    else:
+        y_max = max(1.0, float(y_max_override))
     bar_w = min(46.0, plot_w / max(1, len(data)) * 0.55)
     spacing = plot_w / max(1, len(data))
 
@@ -432,7 +436,7 @@ def _draw_simple_bar_chart(
         canvas.drawRightString(plot_x - 5, gy - 2, _fmt_number(y_max * i / 5, 0))
     for idx, (_, row) in enumerate(data.iterrows()):
         cx = plot_x + idx * spacing + spacing / 2
-        bh = float(row[value_col]) / y_max * plot_h
+        bh = min(float(row[value_col]), y_max) / y_max * plot_h
         canvas.setFillColorRGB(*color)
         canvas.rect(cx - bar_w / 2, plot_y, bar_w, bh, fill=1, stroke=0)
         canvas.setFillColorRGB(0.35, 0.37, 0.45)
@@ -695,6 +699,7 @@ def _draw_monthly_analysis_charts_page(canvas, scenario: ScenarioResult, *, widt
         y_label="%",
         color=ENERGY_COLORS["Solaire thermique"],
         max_items=12,
+        y_max_override=100.0,
     )
     _draw_grouped_bar_chart(
         canvas,
