@@ -995,6 +995,18 @@ def render_opportunity_notes_app() -> None:
             "8. Synthèse / export",
         ]
     )
+
+    housing_counts = dict(needs_default.housing_counts)
+    housing_ratios = dict(needs_default.housing_ratios_l_day)
+    residents_or_beds = needs_default.residents_or_beds
+    liters_per_resident_or_bed_day = needs_default.liters_per_resident_or_bed_day
+    monthly_occupancy = dict(needs_default.monthly_occupancy)
+    liters_per_occupied_unit = needs_default.liters_per_occupied_unit
+    hotel_category = needs_default.hotel_category
+    car_wash_vehicles_per_day = needs_default.car_wash_vehicles_per_day
+    car_wash_liters_per_vehicle = needs_default.car_wash_liters_per_vehicle
+    measured_daily = dict(needs_default.measured_daily_l_60c_by_month)
+    monthly_coefficients = dict(needs_default.monthly_coefficients)
     
     with tab_site:
         st.subheader("Caractéristiques du site")
@@ -1037,6 +1049,76 @@ def render_opportunity_notes_app() -> None:
                 "Bâtiment existant : comptage ECS obligatoire / fortement attendu pour fiabiliser la note d'opportunité. "
                 "Les ratios SOCOL peuvent servir à une première approche mais doivent être confrontés à des mesures."
             )
+        if data_source == "Mesure de consommation ECS":
+            st.markdown("### Unité de référence")
+            st.caption(
+                "Cette unité ne recalcule pas la consommation mesurée. Elle sert à exprimer le besoin ECS par unité "
+                "et à alimenter les hypothèses de bouclage."
+            )
+            if typology == "Logement collectif":
+                housing_unit_rows = pd.DataFrame(
+                    [
+                        {"Typologie": kind, "Nombre": int(housing_counts.get(kind, 0))}
+                        for kind in HOUSING_RATIOS_L_PER_DWELLING_DAY
+                    ]
+                )
+                edited_housing_units = st.data_editor(
+                    housing_unit_rows,
+                    hide_index=True,
+                    width="stretch",
+                    disabled=["Typologie"],
+                    key=f"{project_ui_key}_project_housing_units_editor",
+                )
+                housing_counts = {
+                    str(row["Typologie"]): int(max(0, row["Nombre"])) for _, row in edited_housing_units.iterrows()
+                }
+            elif typology in {"EHPAD", "Hôpital"}:
+                residents_or_beds = st.number_input(
+                    "Nombre de résidents / lits",
+                    min_value=0,
+                    value=int(residents_or_beds),
+                    step=1,
+                    key=f"{project_ui_key}_project_residents_or_beds",
+                )
+            elif typology == "Hôtel":
+                st.caption("Renseigner les nuitées chambres si elles sont disponibles.")
+                occupancy_rows = pd.DataFrame(
+                    [{"Mois": month, "Nuitées chambres": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
+                )
+                edited_occupancy = st.data_editor(
+                    occupancy_rows,
+                    hide_index=True,
+                    width="stretch",
+                    disabled=["Mois"],
+                    key=f"{project_ui_key}_project_hotel_occupancy_editor",
+                )
+                monthly_occupancy = {
+                    str(row["Mois"]): float(max(0.0, row["Nuitées chambres"])) for _, row in edited_occupancy.iterrows()
+                }
+            elif typology == "Camping":
+                st.caption("Renseigner les personnes-nuitées si elles sont disponibles.")
+                occupancy_rows = pd.DataFrame(
+                    [{"Mois": month, "Personnes-nuitées": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
+                )
+                edited_occupancy = st.data_editor(
+                    occupancy_rows,
+                    hide_index=True,
+                    width="stretch",
+                    disabled=["Mois"],
+                    key=f"{project_ui_key}_project_camping_occupancy_editor",
+                )
+                monthly_occupancy = {
+                    str(row["Mois"]): float(max(0.0, row["Personnes-nuitées"])) for _, row in edited_occupancy.iterrows()
+                }
+            elif typology == "Station de lavage":
+                car_wash_vehicles_per_day = st.number_input(
+                    "Nombre de véhicules lavés par jour",
+                    min_value=0.0,
+                    value=float(car_wash_vehicles_per_day),
+                    step=1.0,
+                    key=f"{project_ui_key}_project_car_wash_vehicles_per_day",
+                    help="Cette valeur sert à exprimer la consommation ECS équivalente en L/véhicule à 60 °C.",
+                )
         st.markdown("### Localisation")
         st.caption(
             "L'adresse du projet est utilisée par l'onglet Contraintes architecturales. "
@@ -1148,18 +1230,6 @@ def render_opportunity_notes_app() -> None:
         )
         ecs_temperature_label = f"{number(ecs_temperature_c, 0)} °C"
     
-        housing_counts = dict(needs_default.housing_counts)
-        housing_ratios = dict(needs_default.housing_ratios_l_day)
-        residents_or_beds = needs_default.residents_or_beds
-        liters_per_resident_or_bed_day = needs_default.liters_per_resident_or_bed_day
-        monthly_occupancy = dict(needs_default.monthly_occupancy)
-        liters_per_occupied_unit = needs_default.liters_per_occupied_unit
-        hotel_category = needs_default.hotel_category
-        car_wash_vehicles_per_day = needs_default.car_wash_vehicles_per_day
-        car_wash_liters_per_vehicle = needs_default.car_wash_liters_per_vehicle
-        measured_daily = dict(needs_default.measured_daily_l_60c_by_month)
-        monthly_coefficients = dict(needs_default.monthly_coefficients)
-    
         if data_source == "Mesure de consommation ECS":
             st.markdown("**Saisie d'une consommation ECS mesurée ou estimée**")
             st.caption(
@@ -1247,76 +1317,6 @@ def render_opportunity_notes_app() -> None:
                 )
             st.markdown("**Conversions utilisées par le calcul**")
             st.dataframe(pd.DataFrame(conversion_rows), hide_index=True, width="stretch")
-    
-            st.markdown("**Unités de référence du site**")
-            st.caption(
-                "Ces unités ne servent pas à recalculer la consommation mesurée. "
-                "Elles servent seulement à déduire le volume ECS de référence par unité utilisé dans le calcul SOLO du bouclage."
-            )
-            if typology == "Logement collectif":
-                housing_unit_rows = pd.DataFrame(
-                    [
-                        {"Typologie": kind, "Nombre": int(housing_counts.get(kind, 0))}
-                        for kind in HOUSING_RATIOS_L_PER_DWELLING_DAY
-                    ]
-                )
-                edited_housing_units = st.data_editor(
-                    housing_unit_rows,
-                    hide_index=True,
-                    width="stretch",
-                    disabled=["Typologie"],
-                    key=f"{project_ui_key}_measured_housing_units_editor",
-                )
-                housing_counts = {
-                    str(row["Typologie"]): int(max(0, row["Nombre"])) for _, row in edited_housing_units.iterrows()
-                }
-            elif typology in {"EHPAD", "Hôpital"}:
-                residents_or_beds = st.number_input(
-                    "Nombre de résidents / lits",
-                    min_value=0,
-                    value=int(residents_or_beds),
-                    step=1,
-                    key=f"{project_ui_key}_measured_residents_or_beds",
-                )
-            elif typology == "Hôtel":
-                st.caption("Renseigner les nuitées chambres si elles sont disponibles, pour calculer un volume de référence par chambre-nuitée.")
-                occupancy_rows = pd.DataFrame(
-                    [{"Mois": month, "Nuitées chambres": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
-                )
-                edited_occupancy = st.data_editor(
-                    occupancy_rows,
-                    hide_index=True,
-                    width="stretch",
-                    disabled=["Mois"],
-                    key=f"{project_ui_key}_measured_hotel_occupancy_editor",
-                )
-                monthly_occupancy = {
-                    str(row["Mois"]): float(max(0.0, row["Nuitées chambres"])) for _, row in edited_occupancy.iterrows()
-                }
-            elif typology == "Camping":
-                st.caption("Renseigner les personnes-nuitées si elles sont disponibles, pour calculer un volume de référence par personne-nuitée.")
-                occupancy_rows = pd.DataFrame(
-                    [{"Mois": month, "Personnes-nuitées": float(monthly_occupancy.get(month, 0.0))} for month in MONTH_NAMES]
-                )
-                edited_occupancy = st.data_editor(
-                    occupancy_rows,
-                    hide_index=True,
-                    width="stretch",
-                    disabled=["Mois"],
-                    key=f"{project_ui_key}_measured_camping_occupancy_editor",
-                )
-                monthly_occupancy = {
-                    str(row["Mois"]): float(max(0.0, row["Personnes-nuitées"])) for _, row in edited_occupancy.iterrows()
-                }
-            elif typology == "Station de lavage":
-                car_wash_vehicles_per_day = st.number_input(
-                    "Nombre de véhicules lavés par jour",
-                    min_value=0.0,
-                    value=float(car_wash_vehicles_per_day),
-                    step=1.0,
-                    key=f"{project_ui_key}_measured_car_wash_vehicles_per_day",
-                    help="Cette valeur sert d'unité de référence pour exprimer la consommation ECS équivalente en L/véhicule à 60 °C.",
-                )
     
         elif typology == "Logement collectif":
             st.markdown("**Approche détaillée par typologie de logements**")
