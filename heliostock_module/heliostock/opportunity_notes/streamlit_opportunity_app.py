@@ -1765,16 +1765,26 @@ def render_opportunity_notes_app() -> None:
 
     with tab_needs:
         st.markdown("### Synthèse du besoin ECS")
-        k1, k2, k3 = st.columns(3)
+        equivalent_60c_volume_l_year = 0.0
+        for row in opportunity_results.monthly_needs:
+            delta_t_60c = max(1e-6, 60.0 - float(row.cold_water_temperature_c))
+            equivalent_60c_volume_l_year += row.useful_energy_kwh * 1000.0 / (CP_WHLK * delta_t_60c)
+        equivalent_60c_l_day = equivalent_60c_volume_l_year / 365.0 if equivalent_60c_volume_l_year > 0 else 0.0
+
+        k1, k2, k3, k4 = st.columns(4)
         k1.metric(
-            "Consommation moyenne journalière annuelle",
+            "Consommation moyenne à la température cible",
             f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C",
         )
         k2.metric(
+            "Équivalent à 60 °C",
+            f"{number(equivalent_60c_l_day, 0)} L/j à 60 °C",
+        )
+        k3.metric(
             "Besoin utile ECS moyen",
             f"{number(opportunity_results.annual_useful_energy_mwh * 1000.0 / 365.0, 1)} kWh/j",
         )
-        k3.metric(
+        k4.metric(
             "Valeur par unité de référence",
             f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 1)} L/unité/j",
         )
