@@ -1,7 +1,7 @@
 [
   {
     "slug": "ehpad-la-petite-montagne_8a80e1e1",
-    "saved_at": "2026-07-19T21:01:56",
+    "saved_at": "2026-07-21T10:33:33",
     "owner_email": "loick@atlansun.fr",
     "project_id": "8a80e1e1-0124-4ca7-ad2d-25ca1ce8088a",
     "name": "EHPAD La Petite Montagne",
@@ -13,11 +13,11 @@
       "name": "EHPAD La Petite Montagne",
       "owner_email": "loick@atlansun.fr",
       "created_at": "2026-07-18T22:26:30",
-      "updated_at": "2026-07-19T21:01:56",
+      "updated_at": "2026-07-21T10:33:33",
       "site": {
         "project_name": "EHPAD La Petite Montagne",
         "airtable_id": "1367",
-        "client_name": "",
+        "client_name": "CH Guingamp",
         "city": "Pabu",
         "typology": "EHPAD",
         "building_state": "Bâtiment existant",
