@@ -25,6 +25,29 @@ def test_heliotools_portal_password_hashing_helpers():
         ui_portal._validate_password("court")
 
 
+def test_project_labels_are_unique_when_names_are_duplicated(tmp_path):
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    first = tmp_path / "toyota_a.json"
+    second = tmp_path / "toyota_b.json"
+    first.write_text(
+        '{"name": "Toyota Industries", "project_id": "aaaaaaaa-0000", "updated_at": "2026-07-23T10:00:00"}',
+        encoding="utf-8",
+    )
+    second.write_text(
+        '{"name": "Toyota Industries", "project_id": "bbbbbbbb-0000", "updated_at": "2026-07-23T11:00:00"}',
+        encoding="utf-8",
+    )
+
+    labels = ui_portal._unique_project_labels([first, second])
+
+    assert len(labels) == 2
+    assert labels[0] != labels[1]
+    assert all(label.startswith("Toyota Industries (") for label in labels)
+
+
 def test_airtable_token_is_not_project_saveable():
     source = _source("heliostock/ui_portal.py")
     saveable_block = source.split("SAVEABLE_WIDGET_KEYS = [", 1)[1].split("]", 1)[0]

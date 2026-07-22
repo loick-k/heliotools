@@ -835,37 +835,36 @@ def render_heat_cost_breakdown_plotly(results):
     rows = build_heat_cost_breakdown_rows(results)
     total_cost = results.solar_heat_cost_eur_mwh
     reference_cost = results.average_reference_energy_cost_eur_mwh
-    x_max = max(total_cost, reference_cost, 1.0) * 1.25
+    y_max = max(total_cost, reference_cost, 1.0) * 1.25
     fig = go.Figure()
     for row in rows:
         value = float(row["Coût chaleur (€/MWh)"])
         fig.add_trace(
             go.Bar(
-                y=["Coût chaleur solaire"],
-                x=[value],
+                x=["Coût chaleur solaire"],
+                y=[value],
                 name=str(row["Poste"]),
-                orientation="h",
                 text=[f"{value:.1f} €/MWh"],
                 textposition="inside",
-                hovertemplate="%{fullData.name}<br>%{x:.1f} €/MWh<extra></extra>",
+                hovertemplate="%{fullData.name}<br>%{y:.1f} €/MWh<extra></extra>",
             )
         )
-    fig.add_vline(
-        x=reference_cost,
+    fig.add_hline(
+        y=reference_cost,
         line_dash="dash",
         annotation_text=f"Référence moyenne : {reference_cost:.1f} €/MWh",
         annotation_position="top right",
     )
     fig.update_layout(
         barmode="stack",
-        height=300,
-        margin={"l": 10, "r": 20, "t": 60, "b": 40},
+        height=420,
+        margin={"l": 10, "r": 20, "t": 60, "b": 50},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
-        xaxis_title="Coût de la chaleur (€/MWh utile)",
-        yaxis_title=None,
+        xaxis_title=None,
+        yaxis_title="Coût de la chaleur (€/MWh utile)",
     )
-    fig.update_xaxes(range=[0, x_max], ticksuffix=" €/MWh")
-    fig.update_yaxes(showticklabels=False)
+    fig.update_xaxes(showticklabels=False)
+    fig.update_yaxes(range=[0, y_max], ticksuffix=" €/MWh")
     return fig
 
 

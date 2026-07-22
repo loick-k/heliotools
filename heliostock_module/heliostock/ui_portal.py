@@ -919,6 +919,32 @@ def _project_label(path: Path) -> str:
     return str(data.get("name") or path.stem)
 
 
+def _unique_project_labels(paths: list[Path]) -> list[str]:
+    """Retourne des libellés de projets sélectionnables sans doublon Streamlit."""
+
+    base_labels = [_project_label(path) for path in paths]
+    duplicate_names = {label for label in base_labels if base_labels.count(label) > 1}
+    labels: list[str] = []
+    for path, label in zip(paths, base_labels, strict=True):
+        if label not in duplicate_names:
+            labels.append(label)
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            data = {}
+        updated = str(data.get("updated_at") or data.get("saved_at") or "")
+        project_id = str(data.get("project_id") or path.with_suffix("").name)
+        suffix_parts = []
+        if updated:
+            suffix_parts.append(updated.replace("T", " ")[:16])
+        if project_id:
+            suffix_parts.append(project_id[:8])
+        suffix = " - ".join(suffix_parts) or path.stem
+        labels.append(f"{label} ({suffix})")
+    return labels
+
+
 def _legacy_project_sidecar_paths(path: Path) -> tuple[Path, Path]:
     _assert_local_project_path(path)
     stem = path.with_suffix("")
@@ -1525,7 +1551,7 @@ def render_portal_sidebar() -> str:
                 st.markdown("### Projets")
                 project_files = _project_files()
                 if project_files:
-                    labels = [_project_label(path) for path in project_files]
+                    labels = _unique_project_labels(project_files)
                     selected_label = st.selectbox("Projet sauvegardé", labels, key="portal_project_to_load")
                     selected_index = labels.index(selected_label)
                     selected_path = project_files[selected_index]
