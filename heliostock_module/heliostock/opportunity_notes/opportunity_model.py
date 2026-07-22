@@ -95,6 +95,7 @@ SOLO_QUALITY_TO_LOSS_MODE_LABEL: dict[str, str] = {
 EHPAD_DEFAULT_L_PER_RESIDENT_DAY = 15.0
 HOSPITAL_DEFAULT_L_PER_BED_DAY = 25.0
 CAMPING_DEFAULT_L_PER_PERSON_NIGHT = 12.0
+CAR_WASH_DEFAULT_L_PER_VEHICLE = 80.0
 
 HOTEL_RATIOS_L_PER_ROOM_NIGHT: dict[str, float] = {
     "Eco": 30.0,
@@ -210,6 +211,10 @@ class NeedsInputs:
     liters_per_occupied_unit: float = HOTEL_RATIOS_L_PER_ROOM_NIGHT["1 & 2 étoiles"]
     hotel_category: str = "1 & 2 étoiles"
 
+    # Station de lavage : unité de référence métier.
+    car_wash_vehicles_per_day: float = 0.0
+    car_wash_liters_per_vehicle: float = CAR_WASH_DEFAULT_L_PER_VEHICLE
+
     # Mesure directe de consommation ECS : valeur journalière mensuelle à 60 °C.
     measured_daily_l_60c_by_month: dict[str, float] = field(
         default_factory=lambda: {month: 0.0 for month in MONTH_NAMES}
@@ -233,6 +238,7 @@ class SizingInputs:
 @dataclass(frozen=True)
 class LoopInputs:
     method: str = "Analyse factures gaz"
+    include_heating_estimate_without_loop: bool = False
 
     # Méthode 1 : analyse factures gaz.
     gas_monthly_kwh: dict[str, float] = field(default_factory=lambda: {month: 0.0 for month in MONTH_NAMES})
@@ -444,6 +450,12 @@ def _monthly_volumes_l_60c(site: SiteInputs, needs: NeedsInputs) -> dict[str, fl
             volumes[month] = occupancy * liters_per_unit
         return volumes
 
+    if site.typology == "Station de lavage":
+        base_daily_volume = max(0.0, needs.car_wash_vehicles_per_day) * max(0.0, needs.car_wash_liters_per_vehicle)
+        for month, days in MONTHS:
+            volumes[month] = base_daily_volume * days
+        return volumes
+
     raise ValueError(f"Typologie non traitée : {site.typology}")
 
 
@@ -468,6 +480,9 @@ def estimate_reference_unit_count(site: SiteInputs, needs: NeedsInputs) -> float
     if site.typology in {"Camping", "Hôtel"}:
         total_occupancy = sum(max(0.0, float(needs.monthly_occupancy.get(month, 0.0))) for month in MONTH_NAMES)
         return total_occupancy / 365.0 if total_occupancy > 0 else 0.0
+
+    if site.typology == "Station de lavage":
+        return max(0.0, float(needs.car_wash_vehicles_per_day))
 
     return 0.0
 
@@ -673,6 +688,12 @@ def build_monthly_needs(
             global_after_boiler_kwh = gas_baseload_kwh * boiler_efficiency
             heating_after_boiler_kwh = max(0.0, gas_consumption_kwh - gas_baseload_kwh) * boiler_efficiency
             loop_losses_kwh = loop_losses_daily_kwh_from_gas * row.days
+        elif loop.method == "Aucun bouclage sanitaire":
+            gas_consumption_kwh = max(0.0, loop.gas_monthly_kwh.get(row.month, 0.0))
+            if loop.include_heating_estimate_without_loop:
+                global_after_boiler_kwh = gas_consumption_kwh * boiler_efficiency
+                heating_after_boiler_kwh = max(0.0, global_after_boiler_kwh - row.useful_energy_kwh)
+            loop_losses_kwh = 0.0
         elif loop.method == "Hypothèses SOLO 2018":
             loop_losses_kwh = _solo_loop_loss_kwh(row, loop, text_min_annuel_c)
         else:

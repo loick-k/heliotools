@@ -39,6 +39,7 @@ from .cesc_economic_model import (
 from .opportunity_model import (
     BUILDING_STATES,
     CAMPING_DEFAULT_L_PER_PERSON_NIGHT,
+    CAR_WASH_DEFAULT_L_PER_VEHICLE,
     CP_WHLK,
     DATA_SOURCES,
     DAYS_BY_MONTH,
@@ -768,7 +769,7 @@ def render_ecs_loop_pie_chart(results):
         return None
     useful = max(0.0, float(results.annual_useful_energy_mwh or 0.0))
     loop = max(0.0, float(results.annual_loop_losses_mwh or 0.0))
-    if useful + loop <= 0:
+    if useful + loop <= 0 or loop <= 0:
         return None
     fig = go.Figure(
         data=[
@@ -797,7 +798,7 @@ def render_ecs_loop_heating_pie_chart(results):
     useful = max(0.0, float(results.annual_useful_energy_mwh or 0.0))
     loop = max(0.0, float(results.annual_loop_losses_mwh or 0.0))
     heating = max(0.0, float(results.annual_heating_after_boiler_mwh or 0.0))
-    if useful + loop + heating <= 0:
+    if useful + loop + heating <= 0 or loop <= 0 or heating <= 0:
         return None
     fig = go.Figure(
         data=[
@@ -958,11 +959,17 @@ def render_opportunity_notes_app() -> None:
         col_load, col_new = st.columns(2)
         with col_load:
             if st.button("Charger", width="stretch", disabled=selected_project_label == "-"):
-                st.session_state.project_payload = load_project(project_by_label[selected_project_label])
+                loaded_payload = load_project(project_by_label[selected_project_label])
+                loaded_project_key = str(loaded_payload.get("project_id", "projet"))[:8]
+                st.session_state.pop(f"{loaded_project_key}_cold_water_mode", None)
+                st.session_state.project_payload = loaded_payload
                 st.rerun()
         with col_new:
             if st.button("Nouveau", width="stretch"):
-                st.session_state.project_payload = empty_project_payload()
+                new_payload = empty_project_payload()
+                new_project_key = str(new_payload.get("project_id", "projet"))[:8]
+                st.session_state.pop(f"{new_project_key}_cold_water_mode", None)
+                st.session_state.project_payload = new_payload
                 st.rerun()
     
     payload = st.session_state.project_payload
@@ -1149,6 +1156,8 @@ def render_opportunity_notes_app() -> None:
         monthly_occupancy = dict(needs_default.monthly_occupancy)
         liters_per_occupied_unit = needs_default.liters_per_occupied_unit
         hotel_category = needs_default.hotel_category
+        car_wash_vehicles_per_day = needs_default.car_wash_vehicles_per_day
+        car_wash_liters_per_vehicle = needs_default.car_wash_liters_per_vehicle
         measured_daily = dict(needs_default.measured_daily_l_60c_by_month)
         monthly_coefficients = dict(needs_default.monthly_coefficients)
     
@@ -1300,6 +1309,15 @@ def render_opportunity_notes_app() -> None:
                 monthly_occupancy = {
                     str(row["Mois"]): float(max(0.0, row["Personnes-nuitées"])) for _, row in edited_occupancy.iterrows()
                 }
+            elif typology == "Station de lavage":
+                car_wash_vehicles_per_day = st.number_input(
+                    "Nombre de véhicules lavés par jour",
+                    min_value=0.0,
+                    value=float(car_wash_vehicles_per_day),
+                    step=1.0,
+                    key=f"{project_ui_key}_measured_car_wash_vehicles_per_day",
+                    help="Cette valeur sert d'unité de référence pour exprimer la consommation ECS équivalente en L/véhicule à 60 °C.",
+                )
     
         elif typology == "Logement collectif":
             st.markdown("**Approche détaillée par typologie de logements**")
@@ -1400,6 +1418,25 @@ def render_opportunity_notes_app() -> None:
             monthly_occupancy = {
                 str(row["Mois"]): float(max(0.0, row["Personnes-nuitées"])) for _, row in edited_occupancy.iterrows()
             }
+
+        elif typology == "Station de lavage":
+            col_a, col_b = st.columns(2)
+            with col_a:
+                car_wash_vehicles_per_day = st.number_input(
+                    "Nombre de véhicules lavés par jour",
+                    min_value=0.0,
+                    value=float(car_wash_vehicles_per_day),
+                    step=1.0,
+                    key=f"{project_ui_key}_car_wash_vehicles_per_day",
+                )
+            with col_b:
+                car_wash_liters_per_vehicle = st.number_input(
+                    f"Conso ECS à {ecs_temperature_label} (L/véhicule)",
+                    min_value=0.0,
+                    value=float(car_wash_liters_per_vehicle or CAR_WASH_DEFAULT_L_PER_VEHICLE),
+                    step=1.0,
+                    key=f"{project_ui_key}_car_wash_liters_per_vehicle",
+                )
     
         if data_source == "Ratio SOCOL" and typology in {"Logement collectif", "EHPAD", "Hôpital"}:
             with st.expander("Coefficient mensuel de modulation", expanded=False):
@@ -1429,6 +1466,8 @@ def render_opportunity_notes_app() -> None:
         monthly_occupancy=monthly_occupancy,
         liters_per_occupied_unit=float(liters_per_occupied_unit),
         hotel_category=hotel_category,
+        car_wash_vehicles_per_day=float(car_wash_vehicles_per_day),
+        car_wash_liters_per_vehicle=float(car_wash_liters_per_vehicle),
         measured_daily_l_60c_by_month=measured_daily,
         monthly_coefficients=monthly_coefficients,
     )
@@ -1447,6 +1486,7 @@ def render_opportunity_notes_app() -> None:
     
         gas_monthly_kwh = dict(loop_default.gas_monthly_kwh)
         boiler_efficiency = loop_default.boiler_efficiency
+        include_heating_estimate_without_loop = loop_default.include_heating_estimate_without_loop
     
         solo_type_bouclage_label = loop_default.solo_type_bouclage_label
         solo_loss_mode_label = loop_default.solo_loss_mode_label
@@ -1474,6 +1514,45 @@ def render_opportunity_notes_app() -> None:
                 "Aucun bouclage sanitaire n'est pris en compte. "
                 "Le besoin ECS total est donc égal au besoin utile ECS, hors chauffage estimé."
             )
+            include_heating_estimate_without_loop = st.checkbox(
+                "Estimer également un chauffage depuis les factures gaz",
+                value=bool(include_heating_estimate_without_loop),
+                key=f"{project_ui_key}_heating_without_loop",
+                help=(
+                    "À utiliser si les factures gaz contiennent de l'ECS utile et du chauffage, "
+                    "mais pas de pertes de bouclage sanitaire."
+                ),
+            )
+            if include_heating_estimate_without_loop:
+                boiler_efficiency = st.number_input(
+                    "Rendement chaudière gaz retenu",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(boiler_efficiency or 0.85),
+                    step=0.01,
+                    key=f"{project_ui_key}_no_loop_boiler_efficiency",
+                )
+                gas_rows = pd.DataFrame(
+                    [
+                        {"Mois": month, "Conso gaz facturée (kWh/mois)": float(gas_monthly_kwh.get(month, 0.0))}
+                        for month in MONTH_NAMES
+                    ]
+                )
+                edited_gas = st.data_editor(
+                    gas_rows,
+                    hide_index=True,
+                    width="stretch",
+                    disabled=["Mois"],
+                    key=f"{project_ui_key}_no_loop_gas_invoices_editor",
+                )
+                gas_monthly_kwh = {
+                    str(row["Mois"]): float(max(0.0, row["Conso gaz facturée (kWh/mois)"]))
+                    for _, row in edited_gas.iterrows()
+                }
+                st.markdown(
+                    "Calcul appliqué : "
+                    "`chauffage_mois = max(0 ; conso_gaz_mois × rendement_chaudière - besoin_ECS_utile_mois)`."
+                )
         elif loop_method == "Analyse factures gaz":
             st.caption(
                 "Saisir les consommations gaz mensuelles. L'outil calcule le talon minimal journalier sur juin-septembre, "
@@ -1679,6 +1758,7 @@ def render_opportunity_notes_app() -> None:
     
     loop_inputs = LoopInputs(
         method=loop_method,
+        include_heating_estimate_without_loop=bool(include_heating_estimate_without_loop),
         gas_monthly_kwh=gas_monthly_kwh,
         boiler_efficiency=float(boiler_efficiency),
         solo_type_bouclage_label=solo_type_bouclage_label,
@@ -1785,15 +1865,27 @@ def render_opportunity_notes_app() -> None:
             "Besoin utile ECS moyen",
             f"{number(opportunity_results.annual_useful_energy_mwh * 1000.0 / 365.0, 1)} kWh/j",
         )
-        k4.metric(
-            "Valeur par unité de référence",
-            f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 1)} L/unité/j",
-        )
-        if opportunity_results.reference_unit_count > 0:
-            st.caption(
+        reference_unit_value = opportunity_results.solo_reference_volume_l_day_per_unit
+        if site_inputs.typology == "Station de lavage":
+            reference_label = "Valeur par véhicule lavé"
+            reference_value = f"{number(reference_unit_value, 1)} L/véhicule à 60 °C"
+            reference_caption = (
+                f"Unité de référence : {number(opportunity_results.reference_unit_count, 1)} "
+                "véhicule(s) lavé(s) par jour."
+            )
+        else:
+            reference_label = "Valeur par unité de référence"
+            reference_value = f"{number(reference_unit_value, 1)} L/unité/j"
+            reference_caption = (
                 f"Unité de référence estimée : {number(opportunity_results.reference_unit_count, 1)} "
                 "unité(s) selon la typologie du site."
             )
+        k4.metric(
+            reference_label,
+            reference_value,
+        )
+        if opportunity_results.reference_unit_count > 0:
+            st.caption(reference_caption)
         else:
             st.caption("Aucune unité de référence exploitable n'est renseignée ; la valeur par unité reprend le volume moyen total.")
     

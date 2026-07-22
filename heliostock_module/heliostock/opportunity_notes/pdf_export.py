@@ -78,6 +78,8 @@ def _cost_table_rows(results: CescEconomicResults) -> list[dict[str, Any]]:
 
 
 def _ecs_pie_rows(results: OpportunityResults) -> list[dict[str, Any]]:
+    if float(results.annual_loop_losses_mwh or 0.0) <= 0:
+        return []
     return [
         {"Poste": "Besoin utile ECS", "MWh": results.annual_useful_energy_mwh},
         {"Poste": "Bouclage sanitaire", "MWh": results.annual_loop_losses_mwh},
@@ -85,6 +87,8 @@ def _ecs_pie_rows(results: OpportunityResults) -> list[dict[str, Any]]:
 
 
 def _ecs_heating_pie_rows(results: OpportunityResults) -> list[dict[str, Any]]:
+    if float(results.annual_loop_losses_mwh or 0.0) <= 0 or float(results.annual_heating_after_boiler_mwh or 0.0) <= 0:
+        return []
     return [
         {"Poste": "Besoin utile ECS", "MWh": results.annual_useful_energy_mwh},
         {"Poste": "Bouclage sanitaire", "MWh": results.annual_loop_losses_mwh},
@@ -163,24 +167,28 @@ def build_opportunity_note_pdf(
 
     report.start_page(title="Note d'opportunité - besoins et prédimensionnement")
     y = report.section_title("Répartition annuelle des besoins", x=margin, y=report.page_height - 92)
-    report.pie_chart(
-        _ecs_pie_rows(opportunity_results),
-        x=52,
-        y=y - 165,
-        radius=62,
-        title="ECS utile / bouclage",
-        label_col="Poste",
-        value_col="MWh",
-    )
-    report.pie_chart(
-        _ecs_heating_pie_rows(opportunity_results),
-        x=70 + half_w,
-        y=y - 165,
-        radius=62,
-        title="ECS utile / bouclage / chauffage",
-        label_col="Poste",
-        value_col="MWh",
-    )
+    ecs_pie_rows = _ecs_pie_rows(opportunity_results)
+    ecs_heating_pie_rows = _ecs_heating_pie_rows(opportunity_results)
+    if ecs_pie_rows:
+        report.pie_chart(
+            ecs_pie_rows,
+            x=52,
+            y=y - 165,
+            radius=62,
+            title="ECS utile / bouclage",
+            label_col="Poste",
+            value_col="MWh",
+        )
+    if ecs_heating_pie_rows:
+        report.pie_chart(
+            ecs_heating_pie_rows,
+            x=70 + half_w,
+            y=y - 165,
+            radius=62,
+            title="ECS utile / bouclage / chauffage",
+            label_col="Poste",
+            value_col="MWh",
+        )
     y = report.section_title("Graphiques mensuels et bilan annuel", x=margin, y=250)
     report.line_chart(
         _monthly_chart_rows(opportunity_results),
