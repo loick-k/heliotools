@@ -806,8 +806,11 @@ def compute_opportunity_results(
 ) -> OpportunityResults:
     loop = loop or LoopInputs()
     monthly = build_monthly_needs(site, needs, sizing, loop)
-    annual_volume_l = sum(row.volume_l_60c for row in monthly)
-    average_daily_l = annual_volume_l / 365.0
+    annual_volume_l_equivalent_60c = sum(
+        row.useful_energy_kwh * 1000.0 / (CP_WHLK * max(1e-6, 60.0 - float(row.cold_water_temperature_c)))
+        for row in monthly
+    )
+    average_daily_l = annual_volume_l_equivalent_60c / 365.0
     annual_useful_energy_mwh = sum(row.useful_energy_mwh for row in monthly)
     annual_loop_losses_mwh = sum(row.loop_losses_mwh for row in monthly)
     annual_total_ecs_energy_mwh = sum(row.total_ecs_energy_mwh for row in monthly)
@@ -822,7 +825,7 @@ def compute_opportunity_results(
     estimated_production = collectors.surface_m2 * sizing.productivity_kwh_m2_year / 1000.0
     return OpportunityResults(
         monthly_needs=monthly,
-        annual_volume_l_60c=annual_volume_l,
+        annual_volume_l_60c=annual_volume_l_equivalent_60c,
         average_daily_volume_l_60c=average_daily_l,
         annual_useful_energy_mwh=annual_useful_energy_mwh,
         annual_loop_losses_mwh=annual_loop_losses_mwh,

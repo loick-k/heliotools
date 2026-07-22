@@ -1770,20 +1770,16 @@ def render_opportunity_notes_app() -> None:
 
     with tab_needs:
         st.markdown("### Synthèse du besoin ECS")
-        equivalent_60c_volume_l_year = 0.0
-        for row in opportunity_results.monthly_needs:
-            delta_t_60c = max(1e-6, 60.0 - float(row.cold_water_temperature_c))
-            equivalent_60c_volume_l_year += row.useful_energy_kwh * 1000.0 / (CP_WHLK * delta_t_60c)
-        equivalent_60c_l_day = equivalent_60c_volume_l_year / 365.0 if equivalent_60c_volume_l_year > 0 else 0.0
+        target_temperature_l_day = sum(row.volume_l_60c for row in opportunity_results.monthly_needs) / 365.0
 
         k1, k2, k3, k4 = st.columns(4)
         k1.metric(
             "Consommation moyenne à la température cible",
-            f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C",
+            f"{number(target_temperature_l_day, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C",
         )
         k2.metric(
-            "Équivalent à 60 °C",
-            f"{number(equivalent_60c_l_day, 0)} L/j à 60 °C",
+            "Équivalent dimensionnant à 60 °C",
+            f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à 60 °C",
         )
         k3.metric(
             "Besoin utile ECS moyen",
@@ -1820,14 +1816,14 @@ def render_opportunity_notes_app() -> None:
             if opportunity_results.reference_unit_count > 0:
                 st.info(
                     "Volume ECS de référence SOLO utilisé automatiquement : "
-                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 1)} L/j/unité à {number(needs_inputs.ecs_temperature_c, 0)} °C, "
+                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 1)} L/j/unité à 60 °C, "
                     f"calculé à partir de {number(opportunity_results.average_daily_volume_l_60c, 0)} L/j "
                     f"et {number(opportunity_results.reference_unit_count, 1)} unité(s)."
                 )
             else:
                 st.info(
                     "Volume ECS de référence SOLO utilisé automatiquement : "
-                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C. "
+                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 0)} L/j à 60 °C. "
                     "Aucune unité de référence n'est renseignée, donc l'outil utilise la consommation journalière totale comme valeur de repli."
                 )
         pie_col1, pie_col2 = st.columns(2)
@@ -1846,7 +1842,7 @@ def render_opportunity_notes_app() -> None:
     with tab_sizing:
         st.markdown("### Proposition centrale")
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Volume ECS moyen", f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C")
+        col1.metric("Volume ECS dimensionnant", f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à 60 °C")
         col2.metric("Stockage proposé", f"{opportunity_results.storage.total_volume_l:,.0f} L".replace(",", " "))
         col3.metric("Surface proposée", f"{number(opportunity_results.collectors.surface_m2, 1)} m²")
         col4.metric("Ratio V/S", f"{number(opportunity_results.collectors.storage_ratio_l_m2, 1)} L/m²")
