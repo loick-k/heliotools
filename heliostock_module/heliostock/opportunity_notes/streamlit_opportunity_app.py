@@ -857,9 +857,9 @@ def render_heat_cost_breakdown_plotly(results):
     )
     fig.update_layout(
         barmode="stack",
-        height=420,
-        margin={"l": 10, "r": 20, "t": 60, "b": 50},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+        height=560,
+        margin={"l": 58, "r": 8, "t": 82, "b": 32},
+        legend={"orientation": "v", "yanchor": "top", "y": 1.18, "xanchor": "left", "x": 0},
         xaxis_title=None,
         yaxis_title="Coût de la chaleur (€/MWh utile)",
     )
@@ -2083,21 +2083,24 @@ def render_opportunity_notes_app() -> None:
                 ",", " "
             )
         )
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Production solaire", f"{number(economic_results.annual_production_mwh, 1)} MWh/an")
-        col2.metric("Investissement", eur(economic_results.investment_cost_eur, 0))
-        col3.metric("Aides", eur(economic_results.aid_total_eur, 0), percent(economic_results.aid_rate))
-        col4.metric("Reste à charge", eur(economic_results.net_investment_eur, 0))
-    
-        col5, col6, col7, col8 = st.columns(4)
-        col5.metric("Économies annuelles", eur(economic_results.annual_savings_eur, 0))
-        col6.metric("Temps retour brut", f"{number(economic_results.raw_payback_years, 1)} ans")
-        col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
-        col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
-    
-        fig_breakdown = render_heat_cost_breakdown_plotly(economic_results)
-        if fig_breakdown is not None:
-            st.plotly_chart(fig_breakdown, width="stretch")
+        kpi_col, chart_col = st.columns([3, 1])
+        with kpi_col:
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Production solaire", f"{number(economic_results.annual_production_mwh, 1)} MWh/an")
+            col2.metric("Investissement", eur(economic_results.investment_cost_eur, 0))
+            col3.metric("Aides", eur(economic_results.aid_total_eur, 0), percent(economic_results.aid_rate))
+            col4.metric("Reste à charge", eur(economic_results.net_investment_eur, 0))
+
+            col5, col6, col7, col8 = st.columns(4)
+            col5.metric("Économies annuelles", eur(economic_results.annual_savings_eur, 0))
+            col6.metric("Temps retour brut", f"{number(economic_results.raw_payback_years, 1)} ans")
+            col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
+            col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
+
+        with chart_col:
+            fig_breakdown = render_heat_cost_breakdown_plotly(economic_results)
+            if fig_breakdown is not None:
+                st.plotly_chart(fig_breakdown, width="stretch")
     
         cashflow_rows = list(build_yearly_cashflow_projection(economic_inputs, economic_results))
         fig_cashflow = render_cumulative_cashflow_plotly(cashflow_rows)
