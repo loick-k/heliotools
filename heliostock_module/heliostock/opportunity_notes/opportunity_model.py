@@ -56,7 +56,7 @@ SITE_TYPOLOGIES: tuple[str, ...] = (
 BUILDING_STATES: tuple[str, ...] = ("Bâtiment existant", "Bâtiment neuf")
 DATA_SOURCES: tuple[str, ...] = ("Ratio SOCOL", "Mesure de consommation ECS")
 
-LOOP_METHODS: tuple[str, ...] = ("Analyse factures gaz", "Hypothèses SOLO 2018")
+LOOP_METHODS: tuple[str, ...] = ("Aucun bouclage sanitaire", "Analyse factures gaz", "Hypothèses SOLO 2018")
 SOLO_TYPE_BOUCLAGE_LABELS: tuple[str, ...] = (
     "Sans apport solaire au bouclage",
     "Avec apport solaire indirect au bouclage",

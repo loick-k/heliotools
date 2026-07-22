@@ -1469,7 +1469,12 @@ def render_opportunity_notes_app() -> None:
         solo_vecs_ref = loop_default.solo_vecs_unit_ref_l_day
         solo_active_ratio = loop_default.solo_active_ratio
     
-        if loop_method == "Analyse factures gaz":
+        if loop_method == "Aucun bouclage sanitaire":
+            st.info(
+                "Aucun bouclage sanitaire n'est pris en compte. "
+                "Le besoin ECS total est donc égal au besoin utile ECS, hors chauffage estimé."
+            )
+        elif loop_method == "Analyse factures gaz":
             st.caption(
                 "Saisir les consommations gaz mensuelles. L'outil calcule le talon minimal journalier sur juin-septembre, "
                 "applique le rendement chaudière, puis en déduit une perte de bouclage journalière constante. "
