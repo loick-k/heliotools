@@ -50,6 +50,7 @@ SITE_TYPOLOGIES: tuple[str, ...] = (
     "Hôpital",
     "Camping",
     "Hôtel",
+    "Station de lavage",
 )
 
 BUILDING_STATES: tuple[str, ...] = ("Bâtiment existant", "Bâtiment neuf")
@@ -178,6 +179,11 @@ class SiteInputs:
     airtable_id: str = ""
     client_name: str = ""
     city: str = ""
+    address: str = ""
+    latitude: float = 47.2184
+    longitude: float = -1.5536
+    weather_region: str = "Bretagne"
+    weather_station: str = "Rennes"
     typology: str = "Logement collectif"
     building_state: str = "Bâtiment existant"
     data_source: str = "Ratio SOCOL"

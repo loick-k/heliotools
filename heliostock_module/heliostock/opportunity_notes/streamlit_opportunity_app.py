@@ -19,8 +19,10 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+import folium
 import pandas as pd
 import streamlit as st
+from streamlit_folium import st_folium
 
 try:
     import plotly.graph_objects as go
@@ -66,6 +68,7 @@ from .pdf_export import build_opportunity_note_pdf
 from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..epw_reader import read_epw_hourly_weather_from_zip
+from ..geocoding_service import GeocodingServiceError, search_addresses
 from ..ui_architectural_constraints import render_architectural_constraints_test
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 from .. import ui_portal
@@ -86,6 +89,166 @@ COLD_WATER_MODES: tuple[str, ...] = (
     "Méthode ESM2",
     "Méthode ESM2 + 3 °C",
 )
+DEFAULT_PROJECT_LATITUDE = 47.2184
+DEFAULT_PROJECT_LONGITUDE = -1.5536
+
+
+@st.cache_data(ttl=86_400, show_spinner=False)
+def _cached_project_address_search(query: str) -> list[dict[str, object]]:
+    return search_addresses(query=query, limit=5)
+
+
+def _candidate_label(candidate: dict[str, object]) -> str:
+    label = str(candidate.get("label") or "Adresse trouvée")
+    context = str(candidate.get("context") or "")
+    score = candidate.get("score")
+    parts: list[str] = []
+    if context and context.lower() not in label.lower():
+        parts.append(context)
+    if isinstance(score, (float, int)):
+        parts.append(f"pertinence {score * 100:.0f} %")
+    return f"{label} - {' · '.join(parts)}" if parts else label
+
+
+def _project_map(latitude: float, longitude: float, address: str) -> folium.Map:
+    map_object = folium.Map(
+        location=[latitude, longitude],
+        zoom_start=16,
+        tiles="OpenStreetMap",
+        control_scale=True,
+    )
+    folium.Marker(
+        [latitude, longitude],
+        tooltip=address or "Adresse du projet",
+        popup=folium.Popup(f"<b>{address or 'Adresse du projet'}</b><br>{latitude:.6f}, {longitude:.6f}", max_width=280),
+        icon=folium.Icon(color="red", icon="info-sign"),
+    ).add_to(map_object)
+    folium.Circle(
+        [latitude, longitude],
+        radius=35,
+        color="#ef4444",
+        fill=False,
+        weight=2,
+    ).add_to(map_object)
+    return map_object
+
+
+def _propagate_helionop_project_location() -> None:
+    latitude = float(st.session_state.get("helionop_project_latitude", DEFAULT_PROJECT_LATITUDE))
+    longitude = float(st.session_state.get("helionop_project_longitude", DEFAULT_PROJECT_LONGITUDE))
+    address = str(st.session_state.get("helionop_project_address_label") or "")
+
+    st.session_state["helionop_architectural_selected_address"] = address
+    st.session_state["helionop_architectural_latitude"] = latitude
+    st.session_state["helionop_architectural_longitude"] = longitude
+
+
+def _initialise_helionop_project_location(site_default: SiteInputs, project_id: str) -> None:
+    if st.session_state.get("helionop_project_location_project_id") == project_id:
+        return
+    st.session_state["helionop_project_location_project_id"] = project_id
+    st.session_state["helionop_project_address_label"] = str(site_default.address or "")
+    st.session_state["helionop_project_latitude"] = float(site_default.latitude or DEFAULT_PROJECT_LATITUDE)
+    st.session_state["helionop_project_longitude"] = float(site_default.longitude or DEFAULT_PROJECT_LONGITUDE)
+    _propagate_helionop_project_location()
+
+
+def _render_project_location_form() -> tuple[str, float, float]:
+    with st.form("helionop_project_address_form", clear_on_submit=False):
+        address_query = st.text_input(
+            "Adresse",
+            placeholder="Ex. 10 rue de Strasbourg, 44000 Nantes",
+            key="helionop_project_address_query",
+        )
+        search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
+
+    if search_submitted:
+        try:
+            with st.spinner("Recherche dans la Base Adresse Nationale..."):
+                st.session_state["helionop_project_address_candidates"] = _cached_project_address_search(address_query)
+        except (GeocodingServiceError, ValueError) as exc:
+            st.session_state["helionop_project_address_candidates"] = []
+            st.error(str(exc))
+        else:
+            if not st.session_state["helionop_project_address_candidates"]:
+                st.warning("Aucune adresse correspondante n'a été trouvée.")
+
+    candidates = st.session_state.get("helionop_project_address_candidates", [])
+    if candidates:
+        selected_index = st.selectbox(
+            "Adresse proposée",
+            options=range(len(candidates)),
+            format_func=lambda index: _candidate_label(candidates[index]),
+            key="helionop_project_selected_address_candidate",
+        )
+        selected_candidate = candidates[int(selected_index)]
+        if st.button("Utiliser cette adresse", width="stretch", key="helionop_project_use_selected_address"):
+            st.session_state["helionop_project_latitude"] = float(selected_candidate["latitude"])
+            st.session_state["helionop_project_longitude"] = float(selected_candidate["longitude"])
+            st.session_state["helionop_project_address_label"] = str(selected_candidate["label"])
+            st.session_state.pop("helionop_architectural_result", None)
+            _propagate_helionop_project_location()
+            st.rerun()
+
+    latitude = float(st.session_state.get("helionop_project_latitude", DEFAULT_PROJECT_LATITUDE))
+    longitude = float(st.session_state.get("helionop_project_longitude", DEFAULT_PROJECT_LONGITUDE))
+    address = str(st.session_state.get("helionop_project_address_label") or "")
+    if address:
+        st.success(f"Adresse retenue : {address}")
+        _propagate_helionop_project_location()
+        map_state = st_folium(
+            _project_map(latitude, longitude, address),
+            height=360,
+            width="stretch",
+            returned_objects=["last_clicked"],
+            key="helionop_project_address_map",
+        )
+        st.caption("Clique sur la carte pour déplacer le point exact du projet. Le test de contraintes architecturales utilisera ce point.")
+        clicked = map_state.get("last_clicked") if isinstance(map_state, dict) else None
+        if isinstance(clicked, dict) and clicked.get("lat") is not None and clicked.get("lng") is not None:
+            clicked_latitude = float(clicked["lat"])
+            clicked_longitude = float(clicked["lng"])
+            if abs(clicked_latitude - latitude) > 1e-7 or abs(clicked_longitude - longitude) > 1e-7:
+                st.session_state["helionop_project_latitude"] = clicked_latitude
+                st.session_state["helionop_project_longitude"] = clicked_longitude
+                st.session_state.pop("helionop_architectural_result", None)
+                _propagate_helionop_project_location()
+                st.rerun()
+    else:
+        st.info("Recherche une adresse pour alimenter automatiquement le test de contraintes architecturales.")
+
+    return address, latitude, longitude
+
+
+def _render_project_weather_selection(site_default: SiteInputs, project_ui_key: str) -> tuple[str, str]:
+    region_names = list(DEFAULT_EPW_REGIONS.keys())
+    default_region = site_default.weather_region if site_default.weather_region in DEFAULT_EPW_REGIONS else region_names[0]
+    region_key = f"{project_ui_key}_nop_cold_weather_region"
+    if st.session_state.get(region_key) not in region_names:
+        st.session_state[region_key] = default_region
+
+    region_name = st.selectbox(
+        "Région météo",
+        options=region_names,
+        key=region_key,
+    )
+
+    station_labels = list(DEFAULT_EPW_REGIONS[region_name].keys())
+    station_key = f"{project_ui_key}_nop_cold_weather_station"
+    saved_station = WEATHER_STATION_LABEL_ALIASES.get(str(site_default.weather_station), str(site_default.weather_station))
+    legacy_station = st.session_state.get(station_key)
+    if legacy_station in WEATHER_STATION_LABEL_ALIASES:
+        st.session_state[station_key] = WEATHER_STATION_LABEL_ALIASES[str(legacy_station)]
+    if st.session_state.get(station_key) not in station_labels:
+        st.session_state[station_key] = saved_station if saved_station in station_labels else station_labels[0]
+
+    station_label = st.selectbox(
+        "Station météo",
+        options=station_labels,
+        key=station_key,
+    )
+    st.caption("Cette station sert au calcul ESM2 de température d'eau froide dans l'onglet 2.")
+    return str(region_name), str(station_label)
 
 
 def eur(value: float | None, digits: int = 0) -> str:
@@ -807,6 +970,7 @@ def render_opportunity_notes_app() -> None:
     loop_default = dict_to_loop_inputs(payload.get("loop"))
     economic_default = payload.get("economic", {}) or {}
     project_ui_key = str(payload.get("project_id", "projet"))[:8]
+    _initialise_helionop_project_location(site_default, str(payload.get("project_id", "projet")))
     
     # ---------------------------------------------------------------------------
     # Onglets de saisie et résultats.
@@ -853,18 +1017,38 @@ def render_opportunity_notes_app() -> None:
             index=list(DATA_SOURCES).index(site_default.data_source) if site_default.data_source in DATA_SOURCES else 0,
             horizontal=True,
         )
+        if typology == "Station de lavage" and data_source != "Mesure de consommation ECS":
+            st.info(
+                "Station de lavage : aucun ratio SOCOL standard n'est appliqué. "
+                "Renseigne un profil mesuré ou estimé dans l'onglet Besoins ECS."
+            )
+            data_source = "Mesure de consommation ECS"
     
         if building_state == "Bâtiment existant" and data_source != "Mesure de consommation ECS":
             st.warning(
                 "Bâtiment existant : comptage ECS obligatoire / fortement attendu pour fiabiliser la note d'opportunité. "
                 "Les ratios SOCOL peuvent servir à une première approche mais doivent être confrontés à des mesures."
             )
+        st.markdown("### Localisation")
+        st.caption(
+            "L'adresse du projet est utilisée par l'onglet Contraintes architecturales. "
+            "Le point peut être ajusté manuellement en cliquant sur la carte."
+        )
+        address, latitude, longitude = _render_project_location_form()
+
+        st.markdown("### Station météo")
+        weather_region, weather_station = _render_project_weather_selection(site_default, project_ui_key)
     
     site_inputs = SiteInputs(
         project_name=project_name,
         airtable_id=airtable_id,
         client_name=client_name,
         city=city,
+        address=address,
+        latitude=latitude,
+        longitude=longitude,
+        weather_region=weather_region,
+        weather_station=weather_station,
         typology=typology,
         building_state=building_state,
         data_source=data_source,
@@ -903,26 +1087,11 @@ def render_opportunity_notes_app() -> None:
         else:
             station_col, info_col = st.columns(2)
             with station_col:
-                region_names = list(DEFAULT_EPW_REGIONS.keys())
-                region_name = st.selectbox(
-                    "Région météo",
-                    options=region_names,
-                    index=0,
-                    key=f"{project_ui_key}_nop_cold_weather_region",
-                )
-                station_labels = list(DEFAULT_EPW_REGIONS[region_name].keys())
-                station_key = f"{project_ui_key}_nop_cold_weather_station"
-                legacy_station = st.session_state.get(station_key)
-                if legacy_station in WEATHER_STATION_LABEL_ALIASES:
-                    st.session_state[station_key] = WEATHER_STATION_LABEL_ALIASES[str(legacy_station)]
-                if st.session_state.get(station_key) not in station_labels:
-                    st.session_state[station_key] = station_labels[0]
-                station_label = st.selectbox(
-                    "Station météo",
-                    options=station_labels,
-                    index=0,
-                    key=station_key,
-                )
+                region_name = site_inputs.weather_region
+                station_label = site_inputs.weather_station
+                st.write(f"**Région météo :** {region_name}")
+                st.write(f"**Station météo :** {station_label}")
+                st.caption("La région et la station météo se règlent dans l'onglet 1. Projet.")
             monthly_air = _monthly_air_temperatures_from_station(region_name, station_label)
             cold_water_temperatures = _esm2_cold_water_temperatures(
                 monthly_air,
@@ -1661,7 +1830,7 @@ def render_opportunity_notes_app() -> None:
         )
 
     with tab_architecture:
-        render_architectural_constraints_test(state_prefix="helionop")
+        render_architectural_constraints_test(state_prefix="helionop", show_address_inputs=False, show_map=True)
 
     # ---------------------------------------------------------------------------
     # Modèle économique raccordé au pré-dimensionnement.
