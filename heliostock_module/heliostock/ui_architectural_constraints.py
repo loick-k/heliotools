@@ -340,6 +340,10 @@ def render_architectural_constraints_test(
     if show_map:
         st.markdown("#### Carte")
     if show_map and (selected_address or isinstance(result, dict)):
+        map_key = (
+            f"{_state_key(state_prefix, 'map')}_"
+            f"{float(latitude):.5f}_{float(longitude):.5f}_{1 if isinstance(result, dict) else 0}"
+        )
         st_folium(
             _build_architectural_map(
                 latitude=float(latitude),
@@ -348,9 +352,12 @@ def render_architectural_constraints_test(
                 result=result if isinstance(result, dict) else None,
             ),
             height=420,
-            width="stretch",
+            # Folium peut mal s'initialiser dans un onglet Streamlit caché si
+            # la largeur du conteneur vaut 0. Une largeur explicite rend le
+            # premier chargement fiable, sans attendre un redimensionnement.
+            width=1000,
             returned_objects=[],
-            key=_state_key(state_prefix, "map"),
+            key=map_key,
         )
         st.caption(
             "Le marqueur rouge correspond au projet. Les protections détectées sont superposées lorsqu'une "
