@@ -1966,6 +1966,17 @@ def render_opportunity_notes_app() -> None:
     with tab_economics:
         st.subheader("Modèle économique")
         st.caption("Les valeurs sont préremplies avec le prédimensionnement et les hypothèses économiques par défaut de l'onglet CESC.")
+        recommended_economic_surface = float(opportunity_results.collectors.surface_m2)
+        recommended_economic_productivity = float(sizing_inputs.productivity_kwh_m2_year)
+        use_predesign_for_economics = st.checkbox(
+            "Reprendre la surface et la productivité du prédimensionnement",
+            value=bool(economic_default.get("use_predesign_for_economics", True)),
+            key=f"{project_ui_key}_use_predesign_for_economics",
+            help=(
+                "Activé par défaut : l'économie utilise la surface proposée dans l'onglet Prédimensionnement, "
+                "elle-même calculée à partir du volume ECS équivalent à 60 °C."
+            ),
+        )
     
         col_a, col_b, col_c = st.columns(3)
         with col_a:
@@ -1976,18 +1987,30 @@ def render_opportunity_notes_app() -> None:
                 if economic_default.get("typologie", "CESC") in ECONOMIC_SCENARIOS
                 else 0,
             )
-            economic_surface = st.number_input(
-                "Surface économique (m²)",
-                min_value=0.0,
-                value=float(economic_default.get("surface_m2", opportunity_results.collectors.surface_m2)),
-                step=1.0,
-            )
-            economic_productivity = st.number_input(
-                "Productivité économique (kWh/m².an)",
-                min_value=0.0,
-                value=float(economic_default.get("productivity_kwh_m2_year", sizing_inputs.productivity_kwh_m2_year)),
-                step=10.0,
-            )
+            if use_predesign_for_economics:
+                economic_surface = recommended_economic_surface
+                economic_productivity = recommended_economic_productivity
+                st.metric("Surface économique (m²)", f"{number(economic_surface, 1)} m²")
+                st.metric("Productivité économique", f"{number(economic_productivity, 0)} kWh/m².an")
+                st.caption(
+                    "Ces valeurs sont reprises automatiquement depuis le prédimensionnement calculé "
+                    "sur le volume ECS équivalent à 60 °C."
+                )
+            else:
+                economic_surface = st.number_input(
+                    "Surface économique (m²)",
+                    min_value=0.0,
+                    value=float(economic_default.get("surface_m2", recommended_economic_surface)),
+                    step=1.0,
+                    key=f"{project_ui_key}_economic_surface_m2",
+                )
+                economic_productivity = st.number_input(
+                    "Productivité économique (kWh/m².an)",
+                    min_value=0.0,
+                    value=float(economic_default.get("productivity_kwh_m2_year", recommended_economic_productivity)),
+                    step=10.0,
+                    key=f"{project_ui_key}_economic_productivity_kwh_m2_year",
+                )
         with col_b:
             reference_energy_cost = st.number_input(
                 "Coût énergie référence (€/MWh)",
@@ -2087,6 +2110,7 @@ def render_opportunity_notes_app() -> None:
     # ---------------------------------------------------------------------------
     economic_payload = {
         "typologie": economic_typology,
+        "use_predesign_for_economics": use_predesign_for_economics,
         "surface_m2": economic_surface,
         "productivity_kwh_m2_year": economic_productivity,
         "reference_energy_cost_eur_mwh": reference_energy_cost,
