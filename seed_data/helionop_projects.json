@@ -506,7 +506,7 @@
   },
   {
     "slug": "prolavage-poids-lourd-angers_9ad74a96",
-    "saved_at": "2026-07-22T21:07:46",
+    "saved_at": "2026-07-22T21:45:10",
     "owner_email": "loick@atlansun.fr",
     "project_id": "9ad74a96-06f4-4226-9d2c-b6415fc7aad4",
     "name": "Prolavage Poids Lourd Angers",
@@ -518,7 +518,7 @@
       "name": "Prolavage Poids Lourd Angers",
       "owner_email": "loick@atlansun.fr",
       "created_at": "2026-07-22T20:52:51",
-      "updated_at": "2026-07-22T21:07:46",
+      "updated_at": "2026-07-22T21:45:10",
       "site": {
         "project_name": "Prolavage Poids Lourd Angers",
         "airtable_id": "1386",
@@ -534,6 +534,7 @@
         "data_source": "Mesure de consommation ECS"
       },
       "needs": {
+        "ecs_temperature_c": 80.0,
         "housing_counts": {
           "T1": 0,
           "T2": 0,
@@ -598,6 +599,7 @@
         }
       },
       "sizing": {
+        "cold_water_mode": "Méthode ESM2",
         "cold_water_temperatures_c": {
           "Janvier": 10.138334277393753,
           "Février": 10.300329285074245,
@@ -708,8 +710,8 @@
               "volume_l_60c": 108252.0,
               "average_l_day_60c": 3492.0,
               "cold_water_temperature_c": 10.138334277393753,
-              "useful_energy_kwh": 6277.437918965554,
-              "useful_energy_mwh": 6.277437918965553,
+              "useful_energy_kwh": 8795.379438965554,
+              "useful_energy_mwh": 8.795379438965554,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -717,8 +719,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 6277.437918965554,
-              "total_ecs_energy_mwh": 6.277437918965553
+              "total_ecs_energy_kwh": 8795.379438965554,
+              "total_ecs_energy_mwh": 8.795379438965554
             },
             {
               "month": "Février",
@@ -726,8 +728,8 @@
               "volume_l_60c": 103152.0,
               "average_l_day_60c": 3684.0,
               "cold_water_temperature_c": 10.300329285074245,
-              "useful_energy_kwh": 5962.259564260543,
-              "useful_energy_mwh": 5.962259564260543,
+              "useful_energy_kwh": 8361.575084260543,
+              "useful_energy_mwh": 8.361575084260544,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -735,8 +737,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 5962.259564260543,
-              "total_ecs_energy_mwh": 5.962259564260543
+              "total_ecs_energy_kwh": 8361.575084260543,
+              "total_ecs_energy_mwh": 8.361575084260544
             },
             {
               "month": "Mars",
@@ -744,8 +746,8 @@
               "volume_l_60c": 101525.0,
               "average_l_day_60c": 3275.0,
               "cold_water_temperature_c": 10.841560083845366,
-              "useful_energy_kwh": 5804.312742323078,
-              "useful_energy_mwh": 5.804312742323078,
+              "useful_energy_kwh": 8165.784242323078,
+              "useful_energy_mwh": 8.165784242323078,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -753,8 +755,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 5804.312742323078,
-              "total_ecs_energy_mwh": 5.804312742323078
+              "total_ecs_energy_kwh": 8165.784242323078,
+              "total_ecs_energy_mwh": 8.165784242323078
             },
             {
               "month": "Avril",
@@ -762,8 +764,8 @@
               "volume_l_60c": 87270.0,
               "average_l_day_60c": 2909.0,
               "cold_water_temperature_c": 12.193547539042498,
-              "useful_energy_kwh": 4852.116370589406,
-              "useful_energy_mwh": 4.852116370589406,
+              "useful_energy_kwh": 6882.016570589406,
+              "useful_energy_mwh": 6.882016570589406,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -771,8 +773,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 4852.116370589406,
-              "total_ecs_energy_mwh": 4.852116370589406
+              "total_ecs_energy_kwh": 6882.016570589406,
+              "total_ecs_energy_mwh": 6.882016570589406
             },
             {
               "month": "Mai",
@@ -780,8 +782,8 @@
               "volume_l_60c": 88443.0,
               "average_l_day_60c": 2853.0,
               "cold_water_temperature_c": 13.458334277393753,
-              "useful_energy_kwh": 4787.238921769692,
-              "useful_energy_mwh": 4.787238921769692,
+              "useful_energy_kwh": 6844.423101769691,
+              "useful_energy_mwh": 6.844423101769691,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -789,8 +791,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 4787.238921769692,
-              "total_ecs_energy_mwh": 4.787238921769692
+              "total_ecs_energy_kwh": 6844.423101769691,
+              "total_ecs_energy_mwh": 6.844423101769691
             },
             {
               "month": "Juin",
@@ -798,8 +800,8 @@
               "volume_l_60c": 89580.0,
               "average_l_day_60c": 2986.0,
               "cold_water_temperature_c": 14.79226976126472,
-              "useful_energy_kwh": 4709.81095617601,
-              "useful_energy_mwh": 4.70981095617601,
+              "useful_energy_kwh": 6793.44175617601,
+              "useful_energy_mwh": 6.79344175617601,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -807,8 +809,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 4709.81095617601,
-              "total_ecs_energy_mwh": 4.70981095617601
+              "total_ecs_energy_kwh": 6793.44175617601,
+              "total_ecs_energy_mwh": 6.79344175617601
             },
             {
               "month": "Juillet",
@@ -816,8 +818,8 @@
               "volume_l_60c": 101463.0,
               "average_l_day_60c": 3273.0,
               "cold_water_temperature_c": 15.541667610727087,
-              "useful_energy_kwh": 5246.148531224484,
-              "useful_energy_mwh": 5.246148531224484,
+              "useful_energy_kwh": 7606.177911224483,
+              "useful_energy_mwh": 7.606177911224483,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -825,8 +827,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 5246.148531224484,
-              "total_ecs_energy_mwh": 5.246148531224484
+              "total_ecs_energy_kwh": 7606.177911224483,
+              "total_ecs_energy_mwh": 7.606177911224483
             },
             {
               "month": "Août",
@@ -834,8 +836,8 @@
               "volume_l_60c": 77159.0,
               "average_l_day_60c": 2489.0,
               "cold_water_temperature_c": 15.375000944060421,
-              "useful_energy_kwh": 4004.4652114088726,
-              "useful_energy_mwh": 4.004465211408872,
+              "useful_energy_kwh": 5799.1835514088725,
+              "useful_energy_mwh": 5.7991835514088725,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -843,8 +845,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 4004.4652114088726,
-              "total_ecs_energy_mwh": 4.004465211408872
+              "total_ecs_energy_kwh": 5799.1835514088725,
+              "total_ecs_energy_mwh": 5.7991835514088725
             },
             {
               "month": "Septembre",
@@ -852,8 +854,8 @@
               "volume_l_60c": 102570.0,
               "average_l_day_60c": 3419.0,
               "cold_water_temperature_c": 14.529325316820277,
-              "useful_energy_kwh": 5424.147219921105,
-              "useful_energy_mwh": 5.424147219921105,
+              "useful_energy_kwh": 7809.925419921105,
+              "useful_energy_mwh": 7.809925419921105,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -861,8 +863,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 5424.147219921105,
-              "total_ecs_energy_mwh": 5.424147219921105
+              "total_ecs_energy_kwh": 7809.925419921105,
+              "total_ecs_energy_mwh": 7.809925419921105
             },
             {
               "month": "Octobre",
@@ -870,8 +872,8 @@
               "volume_l_60c": 99107.0,
               "average_l_day_60c": 3197.0,
               "cold_water_temperature_c": 12.838925675243216,
-              "useful_energy_kwh": 5435.853385779569,
-              "useful_energy_mwh": 5.435853385779569,
+              "useful_energy_kwh": 7741.082205779569,
+              "useful_energy_mwh": 7.74108220577957,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -879,8 +881,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 5435.853385779569,
-              "total_ecs_energy_mwh": 5.435853385779569
+              "total_ecs_energy_kwh": 7741.082205779569,
+              "total_ecs_energy_mwh": 7.74108220577957
             },
             {
               "month": "Novembre",
@@ -888,8 +890,8 @@
               "volume_l_60c": 86910.0,
               "average_l_day_60c": 2897.0,
               "cold_water_temperature_c": 11.009325316820277,
-              "useful_energy_kwh": 4951.797601199719,
-              "useful_energy_mwh": 4.9517976011997185,
+              "useful_energy_kwh": 6973.324201199719,
+              "useful_energy_mwh": 6.973324201199719,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -897,8 +899,8 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 4951.797601199719,
-              "total_ecs_energy_mwh": 4.9517976011997185
+              "total_ecs_energy_kwh": 6973.324201199719,
+              "total_ecs_energy_mwh": 6.973324201199719
             },
             {
               "month": "Décembre",
@@ -906,8 +908,8 @@
               "volume_l_60c": 92566.0,
               "average_l_day_60c": 2986.0,
               "cold_water_temperature_c": 10.42010847094214,
-              "useful_energy_kwh": 5337.48643428121,
-              "useful_energy_mwh": 5.337486434281209,
+              "useful_energy_kwh": 7490.571594281209,
+              "useful_energy_mwh": 7.490571594281209,
               "gas_consumption_kwh": 0.0,
               "gas_baseload_kwh": 0.0,
               "global_ecs_after_boiler_kwh": 0.0,
@@ -915,40 +917,42 @@
               "heating_after_boiler_mwh": 0.0,
               "loop_losses_kwh": 0.0,
               "loop_losses_mwh": 0.0,
-              "total_ecs_energy_kwh": 5337.48643428121,
-              "total_ecs_energy_mwh": 5.337486434281209
+              "total_ecs_energy_kwh": 7490.571594281209,
+              "total_ecs_energy_mwh": 7.490571594281209
             }
           ],
-          "annual_volume_l_60c": 1137997.0,
-          "average_daily_volume_l_60c": 3117.8,
-          "annual_useful_energy_mwh": 62.79307485789924,
+          "annual_volume_l_60c": 1618568.7907113924,
+          "average_daily_volume_l_60c": 4434.43504304491,
+          "annual_useful_energy_mwh": 89.26288507789924,
           "annual_loop_losses_mwh": 0.0,
-          "annual_total_ecs_energy_mwh": 62.79307485789924,
+          "annual_total_ecs_energy_mwh": 89.26288507789924,
           "annual_heating_after_boiler_mwh": 0.0,
           "gas_summer_baseload_daily_kwh": 0.0,
           "reference_unit_count": 0.0,
-          "solo_reference_volume_l_day_per_unit": 3117.8,
+          "solo_reference_volume_l_day_per_unit": 4434.43504304491,
           "storage": {
-            "total_volume_l": 3000,
+            "total_volume_l": 4500,
             "tank_sizes_l": [
-              3000
+              1500,
+              1500,
+              1500
             ],
-            "tank_count": 1,
-            "target_daily_volume_l": 3117.8,
-            "difference_l": -117.80000000000018,
-            "difference_percent": -0.03778305215215863,
-            "label": "1 × 3000 L = 3000 L"
+            "tank_count": 3,
+            "target_daily_volume_l": 4434.43504304491,
+            "difference_l": 65.56495695508966,
+            "difference_percent": 0.014785413771687453,
+            "label": "3 × 1500 L = 4500 L"
           },
           "collectors": {
-            "collector_count": 22,
+            "collector_count": 32,
             "collector_unit_area_m2": 2.32,
-            "surface_m2": 51.04,
-            "storage_volume_l": 3000,
-            "storage_ratio_l_m2": 58.77742946708464,
+            "surface_m2": 74.24,
+            "storage_volume_l": 4500,
+            "storage_ratio_l_m2": 60.61422413793104,
             "target_storage_ratio_l_m2": 60.0,
             "is_balanced_count": true
           },
-          "estimated_solar_production_mwh_year": 25.52,
+          "estimated_solar_production_mwh_year": 37.12,
           "default_productivity_kwh_m2_year": 500.0
         },
         "economic": {
