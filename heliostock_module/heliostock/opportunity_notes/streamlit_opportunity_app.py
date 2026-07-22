@@ -1950,10 +1950,25 @@ def render_opportunity_notes_app() -> None:
             "avec un nombre de capteurs divisible par 2 ou par 3 lorsque c'est possible. "
             "Le stockage privilégie les multiples de ballons de même taille."
         )
-        st.metric(
+        solar_coverage_ratio = (
+            min(
+                1.0,
+                opportunity_results.estimated_solar_production_mwh_year
+                / opportunity_results.annual_total_ecs_energy_mwh,
+            )
+            if opportunity_results.annual_total_ecs_energy_mwh > 0
+            else None
+        )
+        prod_col, coverage_col = st.columns(2)
+        prod_col.metric(
             "Production solaire provisoire",
             f"{number(opportunity_results.estimated_solar_production_mwh_year, 1)} MWh/an",
             f"{number(sizing_inputs.productivity_kwh_m2_year, 0)} kWh/m².an",
+        )
+        coverage_col.metric(
+            "Taux de couverture ECS provisoire",
+            percent(solar_coverage_ratio),
+            f"sur {number(opportunity_results.annual_total_ecs_energy_mwh, 1)} MWh/an ECS + bouclage",
         )
 
     with tab_architecture:
@@ -2083,7 +2098,12 @@ def render_opportunity_notes_app() -> None:
                 ",", " "
             )
         )
-        kpi_col, chart_col = st.columns([3, 1])
+        chart_col, kpi_col = st.columns([1, 3])
+        with chart_col:
+            fig_breakdown = render_heat_cost_breakdown_plotly(economic_results)
+            if fig_breakdown is not None:
+                st.plotly_chart(fig_breakdown, width="stretch")
+
         with kpi_col:
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("Production solaire", f"{number(economic_results.annual_production_mwh, 1)} MWh/an")
@@ -2096,11 +2116,6 @@ def render_opportunity_notes_app() -> None:
             col6.metric("Temps retour brut", f"{number(economic_results.raw_payback_years, 1)} ans")
             col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
             col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
-
-        with chart_col:
-            fig_breakdown = render_heat_cost_breakdown_plotly(economic_results)
-            if fig_breakdown is not None:
-                st.plotly_chart(fig_breakdown, width="stretch")
     
         cashflow_rows = list(build_yearly_cashflow_projection(economic_inputs, economic_results))
         fig_cashflow = render_cumulative_cashflow_plotly(cashflow_rows)
