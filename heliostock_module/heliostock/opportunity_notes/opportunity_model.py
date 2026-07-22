@@ -191,6 +191,8 @@ class SiteInputs:
 
 @dataclass(frozen=True)
 class NeedsInputs:
+    ecs_temperature_c: float = 60.0
+
     # Logement collectif : mode détaillé par typologie de logements.
     housing_counts: dict[str, int] = field(
         default_factory=lambda: {key: 0 for key in HOUSING_RATIOS_L_PER_DWELLING_DAY}
@@ -494,11 +496,12 @@ def _build_base_monthly_needs(
     sizing: SizingInputs,
 ) -> tuple[MonthlyNeed, ...]:
     monthly_volumes = _monthly_volumes_l_60c(site, needs)
+    ecs_temperature_c = max(0.0, float(needs.ecs_temperature_c or 60.0))
     rows: list[MonthlyNeed] = []
     for month, days in MONTHS:
         volume_l = monthly_volumes[month]
         t_ef = sizing.cold_water_temperatures_c.get(month, 15.0)
-        delta_t = max(0.0, 60.0 - t_ef)
+        delta_t = max(0.0, ecs_temperature_c - t_ef)
         useful_energy_kwh = volume_l * CP_WHLK * delta_t / 1000.0
         rows.append(
             MonthlyNeed(

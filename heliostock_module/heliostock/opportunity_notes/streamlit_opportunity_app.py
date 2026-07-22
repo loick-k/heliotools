@@ -422,10 +422,11 @@ def _value_to_daily_l_60c(
     input_mode: str,
     month: str,
     cold_water_temperature_c: float,
+    ecs_temperature_c: float,
 ) -> float:
     value = max(0.0, float(value))
     days = DAYS_BY_MONTH[month]
-    delta_t = max(1e-6, 60.0 - float(cold_water_temperature_c))
+    delta_t = max(1e-6, float(ecs_temperature_c) - float(cold_water_temperature_c))
     if input_mode == "Profil L/jour moyen":
         return value
     if input_mode == "Volume m³/mois":
@@ -443,13 +444,14 @@ def _daily_l_to_monthly_mwh(
     daily_l_60c: float,
     month: str,
     cold_water_temperature_c: float,
+    ecs_temperature_c: float,
 ) -> float:
-    delta_t = max(0.0, 60.0 - float(cold_water_temperature_c))
+    delta_t = max(0.0, float(ecs_temperature_c) - float(cold_water_temperature_c))
     return max(0.0, daily_l_60c) * DAYS_BY_MONTH[month] * CP_WHLK * delta_t / 1000.0 / 1000.0
 
 
-def _daily_l_to_daily_kwh(*, daily_l_60c: float, cold_water_temperature_c: float) -> float:
-    delta_t = max(0.0, 60.0 - float(cold_water_temperature_c))
+def _daily_l_to_daily_kwh(*, daily_l_60c: float, cold_water_temperature_c: float, ecs_temperature_c: float) -> float:
+    delta_t = max(0.0, float(ecs_temperature_c) - float(cold_water_temperature_c))
     return max(0.0, daily_l_60c) * CP_WHLK * delta_t / 1000.0
 
 
@@ -642,7 +644,7 @@ def monthly_needs_dataframe(results) -> pd.DataFrame:
         [
             {
                 "Mois": row.month,
-                "Volume ECS 60°C (L/mois)": row.volume_l_60c,
+                "Volume ECS (L/mois)": row.volume_l_60c,
                 "Volume moyen (L/j)": row.average_l_day_60c,
                 "Tef (°C)": row.cold_water_temperature_c,
                 "Besoin utile (MWh)": row.useful_energy_mwh,
@@ -684,8 +686,8 @@ def render_monthly_needs_chart(results):
         go.Bar(
             x=[row.month for row in rows],
             y=[row.average_l_day_60c for row in rows],
-            name="Volume moyen ECS 60°C",
-            hovertemplate="%{x}<br>%{y:,.0f} L/j à 60°C<extra></extra>",
+            name="Volume moyen ECS",
+            hovertemplate="%{x}<br>%{y:,.0f} L/j<extra></extra>",
         )
     )
     fig.add_trace(
@@ -712,7 +714,7 @@ def render_monthly_needs_chart(results):
         height=420,
         margin={"l": 10, "r": 20, "t": 45, "b": 40},
         xaxis_title="Mois",
-        yaxis={"title": "Volume moyen (L/j à 60°C)"},
+        yaxis={"title": "Volume moyen (L/j)"},
         yaxis2={"title": "Énergie (MWh/mois)", "overlaying": "y", "side": "right"},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
         hovermode="x unified",
@@ -1122,7 +1124,17 @@ def render_opportunity_notes_app() -> None:
     # Besoins ECS.
     # ---------------------------------------------------------------------------
     with tab_needs:
-        st.subheader("Estimation des volumes ECS à 60 °C")
+        st.subheader("Estimation des volumes ECS")
+        ecs_temperature_c = st.number_input(
+            "Température ECS de référence (°C)",
+            min_value=30.0,
+            max_value=90.0,
+            value=float(needs_default.ecs_temperature_c or 60.0),
+            step=1.0,
+            key=f"{project_ui_key}_ecs_temperature_c",
+            help="Température de livraison ECS utilisée pour convertir les volumes en énergie utile. 60 °C reste la valeur par défaut.",
+        )
+        ecs_temperature_label = f"{number(ecs_temperature_c, 0)} °C"
     
         housing_counts = dict(needs_default.housing_counts)
         housing_ratios = dict(needs_default.housing_ratios_l_day)
@@ -1138,7 +1150,7 @@ def render_opportunity_notes_app() -> None:
             st.markdown("**Saisie d'une consommation ECS mesurée ou estimée**")
             st.caption(
                 "Importer un profil mensuel ou saisir les valeurs dans le tableau. "
-                "Le calcul convertit automatiquement vers un volume ECS équivalent à 60 °C."
+                f"Le calcul convertit automatiquement vers un volume ECS équivalent à {ecs_temperature_label}."
             )
             ecs_input_mode = st.radio(
                 "Format du profil ECS",
@@ -1147,8 +1159,8 @@ def render_opportunity_notes_app() -> None:
                 key=f"{project_ui_key}_ecs_profile_input_mode",
             )
             input_col = {
-                "Profil L/jour moyen": "Profil ECS 60 °C (L/jour moyen)",
-                "Volume m³/mois": "Volume ECS 60 °C (m³/mois)",
+                "Profil L/jour moyen": f"Profil ECS {ecs_temperature_label} (L/jour moyen)",
+                "Volume m³/mois": f"Volume ECS {ecs_temperature_label} (m³/mois)",
                 "Consommation ECS MWh/mois": "Consommation ECS utile (MWh/mois)",
                 "Consommation ECS kWh/jour": "Consommation ECS utile (kWh/jour)",
             }[ecs_input_mode]
@@ -1164,11 +1176,13 @@ def render_opportunity_notes_app() -> None:
                         daily_l_60c=daily_l,
                         month=month,
                         cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                        ecs_temperature_c=ecs_temperature_c,
                     )
                 else:
                     value = _daily_l_to_daily_kwh(
                         daily_l_60c=daily_l,
                         cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                        ecs_temperature_c=ecs_temperature_c,
                     )
                 default_values.append({"Mois": month, input_col: float(value)})
 
@@ -1196,21 +1210,24 @@ def render_opportunity_notes_app() -> None:
                     input_mode=ecs_input_mode,
                     month=month,
                     cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                    ecs_temperature_c=ecs_temperature_c,
                 )
                 measured_daily[month] = daily_l
                 conversion_rows.append(
                     {
                         "Mois": month,
-                        "Volume équivalent ECS 60 °C (L/j)": daily_l,
-                        "Volume équivalent ECS 60 °C (m³/mois)": daily_l * DAYS_BY_MONTH[month] / 1000.0,
+                        f"Volume équivalent ECS {ecs_temperature_label} (L/j)": daily_l,
+                        f"Volume équivalent ECS {ecs_temperature_label} (m³/mois)": daily_l * DAYS_BY_MONTH[month] / 1000.0,
                         "Besoin utile ECS (kWh/j)": _daily_l_to_daily_kwh(
                             daily_l_60c=daily_l,
                             cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                            ecs_temperature_c=ecs_temperature_c,
                         ),
                         "Besoin utile ECS (MWh/mois)": _daily_l_to_monthly_mwh(
                             daily_l_60c=daily_l,
                             month=month,
                             cold_water_temperature_c=cold_water_temperatures.get(month, 15.0),
+                            ecs_temperature_c=ecs_temperature_c,
                         ),
                     }
                 )
@@ -1285,7 +1302,7 @@ def render_opportunity_notes_app() -> None:
                     {
                         "Typologie": kind,
                         "Nombre": int(housing_counts.get(kind, 0)),
-                        "L/logement/j à 60°C": float(housing_ratios.get(kind, default_ratio)),
+                        f"L/logement/j à {ecs_temperature_label}": float(housing_ratios.get(kind, default_ratio)),
                     }
                     for kind, default_ratio in HOUSING_RATIOS_L_PER_DWELLING_DAY.items()
                 ]
@@ -1299,7 +1316,7 @@ def render_opportunity_notes_app() -> None:
             )
             housing_counts = {str(row["Typologie"]): int(max(0, row["Nombre"])) for _, row in edited_housing.iterrows()}
             housing_ratios = {
-                str(row["Typologie"]): float(max(0.0, row["L/logement/j à 60°C"]))
+                str(row["Typologie"]): float(max(0.0, row[f"L/logement/j à {ecs_temperature_label}"]))
                 for _, row in edited_housing.iterrows()
             }
     
@@ -1319,7 +1336,7 @@ def render_opportunity_notes_app() -> None:
                 residents_or_beds = st.number_input("Nombre de résidents / lits", min_value=0, value=int(residents_or_beds), step=1)
             with col_b:
                 liters_per_resident_or_bed_day = st.number_input(
-                    "Conso ECS à 60°C (L/résident ou lit/j)", min_value=0.0, value=float(default_ratio), step=1.0
+                    f"Conso ECS à {ecs_temperature_label} (L/résident ou lit/j)", min_value=0.0, value=float(default_ratio), step=1.0
                 )
     
         elif typology == "Hôtel":
@@ -1335,7 +1352,7 @@ def render_opportunity_notes_app() -> None:
             with col_b:
                 default_hotel_ratio = HOTEL_RATIOS_L_PER_ROOM_NIGHT[hotel_category]
                 liters_per_occupied_unit = st.number_input(
-                    "Conso ECS à 60°C (L/chambre-nuit)",
+                    f"Conso ECS à {ecs_temperature_label} (L/chambre-nuit)",
                     min_value=0.0,
                     value=float(liters_per_occupied_unit or default_hotel_ratio),
                     step=1.0,
@@ -1358,7 +1375,7 @@ def render_opportunity_notes_app() -> None:
     
         elif typology == "Camping":
             liters_per_occupied_unit = st.number_input(
-                "Conso ECS à 60°C (L/personne-nuitée)",
+                f"Conso ECS à {ecs_temperature_label} (L/personne-nuitée)",
                 min_value=0.0,
                 value=float(liters_per_occupied_unit or CAMPING_DEFAULT_L_PER_PERSON_NIGHT),
                 step=1.0,
@@ -1398,6 +1415,7 @@ def render_opportunity_notes_app() -> None:
                 }
     
     needs_inputs = NeedsInputs(
+        ecs_temperature_c=float(ecs_temperature_c),
         housing_counts=housing_counts,
         housing_ratios_l_day=housing_ratios,
         residents_or_beds=int(residents_or_beds),
@@ -1743,7 +1761,7 @@ def render_opportunity_notes_app() -> None:
         k1, k2, k3 = st.columns(3)
         k1.metric(
             "Consommation moyenne journalière annuelle",
-            f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à 60 °C",
+            f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C",
         )
         k2.metric(
             "Besoin utile ECS moyen",
@@ -1780,14 +1798,14 @@ def render_opportunity_notes_app() -> None:
             if opportunity_results.reference_unit_count > 0:
                 st.info(
                     "Volume ECS de référence SOLO utilisé automatiquement : "
-                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 1)} L/j/unité à 60 °C, "
+                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 1)} L/j/unité à {number(needs_inputs.ecs_temperature_c, 0)} °C, "
                     f"calculé à partir de {number(opportunity_results.average_daily_volume_l_60c, 0)} L/j "
                     f"et {number(opportunity_results.reference_unit_count, 1)} unité(s)."
                 )
             else:
                 st.info(
                     "Volume ECS de référence SOLO utilisé automatiquement : "
-                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 0)} L/j à 60 °C. "
+                    f"{number(opportunity_results.solo_reference_volume_l_day_per_unit, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C. "
                     "Aucune unité de référence n'est renseignée, donc l'outil utilise la consommation journalière totale comme valeur de repli."
                 )
         pie_col1, pie_col2 = st.columns(2)
@@ -1806,7 +1824,7 @@ def render_opportunity_notes_app() -> None:
     with tab_sizing:
         st.markdown("### Proposition centrale")
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Volume ECS moyen", f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à 60°C")
+        col1.metric("Volume ECS moyen", f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à {number(needs_inputs.ecs_temperature_c, 0)} °C")
         col2.metric("Stockage proposé", f"{opportunity_results.storage.total_volume_l:,.0f} L".replace(",", " "))
         col3.metric("Surface proposée", f"{number(opportunity_results.collectors.surface_m2, 1)} m²")
         col4.metric("Ratio V/S", f"{number(opportunity_results.collectors.storage_ratio_l_m2, 1)} L/m²")
