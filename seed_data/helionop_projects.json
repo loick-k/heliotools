@@ -506,7 +506,7 @@
   },
   {
     "slug": "prolavage-poids-lourd-angers_9ad74a96",
-    "saved_at": "2026-07-22T21:45:10",
+    "saved_at": "2026-07-22T21:49:19",
     "owner_email": "loick@atlansun.fr",
     "project_id": "9ad74a96-06f4-4226-9d2c-b6415fc7aad4",
     "name": "Prolavage Poids Lourd Angers",
@@ -518,7 +518,7 @@
       "name": "Prolavage Poids Lourd Angers",
       "owner_email": "loick@atlansun.fr",
       "created_at": "2026-07-22T20:52:51",
-      "updated_at": "2026-07-22T21:45:10",
+      "updated_at": "2026-07-22T21:49:19",
       "site": {
         "project_name": "Prolavage Poids Lourd Angers",
         "airtable_id": "1386",
@@ -621,7 +621,7 @@
         "productivity_kwh_m2_year": 500.0
       },
       "loop": {
-        "method": "Analyse factures gaz",
+        "method": "Aucun bouclage sanitaire",
         "gas_monthly_kwh": {
           "Janvier": 0.0,
           "Février": 0.0,
