@@ -1,13 +1,6 @@
 [
   {
-    "timestamp": "2026-07-22T20:52:46",
-    "email": "loick@atlansun.fr",
-    "success": true,
-    "reason": "login",
-    "role": "admin"
-  },
-  {
-    "timestamp": "2026-07-22T21:29:10",
+    "timestamp": "2026-07-22T21:31:15",
     "email": "loick@atlansun.fr",
     "success": true,
     "reason": "login",
