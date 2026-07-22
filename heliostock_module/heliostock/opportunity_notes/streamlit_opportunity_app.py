@@ -1062,11 +1062,17 @@ def render_opportunity_notes_app() -> None:
     cold_water_temperatures = dict(sizing_default.cold_water_temperatures_c)
     with tab_energy:
         st.subheader("Température d'eau froide")
+        cold_water_mode_default = (
+            sizing_default.cold_water_mode
+            if sizing_default.cold_water_mode in COLD_WATER_MODES
+            else "Température eau froide manuelle"
+        )
         cold_water_mode = st.radio(
             "Mode de calcul de la température d'eau froide",
             options=list(COLD_WATER_MODES),
-            index=0,
+            index=list(COLD_WATER_MODES).index(cold_water_mode_default),
             horizontal=True,
+            key=f"{project_ui_key}_cold_water_mode",
         )
         if cold_water_mode == "Température eau froide manuelle":
             st.caption("Saisir une température moyenne mensuelle d'eau froide.")
@@ -1742,6 +1748,7 @@ def render_opportunity_notes_app() -> None:
             )
     
     sizing_inputs = SizingInputs(
+        cold_water_mode=str(cold_water_mode),
         cold_water_temperatures_c=cold_water_temperatures,
         collector_name=str(collector_name),
         collector_unit_area_m2=float(collector_unit_area),

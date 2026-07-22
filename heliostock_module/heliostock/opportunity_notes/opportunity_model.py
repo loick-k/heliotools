@@ -221,6 +221,7 @@ class NeedsInputs:
 
 @dataclass(frozen=True)
 class SizingInputs:
+    cold_water_mode: str = "Température eau froide manuelle"
     cold_water_temperatures_c: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_COLD_WATER_TEMPERATURES_C))
     collector_name: str = DEFAULT_COLLECTOR_NAME
     collector_unit_area_m2: float = DEFAULT_COLLECTOR_UNIT_AREA_M2
