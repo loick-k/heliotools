@@ -19,6 +19,8 @@ except ModuleNotFoundError:  # pragma: no cover - dépendance optionnelle côté
 from ..opportunity_notes.cesc_economic_model import (
     CescEconomicInputs,
     CescEconomicResults,
+    DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH,
+    DEFAULT_AUXILIARY_ELECTRICITY_RATIO,
     TYPOLOGY_LABELS,
     build_yearly_cashflow_projection,
     compute_cesc_economic_model,
@@ -230,8 +232,20 @@ def render_helioeco_app() -> None:
 
     with st.expander("Hypothèses avancées", expanded=False):
         adv_a, adv_b, adv_c = st.columns(3)
-        auxiliary_ratio = adv_a.number_input("Auxiliaires électriques (% prod.)", value=3.0, step=0.5) / 100.0
-        electricity_cost = adv_a.number_input("Coût électricité auxiliaire (€/MWh)", value=200.0, step=10.0)
+        auxiliary_ratio = adv_a.number_input(
+            "Consommation électrique des auxiliaires (% de la production solaire)",
+            value=DEFAULT_AUXILIARY_ELECTRICITY_RATIO * 100.0,
+            step=0.5,
+        ) / 100.0
+        electricity_cost = adv_a.number_input(
+            "Prix de l'électricité des auxiliaires (€/MWh)",
+            value=DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH,
+            step=10.0,
+        )
+        adv_a.caption(
+            f"P1' auxiliaires = {auxiliary_ratio * 100.0:.1f} % × {electricity_cost:.0f} €/MWh = "
+            f"{auxiliary_ratio * electricity_cost:.1f} €/MWh solaire utile."
+        )
         maintenance_cost = adv_b.number_input("Maintenance (€/m².an)", value=22.0, step=1.0)
         fae_cost = adv_b.number_input("FAE (€HT)", value=4929.0, step=100.0)
         fae_aid_rate = adv_c.number_input("Taux aide FAE (%)", value=70.0, step=5.0) / 100.0

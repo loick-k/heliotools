@@ -26,13 +26,13 @@ def test_helioeco_default_values_match_imported_excel_v5_model():
     approx(results.investment_cost_eur, 57758.4)
     approx(results.aid_total_eur, 27384.756)
     approx(results.net_investment_eur, 30373.644)
-    approx(results.annual_savings_eur, 1476.6591087326692)
-    approx(results.raw_payback_years, 20.569164420126683)
-    approx(results.heat_cost_p1_eur_mwh, 6.0)
+    approx(results.annual_savings_eur, 1533.6459087326737)
+    approx(results.raw_payback_years, 19.804860970221753)
+    approx(results.heat_cost_p1_eur_mwh, 3.0)
     approx(results.heat_cost_p2_eur_mwh, 39.145907473309606)
     approx(results.heat_cost_p4_eur_mwh, 79.94915664680242)
-    approx(results.solar_heat_cost_eur_mwh, 125.09506412011203)
-    approx(results.savings_over_period_eur, -840.4618253466178)
+    approx(results.solar_heat_cost_eur_mwh, 122.09506412011203)
+    approx(results.savings_over_period_eur, 299.27417465347025)
 
 
 def test_helioeco_app_is_callable_without_page_config():

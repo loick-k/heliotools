@@ -32,6 +32,8 @@ except ModuleNotFoundError:  # pragma: no cover
 from .cesc_economic_model import (
     ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY,
     CescEconomicInputs,
+    DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH,
+    DEFAULT_AUXILIARY_ELECTRICITY_RATIO,
     TYPOLOGY_LABELS as ECONOMIC_SCENARIOS,
     build_yearly_cashflow_projection,
     compute_cesc_economic_model,
@@ -2056,11 +2058,30 @@ def render_opportunity_notes_app() -> None:
         with st.expander("Hypothèses économiques avancées", expanded=False):
             col_1, col_2, col_3 = st.columns(3)
             with col_1:
-                auxiliary_ratio = st.number_input(
-                    "Auxiliaires électriques (% prod.)", value=float(economic_default.get("auxiliary_ratio_percent", 3.0)), step=0.5
-                ) / 100.0
                 electricity_cost = st.number_input(
-                    "Coût électricité auxiliaire (€/MWh)", value=float(economic_default.get("electricity_cost_eur_mwh", 200.0)), step=10.0
+                    "Prix de l'électricité des auxiliaires (€/MWh)",
+                    value=float(economic_default.get("electricity_cost_eur_mwh", DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH)),
+                    step=10.0,
+                )
+                legacy_direct_p1 = float(economic_default.get("auxiliary_electricity_cost_eur_mwh", 0.0))
+                legacy_ratio_percent = (
+                    100.0 * legacy_direct_p1 / electricity_cost
+                    if legacy_direct_p1 > 0 and electricity_cost > 0
+                    else DEFAULT_AUXILIARY_ELECTRICITY_RATIO * 100.0
+                )
+                auxiliary_ratio = st.number_input(
+                    "Consommation électrique des auxiliaires (% de la production solaire)",
+                    value=float(
+                        economic_default.get(
+                            "auxiliary_ratio_percent",
+                            legacy_ratio_percent,
+                        )
+                    ),
+                    step=0.5,
+                ) / 100.0
+                st.caption(
+                    f"P1' auxiliaires = {auxiliary_ratio * 100.0:.1f} % × {electricity_cost:.0f} €/MWh = "
+                    f"{auxiliary_ratio * electricity_cost:.1f} €/MWh solaire utile."
                 )
             with col_2:
                 maintenance_cost = st.number_input(

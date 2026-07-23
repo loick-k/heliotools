@@ -747,7 +747,8 @@ class PdfReport:
             self.canvas.setFillColorRGB(*color)
             self.canvas.rect(bx, y, bar_w, bh, fill=1, stroke=0)
             self.canvas.setFillColorRGB(*MUTED_COLOR)
-            self.canvas.drawCentredString(bx + bar_w / 2, y - 9, _safe_text(row.get(label_col, ""))[:7])
+            self.canvas.drawCentredString(bx + bar_w / 2, y + bh + 4, _fmt_number(value, 1))
+            self.canvas.drawCentredString(bx + bar_w / 2, y - 9, _safe_text(row.get(label_col, ""))[:14])
         if y_label:
             self.canvas.drawString(plot_x, y + height - 5, _safe_text(y_label))
 

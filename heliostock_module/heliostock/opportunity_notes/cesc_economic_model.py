@@ -18,6 +18,8 @@ ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY: dict[str, float] = {
 }
 
 TYPOLOGY_LABELS: tuple[str, ...] = tuple(ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY)
+DEFAULT_AUXILIARY_ELECTRICITY_RATIO = 0.015
+DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH = 200.0
 
 
 def get_ademe_aid_eur_per_mwh_year(typologie: str) -> float:
@@ -56,9 +58,9 @@ class CescEconomicInputs:
     # Rendement global de l'appoint utilisé dans l'Excel : cellule B32.
     eta_appoint: float = 0.82
 
-    # P1' : coût d'électricité auxiliaire.
-    auxiliary_electricity_ratio: float = 0.03
-    electricity_cost_eur_mwh: float = 200.0
+    # P1' : consommation électrique auxiliaire par MWh solaire utile.
+    auxiliary_electricity_ratio: float = DEFAULT_AUXILIARY_ELECTRICITY_RATIO
+    electricity_cost_eur_mwh: float = DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH
 
     # P2 : suivi et maintenance.
     maintenance_cost_eur_m2_year: float = 22.0
