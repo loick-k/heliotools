@@ -2370,6 +2370,7 @@ def render_opportunity_notes_app() -> None:
                 opportunity_results=opportunity_results,
                 economic_results=economic_results,
                 architectural_constraints=_current_helionop_architectural_payload(),
+                surface_orientation=current_surface_orientation_payload("helionop"),
             ),
             file_name=f"{slugify(site_inputs.project_name)}_note_opportunite.pdf",
             mime="application/pdf",

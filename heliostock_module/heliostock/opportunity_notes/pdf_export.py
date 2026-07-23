@@ -108,7 +108,7 @@ def _cashflow_zero_year(rows: list[dict[str, Any]], value_key: str) -> int | Non
     for row in rows:
         try:
             if float(row.get(value_key, 0.0)) >= 0:
-                return int(float(row.get("AnnÃ©e", 0)))
+                return int(float(row.get("Année", 0)))
         except (TypeError, ValueError):
             continue
     return None
@@ -126,15 +126,15 @@ def _draw_cashflow_chart(
     canvas = report.canvas
     canvas.setFillColorRGB(*TEXT_COLOR)
     canvas.setFont(PDF_FONT_BOLD, 10)
-    canvas.drawString(x, y + height + 14, "Flux cumulÃ© sur la pÃ©riode")
+    canvas.drawString(x, y + height + 14, "Flux cumulé sur la période")
 
     if not rows:
         canvas.setFillColorRGB(*MUTED_COLOR)
         canvas.setFont(PDF_FONT_REGULAR, 8)
-        canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+        canvas.drawString(x, y + height / 2, "Aucune donnée.")
         return
 
-    years = [float(row.get("AnnÃ©e", 0.0)) for row in rows]
+    years = [float(row.get("Année", 0.0)) for row in rows]
     mean_values = [float(row.get("Flux moyen", 0.0)) for row in rows]
     inflation_values = [float(row.get("Flux inflation", 0.0)) for row in rows]
     all_values = mean_values + inflation_values + [0.0]
@@ -174,7 +174,7 @@ def _draw_cashflow_chart(
     canvas.setDash()
     canvas.setFillColorRGB(*MUTED_COLOR)
     canvas.setFont(PDF_FONT_REGULAR, 7)
-    canvas.drawRightString(plot_x + plot_w, zero_y + 4, "Ã‰quilibre 0 EUR")
+    canvas.drawRightString(plot_x + plot_w, zero_y + 4, "Équilibre 0 €")
 
     for values, color in [(mean_values, CHART_COLORS[0]), (inflation_values, CHART_COLORS[1])]:
         points = [(px(year), py(value)) for year, value in zip(years, values)]
@@ -205,7 +205,7 @@ def _draw_cashflow_chart(
     canvas.setFillColorRGB(*MUTED_COLOR)
     canvas.setFont(PDF_FONT_REGULAR, 7)
     canvas.drawString(plot_x, y + height - 5, "EUR")
-    canvas.drawCentredString(plot_x + plot_w / 2, y - 4, "AnnÃ©e")
+    canvas.drawCentredString(plot_x + plot_w / 2, y - 4, "Année")
     for step in range(5):
         tx = plot_x + step * plot_w / 4
         value = min_x + (max_x - min_x) * step / 4
@@ -552,7 +552,7 @@ def _draw_surface_orientation_map(
     drawings = _surface_orientation_drawings(surface_orientation)
     if not drawings:
         report.note(
-            "Aucune emprise de toiture ou zone au sol n'est enregistrÃ©e dans ce projet.",
+            "Aucune emprise de toiture ou zone au sol n'est enregistrée dans ce projet.",
             x=x,
             y=y + height - 10,
             width=width,
@@ -580,7 +580,7 @@ def _draw_surface_orientation_map(
         rendered = Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
         draw = ImageDraw.Draw(rendered, "RGBA")
         draw.rounded_rectangle([12, 12, 420, 64], radius=8, fill=(255, 255, 255, 225), outline=(90, 90, 90, 120))
-        draw.text((26, 24), "Emprise et orientation mesurÃ©es dans HelioNOP", fill=(30, 30, 30, 255))
+        draw.text((26, 24), "Emprise et orientation mesurées dans HelioNOP", fill=(30, 30, 30, 255))
         image_buffer = BytesIO()
         rendered.save(image_buffer, format="PNG")
         image_buffer.seek(0)
@@ -596,7 +596,7 @@ def _draw_surface_orientation_map(
         )
     except Exception as exc:
         report.note(
-            f"La carte orientation/surface n'a pas pu Ãªtre gÃ©nÃ©rÃ©e dans le PDF : {exc}",
+            f"La carte orientation/surface n'a pas pu être générée dans le PDF : {exc}",
             x=x,
             y=y + height - 10,
             width=width,
@@ -673,6 +673,59 @@ def build_opportunity_note_pdf(
         font_size=8,
         row_height=13,
         show_header_rule=False,
+    )
+    report.draw_footer()
+
+    y = report.start_page(title="Note d'opportunité - surface et orientation")
+    y = report.section_title("Surface disponible et orientation solaire", x=margin, y=y)
+    orientation_metrics = _surface_orientation_metrics(surface_orientation)
+    surface_m2 = orientation_metrics.get("surface_m2")
+    max_collector_surface_m2 = orientation_metrics.get("max_collector_surface_m2")
+    orientation_label = str(orientation_metrics.get("orientation_label") or "non déterminée")
+    orientation_from_south = orientation_metrics.get("orientation_from_south_deg")
+    orientation_source = str(orientation_metrics.get("orientation_source") or "non déterminée")
+    y = report.kpi_grid(
+        [
+            (
+                "Surface au sol/toiture",
+                f"{_fmt_number(float(surface_m2), 1)} m²" if isinstance(surface_m2, (float, int)) else "n.d.",
+            ),
+            ("Orientation solaire", orientation_label),
+            (
+                "Écart au sud",
+                f"{_fmt_number(float(orientation_from_south), 0)}°"
+                if isinstance(orientation_from_south, (float, int))
+                else "n.d.",
+            ),
+            (
+                "Surface capteurs max.",
+                f"{_fmt_number(float(max_collector_surface_m2), 1)} m²"
+                if isinstance(max_collector_surface_m2, (float, int))
+                else "n.d.",
+            ),
+        ],
+        x=margin,
+        y=y,
+        width=content_width,
+    )
+    y = report.note(
+        f"Convention : 0° = plein sud, valeur négative = vers l'est, valeur positive = vers l'ouest. "
+        f"Orientation retenue depuis : {orientation_source}. La surface capteurs maximale applique l'hypothèse "
+        "2 m² de zone disponible par m² de capteur installé.",
+        x=margin,
+        y=y,
+        width=content_width,
+        size=8,
+    )
+    _draw_surface_orientation_map(
+        report,
+        surface_orientation,
+        fallback_latitude=float(site_inputs.latitude),
+        fallback_longitude=float(site_inputs.longitude),
+        x=margin,
+        y=54,
+        width=content_width,
+        height=300,
     )
     report.draw_footer()
 
@@ -792,17 +845,13 @@ def build_opportunity_note_pdf(
     chart_gap = 34
     chart_w = (content_width - chart_gap) / 2
     heat_chart_x = margin + chart_w + chart_gap
-    report.line_chart(
+    _draw_cashflow_chart(
+        report,
         _cashflow_chart_rows(economic_inputs, economic_results),
         x=margin,
         y=84,
         width=chart_w,
         height=175,
-        x_col="Année",
-        y_cols=[("Flux moyen", "Flux moyen"), ("Flux inflation", "Flux avec inflation")],
-        title="Flux cumulé sur la période",
-        y_label="EUR",
-        x_label="Année",
     )
     _draw_heat_cost_comparison_chart(
         report,
