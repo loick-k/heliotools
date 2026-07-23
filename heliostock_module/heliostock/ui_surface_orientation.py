@@ -121,6 +121,34 @@ def _drawings_from_map_state(map_state: dict[str, Any] | None) -> list[dict[str,
     return []
 
 
+def _geometry_type(feature: dict[str, Any]) -> str:
+    return str((feature.get("geometry") or {}).get("type") or "")
+
+
+def _merge_measurement_drawings(
+    previous_drawings: list[dict[str, Any]],
+    new_drawings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Keep one surface polygon and one orientation line across Folium refreshes."""
+    if not new_drawings:
+        return previous_drawings
+
+    previous_polygons = [feature for feature in previous_drawings if _geometry_type(feature) == "Polygon"]
+    previous_lines = [feature for feature in previous_drawings if _geometry_type(feature) == "LineString"]
+    new_polygons = [feature for feature in new_drawings if _geometry_type(feature) == "Polygon"]
+    new_lines = [feature for feature in new_drawings if _geometry_type(feature) == "LineString"]
+
+    polygon = new_polygons[-1] if new_polygons else (previous_polygons[-1] if previous_polygons else None)
+    line = new_lines[-1] if new_lines else (previous_lines[-1] if previous_lines else None)
+
+    merged: list[dict[str, Any]] = []
+    if polygon is not None:
+        merged.append(polygon)
+    if line is not None:
+        merged.append(line)
+    return merged or previous_drawings
+
+
 def _xy_meters(coords_lon_lat: list[list[float]]) -> list[tuple[float, float]]:
     if not coords_lon_lat:
         return []
@@ -330,12 +358,14 @@ def _measurement_map(
         icon=folium.Icon(color="red", icon="crosshairs"),
     ).add_to(map_object)
     if drawings:
+        polygon_drawings = [feature for feature in drawings if _geometry_type(feature) == "Polygon"]
+        line_drawings = [feature for feature in drawings if _geometry_type(feature) == "LineString"]
         folium.GeoJson(
-            {"type": "FeatureCollection", "features": drawings},
+            {"type": "FeatureCollection", "features": polygon_drawings},
             name="Mesures sauvegardées",
             style_function=lambda _feature: {"color": "#22B2A6", "weight": 3, "fillOpacity": 0.18},
         ).add_to(map_object)
-        for feature in drawings:
+        for feature in polygon_drawings:
             geometry_type = (feature.get("geometry") or {}).get("type")
             if geometry_type not in {"Polygon", "Rectangle"}:
                 continue
@@ -354,6 +384,17 @@ def _measurement_map(
                         f"{area_m2:.1f} m²</div>"
                     )
                 ),
+            ).add_to(map_object)
+        for feature in line_drawings:
+            coords = _feature_coordinates(feature)
+            if len(coords) < 2:
+                continue
+            folium.PolyLine(
+                locations=[(float(lat), float(lon)) for lon, lat in coords],
+                color="#FCBF24",
+                weight=5,
+                opacity=1.0,
+                tooltip="Ligne d'orientation solaire",
             ).add_to(map_object)
     Draw(
         export=False,
@@ -462,8 +503,9 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         key=_key(state_prefix, "map"),
     )
     session_map_state = st.session_state.get(_key(state_prefix, "map"))
-    new_drawings = _drawings_from_map_state(map_state) or _drawings_from_map_state(session_map_state)
-    if new_drawings and new_drawings != drawings:
+    raw_new_drawings = _drawings_from_map_state(map_state) or _drawings_from_map_state(session_map_state)
+    new_drawings = _merge_measurement_drawings(drawings, raw_new_drawings)
+    if raw_new_drawings and new_drawings != drawings:
         drawings = new_drawings
         st.session_state[drawings_key] = drawings
         st.session_state[metrics_key] = compute_surface_orientation_metrics(drawings)
