@@ -161,6 +161,17 @@ def _polygon_centroid_lat_lon(coords_lon_lat: list[list[float]]) -> tuple[float,
     return lat, lon
 
 
+def _drawings_center_lat_lon(drawings: list[dict[str, Any]]) -> tuple[float, float] | None:
+    coords: list[list[float]] = []
+    for feature in drawings:
+        coords.extend(_feature_coordinates(feature))
+    if not coords:
+        return None
+    lon = sum(float(coord[0]) for coord in coords) / len(coords)
+    lat = sum(float(coord[1]) for coord in coords) / len(coords)
+    return lat, lon
+
+
 def _bearing_deg_from_north(point_a: list[float], point_b: list[float]) -> float:
     lon1 = math.radians(float(point_a[0]))
     lat1 = math.radians(float(point_a[1]))
@@ -272,10 +283,13 @@ def _measurement_map(
     longitude: float,
     address: str,
     drawings: list[dict[str, Any]],
+    map_center: tuple[float, float] | None = None,
+    map_zoom: int = 20,
 ) -> folium.Map:
+    center = map_center or (latitude, longitude)
     map_object = folium.Map(
-        location=[latitude, longitude],
-        zoom_start=20,
+        location=[center[0], center[1]],
+        zoom_start=map_zoom,
         max_zoom=22,
         tiles=None,
         control_scale=True,
@@ -358,12 +372,30 @@ def _measurement_map(
     return map_object
 
 
+def _viewport_from_map_state(map_state: Any) -> tuple[tuple[float, float] | None, int | None]:
+    if not isinstance(map_state, dict):
+        return None, None
+    center_raw = map_state.get("center")
+    center: tuple[float, float] | None = None
+    if isinstance(center_raw, dict) and center_raw.get("lat") is not None and center_raw.get("lng") is not None:
+        center = (float(center_raw["lat"]), float(center_raw["lng"]))
+    elif isinstance(center_raw, (list, tuple)) and len(center_raw) >= 2:
+        center = (float(center_raw[0]), float(center_raw[1]))
+    zoom_raw = map_state.get("zoom")
+    zoom: int | None = None
+    if isinstance(zoom_raw, (float, int)):
+        zoom = max(1, min(22, int(zoom_raw)))
+    return center, zoom
+
+
 def current_surface_orientation_payload(state_prefix: str = "helionop") -> dict[str, Any]:
     if st is None:
         return {"drawings": [], "metrics": {}}
     return {
         "drawings": st.session_state.get(_key(state_prefix, "drawings"), []),
         "metrics": st.session_state.get(_key(state_prefix, "metrics"), {}),
+        "map_center": st.session_state.get(_key(state_prefix, "map_center")),
+        "map_zoom": st.session_state.get(_key(state_prefix, "map_zoom")),
     }
 
 
@@ -378,8 +410,14 @@ def restore_surface_orientation_state(payload: dict[str, Any], *, project_id: st
         return
     drawings = saved.get("drawings")
     metrics = saved.get("metrics")
+    map_center = saved.get("map_center")
+    map_zoom = saved.get("map_zoom")
     st.session_state[_key(state_prefix, "drawings")] = drawings if isinstance(drawings, list) else []
     st.session_state[_key(state_prefix, "metrics")] = metrics if isinstance(metrics, dict) else {}
+    if isinstance(map_center, (list, tuple)) and len(map_center) >= 2:
+        st.session_state[_key(state_prefix, "map_center")] = (float(map_center[0]), float(map_center[1]))
+    if isinstance(map_zoom, int):
+        st.session_state[_key(state_prefix, "map_zoom")] = max(1, min(22, map_zoom))
 
 
 def render_surface_orientation_measurement(state_prefix: str = "helionop") -> dict[str, Any]:
@@ -396,28 +434,53 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     address, latitude, longitude = _project_location(state_prefix)
     drawings_key = _key(state_prefix, "drawings")
     metrics_key = _key(state_prefix, "metrics")
+    center_key = _key(state_prefix, "map_center")
+    zoom_key = _key(state_prefix, "map_zoom")
     drawings = st.session_state.get(drawings_key)
     if not isinstance(drawings, list):
         drawings = []
         st.session_state[drawings_key] = drawings
+    saved_center = st.session_state.get(center_key)
+    if not (isinstance(saved_center, (list, tuple)) and len(saved_center) >= 2):
+        saved_center = _drawings_center_lat_lon(drawings) or (latitude, longitude)
+    saved_zoom = st.session_state.get(zoom_key, 20)
+    if not isinstance(saved_zoom, int):
+        saved_zoom = 20
 
     map_state = st_folium(
-        _measurement_map(latitude=latitude, longitude=longitude, address=address, drawings=drawings),
+        _measurement_map(
+            latitude=latitude,
+            longitude=longitude,
+            address=address,
+            drawings=drawings,
+            map_center=(float(saved_center[0]), float(saved_center[1])),
+            map_zoom=saved_zoom,
+        ),
         height=560,
         width="stretch",
-        returned_objects=["all_drawings", "last_active_drawing"],
+        returned_objects=["all_drawings", "last_active_drawing", "center", "zoom"],
         key=_key(state_prefix, "map"),
     )
     session_map_state = st.session_state.get(_key(state_prefix, "map"))
     new_drawings = _drawings_from_map_state(map_state) or _drawings_from_map_state(session_map_state)
+    viewport_center, viewport_zoom = _viewport_from_map_state(map_state)
+    if viewport_center is not None:
+        st.session_state[center_key] = viewport_center
+    if viewport_zoom is not None:
+        st.session_state[zoom_key] = viewport_zoom
     if new_drawings != drawings:
         drawings = new_drawings
         st.session_state[drawings_key] = drawings
         st.session_state[metrics_key] = compute_surface_orientation_metrics(drawings)
+        measured_center = _drawings_center_lat_lon(drawings)
+        if measured_center is not None:
+            st.session_state[center_key] = measured_center
 
     if st.button("Effacer les mesures", key=_key(state_prefix, "clear"), width="content"):
         st.session_state[drawings_key] = []
         st.session_state[metrics_key] = {}
+        st.session_state.pop(center_key, None)
+        st.session_state.pop(zoom_key, None)
         st.rerun()
 
     metrics = st.session_state.get(metrics_key)
@@ -427,18 +490,16 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
 
     surface_m2 = metrics.get("surface_m2")
     delta_south = metrics.get("orientation_from_south_deg")
-    bearing = metrics.get("orientation_bearing_deg")
     label = str(metrics.get("orientation_label") or "non déterminée")
     source = str(metrics.get("orientation_source") or "non déterminée")
 
     if isinstance(surface_m2, (float, int)) and surface_m2 > 0:
         st.success(f"Surface dessinée : {surface_m2:.1f} m²")
 
-    col1, col2, col3, col4 = st.columns(4)
+    col1, col2, col3 = st.columns(3)
     col1.metric("Surface mesurée", f"{surface_m2:.1f} m²" if isinstance(surface_m2, (float, int)) and surface_m2 > 0 else "n.d.")
-    col2.metric("Orientation", label)
-    col3.metric("Orientation / sud", f"{delta_south:+.0f}°" if isinstance(delta_south, (float, int)) else "n.d.")
-    col4.metric("Azimut depuis le nord", f"{bearing:.0f}°" if isinstance(bearing, (float, int)) else "n.d.")
+    col2.metric("Orientation solaire", label)
+    col3.metric("Écart au sud", f"{delta_south:+.0f}°" if isinstance(delta_south, (float, int)) else "n.d.")
     st.caption("Convention orientation / sud : 0° = plein sud, valeur négative = vers l'est, valeur positive = vers l'ouest.")
 
     if not drawings:
