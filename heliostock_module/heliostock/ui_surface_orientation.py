@@ -458,17 +458,12 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         ),
         height=560,
         width="stretch",
-        returned_objects=["all_drawings", "last_active_drawing", "center", "zoom"],
+        returned_objects=["all_drawings", "last_active_drawing"],
         key=_key(state_prefix, "map"),
     )
     session_map_state = st.session_state.get(_key(state_prefix, "map"))
     new_drawings = _drawings_from_map_state(map_state) or _drawings_from_map_state(session_map_state)
-    viewport_center, viewport_zoom = _viewport_from_map_state(map_state)
-    if viewport_center is not None:
-        st.session_state[center_key] = viewport_center
-    if viewport_zoom is not None:
-        st.session_state[zoom_key] = viewport_zoom
-    if new_drawings != drawings:
+    if new_drawings and new_drawings != drawings:
         drawings = new_drawings
         st.session_state[drawings_key] = drawings
         st.session_state[metrics_key] = compute_surface_orientation_metrics(drawings)
