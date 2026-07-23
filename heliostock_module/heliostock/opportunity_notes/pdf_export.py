@@ -8,7 +8,14 @@ from PIL import Image, ImageDraw
 from reportlab.lib.utils import ImageReader
 
 from ..architectural_patrimony_service import CATEGORY_CONFIG
-from ..architectural_static_map import StaticMapError, _create_background, _draw_geometry, _draw_project_marker, render_static_map
+from ..architectural_static_map import (
+    GEOPORTAIL_ORTHO_TILE_URL,
+    StaticMapError,
+    _create_background,
+    _draw_geometry,
+    _draw_project_marker,
+    render_static_map,
+)
 from ..common.pdf import PdfReport, _fmt_number
 from ..pdf_report import CARD_FILL, CARD_STROKE, CHART_COLORS, GRID_COLOR, MUTED_COLOR, PDF_FONT_BOLD, PDF_FONT_REGULAR, TEXT_COLOR
 from .cesc_economic_model import CescEconomicInputs, CescEconomicResults, build_yearly_cashflow_projection
@@ -568,6 +575,8 @@ def _draw_surface_orientation_map(
             zoom=19,
             width=1100,
             height=620,
+            tile_url=GEOPORTAIL_ORTHO_TILE_URL,
+            tile_label="Géoportail orthophotos",
         )
         overlay = Image.new("RGBA", base.size, (255, 255, 255, 0))
         for feature in drawings:

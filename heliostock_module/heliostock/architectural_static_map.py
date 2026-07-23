@@ -11,6 +11,12 @@ import requests
 
 TILE_SIZE = 256
 OSM_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+GEOPORTAIL_ORTHO_TILE_URL = (
+    "https://data.geopf.fr/wmts?"
+    "SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0"
+    "&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&FORMAT=image/jpeg"
+    "&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}"
+)
 REQUEST_TIMEOUT = (5, 15)
 USER_AGENT = "HelioTools-Architectural-Constraints/0.1"
 
@@ -47,15 +53,15 @@ def _lonlat_to_global_pixel(
     return x, y
 
 
-@lru_cache(maxsize=256)
-def _download_tile(zoom: int, tile_x: int, tile_y: int) -> bytes | None:
+@lru_cache(maxsize=512)
+def _download_tile_from_url(tile_url: str, zoom: int, tile_x: int, tile_y: int) -> bytes | None:
     tile_count = 2**zoom
 
     if tile_y < 0 or tile_y >= tile_count:
         return None
 
     wrapped_x = tile_x % tile_count
-    url = OSM_TILE_URL.format(z=zoom, x=wrapped_x, y=tile_y)
+    url = tile_url.format(z=zoom, x=wrapped_x, y=tile_y)
 
     try:
         response = requests.get(
@@ -67,6 +73,10 @@ def _download_tile(zoom: int, tile_x: int, tile_y: int) -> bytes | None:
         return response.content
     except requests.RequestException:
         return None
+
+
+def _download_tile(zoom: int, tile_x: int, tile_y: int) -> bytes | None:
+    return _download_tile_from_url(OSM_TILE_URL, zoom, tile_x, tile_y)
 
 
 def _load_font(size: int = 16) -> ImageFont.ImageFont:
@@ -82,6 +92,8 @@ def _create_background(
     zoom: int,
     width: int,
     height: int,
+    tile_url: str = OSM_TILE_URL,
+    tile_label: str = "OpenStreetMap",
 ) -> tuple[Image.Image, float, float, bool]:
     center_x, center_y = _lonlat_to_global_pixel(
         longitude=longitude,
@@ -101,7 +113,7 @@ def _create_background(
 
     for tile_x in range(first_tile_x, last_tile_x + 1):
         for tile_y in range(first_tile_y, last_tile_y + 1):
-            tile_bytes = _download_tile(zoom, tile_x, tile_y)
+            tile_bytes = _download_tile_from_url(tile_url, zoom, tile_x, tile_y)
             if not tile_bytes:
                 continue
 
@@ -123,7 +135,7 @@ def _create_background(
             draw.line([(0, y), (width, y)], fill=(220, 223, 228), width=1)
 
         font = _load_font(18)
-        message = "Fond OpenStreetMap indisponible - données du projet affichées"
+        message = f"Fond {tile_label} indisponible - données du projet affichées"
         text_box = draw.textbbox((0, 0), message, font=font)
         text_width = text_box[2] - text_box[0]
         draw.text(
