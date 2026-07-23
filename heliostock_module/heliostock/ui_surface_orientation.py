@@ -21,6 +21,7 @@ except ModuleNotFoundError:  # pragma: no cover
 
 DEFAULT_LATITUDE = 47.2184
 DEFAULT_LONGITUDE = -1.5536
+GROUND_AREA_M2_PER_COLLECTOR_M2 = 2.0
 
 GEOPORTAIL_ORTHO_WMTS = (
     "https://data.geopf.fr/wmts?"
@@ -286,6 +287,8 @@ def compute_surface_orientation_metrics(drawings: list[dict[str, Any]]) -> dict[
 
     metrics: dict[str, Any] = {
         "surface_m2": surface_m2,
+        "max_collector_surface_m2": surface_m2 / GROUND_AREA_M2_PER_COLLECTOR_M2 if surface_m2 > 0 else 0.0,
+        "ground_area_m2_per_collector_m2": GROUND_AREA_M2_PER_COLLECTOR_M2,
         "orientation_bearing_deg": None,
         "orientation_from_south_deg": None,
         "orientation_label": "non déterminée",
@@ -526,6 +529,7 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         st.session_state[metrics_key] = metrics
 
     surface_m2 = metrics.get("surface_m2")
+    max_collector_surface_m2 = metrics.get("max_collector_surface_m2")
     delta_south = metrics.get("orientation_from_south_deg")
     label = str(metrics.get("orientation_label") or "non déterminée")
     source = str(metrics.get("orientation_source") or "non déterminée")
@@ -533,10 +537,17 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     if isinstance(surface_m2, (float, int)) and surface_m2 > 0:
         st.success(f"Surface dessinée : {surface_m2:.1f} m²")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Surface mesurée", f"{surface_m2:.1f} m²" if isinstance(surface_m2, (float, int)) and surface_m2 > 0 else "n.d.")
-    col2.metric("Orientation solaire", label)
-    col3.metric("Écart au sud", f"{delta_south:+.0f}°" if isinstance(delta_south, (float, int)) else "n.d.")
+    col2.metric(
+        "Surface solaire thermique max.",
+        f"{max_collector_surface_m2:.1f} m²"
+        if isinstance(max_collector_surface_m2, (float, int)) and max_collector_surface_m2 > 0
+        else "n.d.",
+        "1 m² capteur pour 2 m² au sol" if isinstance(max_collector_surface_m2, (float, int)) and max_collector_surface_m2 > 0 else None,
+    )
+    col3.metric("Orientation solaire", label)
+    col4.metric("Écart au sud", f"{delta_south:+.0f}°" if isinstance(delta_south, (float, int)) else "n.d.")
     st.caption("Convention orientation / sud : 0° = plein sud, valeur négative = vers l'est, valeur positive = vers l'ouest.")
 
     if not drawings:

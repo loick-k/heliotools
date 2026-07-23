@@ -233,6 +233,7 @@ class SizingInputs:
     target_storage_ratio_l_m2: float = DEFAULT_TARGET_STORAGE_RATIO_L_M2
     max_tank_count: int = 3
     productivity_kwh_m2_year: float = DEFAULT_PRODUCTIVITY_KWH_M2_YEAR
+    max_collector_surface_m2: float | None = None
 
 
 @dataclass(frozen=True)
@@ -773,6 +774,7 @@ def propose_collectors(
     storage_volume_l: int,
     collector_unit_area_m2: float = DEFAULT_COLLECTOR_UNIT_AREA_M2,
     target_storage_ratio_l_m2: float = DEFAULT_TARGET_STORAGE_RATIO_L_M2,
+    max_collector_surface_m2: float | None = None,
 ) -> CollectorProposal:
     """Propose une seule surface capteurs, centrée au plus près de 60 L/m²."""
 
@@ -783,6 +785,20 @@ def propose_collectors(
 
     min_count = max(1, int(storage_volume_l / MAX_STORAGE_RATIO_L_M2 / collector_unit_area_m2) - 2)
     max_count = max(min_count + 1, ceil(storage_volume_l / MIN_STORAGE_RATIO_L_M2 / collector_unit_area_m2) + 4)
+    if max_collector_surface_m2 is not None and max_collector_surface_m2 > 0:
+        capped_count = int(max_collector_surface_m2 // collector_unit_area_m2)
+        if capped_count < 1:
+            return CollectorProposal(
+                collector_count=0,
+                collector_unit_area_m2=collector_unit_area_m2,
+                surface_m2=0.0,
+                storage_volume_l=storage_volume_l,
+                storage_ratio_l_m2=float("inf"),
+                target_storage_ratio_l_m2=target_storage_ratio_l_m2,
+                is_balanced_count=False,
+            )
+        max_count = min(max_count, capped_count)
+        min_count = min(min_count, max_count)
 
     candidates: list[CollectorProposal] = []
     for count in range(min_count, max_count + 1):
@@ -842,7 +858,12 @@ def compute_opportunity_results(
         reference_unit_count,
     )
     storage = propose_storage(average_daily_l, sizing.max_tank_count)
-    collectors = propose_collectors(storage.total_volume_l, sizing.collector_unit_area_m2, sizing.target_storage_ratio_l_m2)
+    collectors = propose_collectors(
+        storage.total_volume_l,
+        sizing.collector_unit_area_m2,
+        sizing.target_storage_ratio_l_m2,
+        sizing.max_collector_surface_m2,
+    )
     estimated_production = collectors.surface_m2 * sizing.productivity_kwh_m2_year / 1000.0
     return OpportunityResults(
         monthly_needs=monthly,

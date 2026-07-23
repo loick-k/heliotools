@@ -1207,6 +1207,13 @@ def render_opportunity_notes_app() -> None:
 
     with tab_surface:
         render_surface_orientation_measurement(state_prefix="helionop")
+    surface_orientation_payload = current_surface_orientation_payload("helionop")
+    surface_orientation_metrics = surface_orientation_payload.get("metrics") if isinstance(surface_orientation_payload, dict) else {}
+    max_collector_surface_from_measurement = None
+    if isinstance(surface_orientation_metrics, dict):
+        raw_max_collector_surface = surface_orientation_metrics.get("max_collector_surface_m2")
+        if isinstance(raw_max_collector_surface, (float, int)) and raw_max_collector_surface > 0:
+            max_collector_surface_from_measurement = float(raw_max_collector_surface)
 
     # ---------------------------------------------------------------------------
     # Eau froide et paramètres de prédimensionnement.
@@ -1894,6 +1901,12 @@ def render_opportunity_notes_app() -> None:
                 value=float(sizing_default.productivity_kwh_m2_year or DEFAULT_PRODUCTIVITY_KWH_M2_YEAR),
                 step=10.0,
             )
+        if max_collector_surface_from_measurement is not None:
+            st.info(
+                "Borne de surface disponible issue de l'onglet Orientation / surface : "
+                f"{max_collector_surface_from_measurement:.1f} m² de capteurs max. "
+                "Hypothèse : 2 m² au sol par m² de capteur installé."
+            )
     
     sizing_inputs = SizingInputs(
         cold_water_mode=str(cold_water_mode),
@@ -1903,6 +1916,7 @@ def render_opportunity_notes_app() -> None:
         target_storage_ratio_l_m2=float(target_ratio),
         max_tank_count=int(max_tank_count),
         productivity_kwh_m2_year=float(productivity_default),
+        max_collector_surface_m2=max_collector_surface_from_measurement,
     )
     
     try:
@@ -2000,7 +2014,22 @@ def render_opportunity_notes_app() -> None:
         col1.metric("Volume ECS dimensionnant", f"{number(opportunity_results.average_daily_volume_l_60c, 0)} L/j à 60 °C")
         col2.metric("Stockage proposé", f"{opportunity_results.storage.total_volume_l:,.0f} L".replace(",", " "))
         col3.metric("Surface proposée", f"{number(opportunity_results.collectors.surface_m2, 1)} m²")
-        col4.metric("Ratio V/S", f"{number(opportunity_results.collectors.storage_ratio_l_m2, 1)} L/m²")
+        collector_ratio_label = (
+            f"{number(opportunity_results.collectors.storage_ratio_l_m2, 1)} L/m²"
+            if opportunity_results.collectors.surface_m2 > 0
+            else "n.d."
+        )
+        col4.metric("Ratio V/S", collector_ratio_label)
+        if opportunity_results.collectors.collector_count == 0:
+            st.error(
+                "La surface disponible mesurée ne permet pas d'installer un capteur complet avec l'hypothèse "
+                "2 m² au sol par m² de capteur."
+            )
+        if max_collector_surface_from_measurement is not None and opportunity_results.collectors.surface_m2 >= max_collector_surface_from_measurement - 1e-9:
+            st.warning(
+                "La surface proposée atteint la borne disponible mesurée. "
+                "Le prédimensionnement est donc limité par l'emprise dessinée."
+            )
     
         st.write(f"**Ballons proposés :** {opportunity_results.storage.label}")
         st.write(
