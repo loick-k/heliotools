@@ -9,7 +9,7 @@ from reportlab.lib.utils import ImageReader
 from ..architectural_patrimony_service import CATEGORY_CONFIG
 from ..architectural_static_map import StaticMapError, render_static_map
 from ..common.pdf import PdfReport, _fmt_number
-from ..pdf_report import CARD_FILL, CARD_STROKE, MUTED_COLOR, TEXT_COLOR
+from ..pdf_report import CARD_FILL, CARD_STROKE, CHART_COLORS, GRID_COLOR, MUTED_COLOR, PDF_FONT_BOLD, PDF_FONT_REGULAR, TEXT_COLOR
 from .cesc_economic_model import CescEconomicInputs, CescEconomicResults, build_yearly_cashflow_projection
 from .opportunity_model import LoopInputs, NeedsInputs, OpportunityResults, SizingInputs, SiteInputs
 
@@ -84,11 +84,11 @@ def _monthly_rows(results: OpportunityResults) -> list[dict[str, Any]]:
 def _monthly_chart_rows(results: OpportunityResults) -> list[dict[str, Any]]:
     return [
         {
-            "Mois": index + 1,
+            "Mois": row.month[:3],
             "Besoin utile ECS": row.useful_energy_mwh,
-            "ECS + bouclage": row.total_ecs_energy_mwh,
+            "Besoin ECS": row.total_ecs_energy_mwh,
         }
-        for index, row in enumerate(results.monthly_needs)
+        for row in results.monthly_needs
     ]
 
 
@@ -139,6 +139,78 @@ def _total_heat_cost_label(results: CescEconomicResults) -> str:
         + float(results.heat_cost_p4_eur_mwh or 0.0)
     )
     return _eur_mwh(total, 1)
+
+
+def _draw_heat_cost_comparison_chart(
+    report: PdfReport,
+    results: CescEconomicResults,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    canvas = report.canvas
+    p1 = float(results.heat_cost_p1_eur_mwh or 0.0)
+    p2 = float(results.heat_cost_p2_eur_mwh or 0.0)
+    p4 = float(results.heat_cost_p4_eur_mwh or 0.0)
+    solar_total = p1 + p2 + p4
+    reference = float(results.average_reference_energy_cost_eur_mwh or 0.0)
+    max_value = max(solar_total, reference, 1.0) * 1.15
+
+    canvas.setFillColorRGB(*TEXT_COLOR)
+    canvas.setFont(PDF_FONT_BOLD, 10)
+    canvas.drawString(x, y + height + 14, "Coût de chaleur : référence vs solaire thermique")
+
+    plot_x = x + 42
+    plot_y = y + 18
+    plot_w = width - 74
+    plot_h = height - 44
+    canvas.setStrokeColorRGB(*GRID_COLOR)
+    canvas.setFillColorRGB(*MUTED_COLOR)
+    canvas.setFont(PDF_FONT_REGULAR, 6.5)
+    for step in range(5):
+        gy = plot_y + step * plot_h / 4
+        value = max_value * step / 4
+        canvas.line(plot_x, gy, plot_x + plot_w, gy)
+        canvas.drawRightString(plot_x - 4, gy - 2, f"{_fmt_number(value, 0)}")
+    canvas.drawString(plot_x, y + height - 5, "€/MWh utile")
+
+    bar_w = min(46, plot_w * 0.22)
+    solar_x = plot_x + plot_w * 0.24 - bar_w / 2
+    ref_x = plot_x + plot_w * 0.72 - bar_w / 2
+
+    current_y = plot_y
+    segments = [
+        ("P1' auxiliaires", p1, CHART_COLORS[0]),
+        ("P2 maintenance", p2, CHART_COLORS[1]),
+        ("P4 investissement", p4, CHART_COLORS[3]),
+    ]
+    for _label, value, color in segments:
+        segment_h = plot_h * value / max_value
+        canvas.setFillColorRGB(*color)
+        canvas.rect(solar_x, current_y, bar_w, segment_h, fill=1, stroke=0)
+        current_y += segment_h
+
+    ref_h = plot_h * reference / max_value
+    canvas.setFillColorRGB(0.82, 0.86, 0.92)
+    canvas.rect(ref_x, plot_y, bar_w, ref_h, fill=1, stroke=0)
+
+    canvas.setFillColorRGB(*TEXT_COLOR)
+    canvas.setFont(PDF_FONT_REGULAR, 7)
+    canvas.drawCentredString(solar_x + bar_w / 2, current_y + 4, f"{_fmt_number(solar_total, 1)}")
+    canvas.drawCentredString(ref_x + bar_w / 2, plot_y + ref_h + 4, f"{_fmt_number(reference, 1)}")
+    canvas.drawCentredString(solar_x + bar_w / 2, plot_y - 10, "Solaire")
+    canvas.drawCentredString(ref_x + bar_w / 2, plot_y - 10, "Référence")
+
+    legend_x = plot_x + plot_w - 98
+    legend_y = y + height - 12
+    for idx, (label, _value, color) in enumerate(segments):
+        ly = legend_y - idx * 11
+        canvas.setFillColorRGB(*color)
+        canvas.rect(legend_x, ly - 5, 7, 7, fill=1, stroke=0)
+        canvas.setFillColorRGB(*MUTED_COLOR)
+        canvas.drawString(legend_x + 10, ly - 5, label[:24])
 
 
 def _architectural_count_rows(architectural_constraints: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -242,11 +314,15 @@ def _ecs_heating_pie_rows(results: OpportunityResults) -> list[dict[str, Any]]:
 
 
 def _annual_balance_rows(results: OpportunityResults) -> list[dict[str, Any]]:
-    rows = [
-        {"Poste": "Besoin utile ECS", "MWh/an": results.annual_useful_energy_mwh},
-        {"Poste": "Besoin ECS total", "MWh/an": results.annual_total_ecs_energy_mwh},
-        {"Poste": "Production solaire", "MWh/an": results.estimated_solar_production_mwh_year},
-    ]
+    useful = float(results.annual_useful_energy_mwh or 0.0)
+    total = float(results.annual_total_ecs_energy_mwh or 0.0)
+    rows = []
+    if abs(total - useful) > 0.05:
+        rows.append({"Poste": "Besoin utile ECS", "MWh/an": useful})
+        rows.append({"Poste": "Besoin ECS total", "MWh/an": total})
+    else:
+        rows.append({"Poste": "Besoin ECS total", "MWh/an": total})
+    rows.append({"Poste": "Production solaire", "MWh/an": results.estimated_solar_production_mwh_year})
     if results.annual_loop_losses_mwh > 0:
         rows.insert(1, {"Poste": "Bouclage sanitaire", "MWh/an": results.annual_loop_losses_mwh})
     if results.annual_heating_after_boiler_mwh > 0:
@@ -328,7 +404,7 @@ def build_opportunity_note_pdf(
     coverage = _coverage_ratio(opportunity_results)
 
     y = report.start_page()
-    y = report.section_title("Synthèse du projet", x=margin, y=y)
+    y = report.section_title("Synthèse technique du projet", x=margin, y=y)
     y = report.kpi_grid(
         [
             ("Besoin ECS total", f"{_fmt_number(opportunity_results.annual_total_ecs_energy_mwh, 1)} MWh/an"),
@@ -339,7 +415,6 @@ def build_opportunity_note_pdf(
             ("Stockage proposé", f"{_fmt_number(opportunity_results.storage.total_volume_l, 0)} L"),
             ("Ratio V/S obtenu", f"{_fmt_number(opportunity_results.collectors.storage_ratio_l_m2, 0)} L/m²"),
             ("Coût chaleur solaire", _eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1)),
-            ("Temps retour brut", f"{_fmt_number(economic_results.raw_payback_years, 1)} ans"),
         ],
         x=margin,
         y=y,
@@ -419,14 +494,14 @@ def build_opportunity_note_pdf(
         )
 
     y = 330
-    report.line_chart(
+    report.bar_chart(
         _monthly_chart_rows(opportunity_results),
         x=left_x,
         y=120,
         width=half_w,
         height=170,
-        x_col="Mois",
-        y_cols=[("Besoin utile ECS", "Besoin utile ECS"), ("ECS + bouclage", "ECS + bouclage")],
+        label_col="Mois",
+        value_col="Besoin ECS",
         title="Besoin ECS mensuel",
         y_label="MWh/mois",
         x_label="Mois",
@@ -498,16 +573,13 @@ def build_opportunity_note_pdf(
         y_label="EUR",
         x_label="Année",
     )
-    report.bar_chart(
-        _heat_cost_rows(economic_results),
+    _draw_heat_cost_comparison_chart(
+        report,
+        economic_results,
         x=right_x,
         y=84,
         width=half_w,
         height=175,
-        label_col="Poste",
-        value_col="EUR/MWh",
-        title="Décomposition du coût chaleur",
-        y_label="EUR/MWh utile",
     )
     report.draw_footer()
 
@@ -576,6 +648,17 @@ def build_opportunity_note_pdf(
             row_height=14,
             show_header_rule=False,
         )
+    if isinstance(architectural_constraints, dict):
+        result = architectural_constraints.get("result")
+        has_protection = bool(result.get("has_protection")) if isinstance(result, dict) else None
+        if has_protection is False:
+            report.note(
+                "Conclusion : aucune servitude AC1, AC2 ou AC4 n'a été détectée au droit du point dans les données interrogées.",
+                x=margin,
+                y=table_y - 74,
+                width=content_width,
+                size=9,
+            )
     _draw_architectural_map(
         report,
         architectural_constraints,

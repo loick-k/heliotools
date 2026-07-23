@@ -721,6 +721,7 @@ class PdfReport:
         value_col: str,
         title: str,
         y_label: str = "",
+        x_label: str = "",
     ) -> None:
         chart = [row for row in rows if _numeric(row.get(value_col)) > 0]
         self.canvas.setFillColorRGB(*TEXT_COLOR)
@@ -753,6 +754,8 @@ class PdfReport:
             self.canvas.drawCentredString(bx + bar_w / 2, y - 9, _safe_text(row.get(label_col, ""))[:14])
         if y_label:
             self.canvas.drawString(plot_x, y + height - 5, _safe_text(y_label))
+        if x_label:
+            self.canvas.drawCentredString(plot_x + plot_w / 2, y - 20, _safe_text(x_label))
 
     def pie_chart(
         self,
@@ -825,10 +828,18 @@ class PdfReport:
             self.canvas.line(plot_x, gy, plot_x + plot_w, gy)
         self.canvas.setFont(PDF_FONT_REGULAR, 6.5)
         self.canvas.setFillColorRGB(*MUTED_COLOR)
+        for step in range(5):
+            gy = plot_y + step * plot_h / 4
+            value = min_y + (max_y - min_y) * step / 4
+            self.canvas.drawRightString(plot_x - 4, gy - 2, _fmt_number(value, 0))
         if y_label:
             self.canvas.drawString(plot_x, y + height - 5, _safe_text(y_label))
         if x_label:
             self.canvas.drawCentredString(plot_x + plot_w / 2, y - 4, _safe_text(x_label))
+        for step in range(5):
+            tx = plot_x + step * plot_w / 4
+            value = min_x + (max_x - min_x) * step / 4
+            self.canvas.drawCentredString(tx, plot_y - 10, _fmt_number(value, 0))
         for col_idx, (col, label) in enumerate(y_cols):
             color = CHART_COLORS[col_idx % len(CHART_COLORS)]
             points: list[tuple[float, float]] = []
