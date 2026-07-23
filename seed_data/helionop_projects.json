@@ -506,7 +506,7 @@
   },
   {
     "slug": "prolavage-poids-lourd-angers_9ad74a96",
-    "saved_at": "2026-07-23T21:41:03",
+    "saved_at": "2026-07-23T22:29:06",
     "owner_email": "loick@atlansun.fr",
     "project_id": "9ad74a96-06f4-4226-9d2c-b6415fc7aad4",
     "name": "Prolavage Poids Lourd Angers",
@@ -518,7 +518,7 @@
       "name": "Prolavage Poids Lourd Angers",
       "owner_email": "loick@atlansun.fr",
       "created_at": "2026-07-22T20:52:51",
-      "updated_at": "2026-07-23T21:41:03",
+      "updated_at": "2026-07-23T22:29:06",
       "site": {
         "project_name": "Prolavage Poids Lourd Angers",
         "airtable_id": "1386",
@@ -620,7 +620,8 @@
         "collector_unit_area_m2": 2.32,
         "target_storage_ratio_l_m2": 60.0,
         "max_tank_count": 3,
-        "productivity_kwh_m2_year": 535.0
+        "productivity_kwh_m2_year": 535.0,
+        "max_collector_surface_m2": 109.52036401981292
       },
       "loop": {
         "method": "Aucun bouclage sanitaire",
@@ -751,28 +752,45 @@
               "coordinates": [
                 [
                   [
-                    -0.440915,
-                    47.519193
+                    -0.440902,
+                    47.519238
                   ],
                   [
-                    -0.440891,
-                    47.519239
+                    -0.44092,
+                    47.519189
                   ],
                   [
-                    -0.44057,
-                    47.519151
+                    -0.440601,
+                    47.519098
                   ],
                   [
-                    -0.440597,
-                    47.519099
+                    -0.440589,
+                    47.519127
                   ],
                   [
-                    -0.440915,
-                    47.519193
+                    -0.440526,
+                    47.519113
+                  ],
+                  [
+                    -0.440546,
+                    47.519076
+                  ],
+                  [
+                    -0.440467,
+                    47.519057
+                  ],
+                  [
+                    -0.440432,
+                    47.519117
+                  ],
+                  [
+                    -0.440902,
+                    47.519238
                   ]
                 ]
               ]
-            }
+            },
+            "id": "0"
           },
           {
             "type": "Feature",
@@ -781,30 +799,32 @@
               "type": "LineString",
               "coordinates": [
                 [
-                  -0.440564,
-                  47.519149
+                  -0.440511,
+                  47.519134
                 ],
                 [
-                  -0.440615,
-                  47.519062
+                  -0.440605,
+                  47.518981
                 ]
               ]
             }
           }
         ],
         "metrics": {
-          "surface_m2": 150.4402797555125,
-          "orientation_bearing_deg": 201.59821041190588,
-          "orientation_from_south_deg": 21.59821041190594,
-          "orientation_label": "Sud",
+          "surface_m2": 219.04072803962583,
+          "max_collector_surface_m2": 109.52036401981292,
+          "ground_area_m2_per_collector_m2": 2.0,
+          "orientation_bearing_deg": 202.5344671358994,
+          "orientation_from_south_deg": 22.534467135899376,
+          "orientation_label": "Sud-Ouest",
           "orientation_source": "ligne tracée",
           "drawings_count": 2
         },
         "map_center": [
-          47.519155142857144,
-          -0.44072385714285717
+          47.519124363636365,
+          -0.4406364545454545
         ],
-        "map_zoom": 20
+        "map_zoom": null
       },
       "results": {
         "opportunity": {
