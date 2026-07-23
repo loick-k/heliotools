@@ -70,9 +70,13 @@ from .opportunity_model import (
 from .pdf_export import build_opportunity_note_pdf
 from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
+from ..common.solar_thermal_cost_reference import (
+    SOLAR_THERMAL_COST_REFERENCE_NOTE,
+    build_solar_thermal_cost_reference_plotly,
+)
 from ..epw_reader import read_epw_hourly_weather_from_zip
 from ..geocoding_service import GeocodingServiceError, search_addresses
-from ..ui_architectural_constraints import render_architectural_constraints_test
+from ..ui_architectural_constraints import PROJECT_TYPES, render_architectural_constraints_test
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 from .. import ui_portal
 
@@ -154,6 +158,35 @@ def _initialise_helionop_project_location(site_default: SiteInputs, project_id: 
     st.session_state["helionop_project_latitude"] = float(site_default.latitude or DEFAULT_PROJECT_LATITUDE)
     st.session_state["helionop_project_longitude"] = float(site_default.longitude or DEFAULT_PROJECT_LONGITUDE)
     _propagate_helionop_project_location()
+
+
+def _restore_helionop_architectural_state(payload: dict[str, Any], project_id: str) -> None:
+    if st.session_state.get("helionop_architectural_payload_project_id") == project_id:
+        return
+    st.session_state["helionop_architectural_payload_project_id"] = project_id
+    saved = payload.get("architectural_constraints", {})
+    if not isinstance(saved, dict):
+        return
+    if saved.get("selected_address") is not None:
+        st.session_state["helionop_architectural_selected_address"] = str(saved.get("selected_address") or "")
+    if saved.get("latitude") is not None:
+        st.session_state["helionop_architectural_latitude"] = float(saved.get("latitude") or DEFAULT_PROJECT_LATITUDE)
+    if saved.get("longitude") is not None:
+        st.session_state["helionop_architectural_longitude"] = float(saved.get("longitude") or DEFAULT_PROJECT_LONGITUDE)
+    if saved.get("project_type") in PROJECT_TYPES:
+        st.session_state["helionop_architectural_project_type"] = str(saved.get("project_type"))
+    result = saved.get("result")
+    st.session_state["helionop_architectural_result"] = result if isinstance(result, dict) else None
+
+
+def _current_helionop_architectural_payload() -> dict[str, Any]:
+    return {
+        "selected_address": str(st.session_state.get("helionop_architectural_selected_address") or ""),
+        "latitude": float(st.session_state.get("helionop_architectural_latitude", DEFAULT_PROJECT_LATITUDE)),
+        "longitude": float(st.session_state.get("helionop_architectural_longitude", DEFAULT_PROJECT_LONGITUDE)),
+        "project_type": str(st.session_state.get("helionop_architectural_project_type") or PROJECT_TYPES[0]),
+        "result": st.session_state.get("helionop_architectural_result"),
+    }
 
 
 def _render_project_location_form() -> tuple[str, float, float]:
@@ -636,6 +669,72 @@ def save_project(payload: dict[str, Any]):
     return path
 
 
+def _project_label(project_file) -> str:
+    try:
+        data = project_file.payload
+        site = data.get("site", {})
+        name = site.get("project_name") or data.get("name") or project_file.name
+        airtable_id = site.get("airtable_id", "")
+        updated = data.get("updated_at", "") or project_file.updated_at
+        label = f"{name}"
+        if airtable_id:
+            label += f" | Airtable {airtable_id}"
+        if updated:
+            label += f" - {updated}"
+        return label
+    except Exception:
+        return project_file.path.stem
+
+
+def _project_options() -> tuple[list[str], dict[str, Any]]:
+    labels: list[str] = []
+    paths_by_label: dict[str, Any] = {}
+    for project_file in list_project_files():
+        base_label = _project_label(project_file)
+        label = base_label
+        if label in paths_by_label:
+            label = f"{base_label} ({project_file.path.stem[-8:]})"
+        labels.append(label)
+        paths_by_label[label] = project_file.path
+    return labels, paths_by_label
+
+
+def render_project_load_save_bar() -> None:
+    if "save_notice" in st.session_state:
+        st.success(st.session_state.pop("save_notice"))
+
+    with st.container(border=True):
+        st.markdown("### Projet")
+        project_labels, project_by_label = _project_options()
+        select_col, load_col, new_col, save_col = st.columns([4, 1, 1, 1])
+        selected_project_label = select_col.selectbox(
+            "Projet enregistré",
+            options=["-"] + project_labels,
+            index=0,
+            key="helionop_project_selector",
+        )
+        with load_col:
+            st.write("")
+            if st.button("Charger", width="stretch", disabled=selected_project_label == "-"):
+                loaded_payload = load_project(project_by_label[selected_project_label])
+                loaded_project_key = str(loaded_payload.get("project_id", "projet"))[:8]
+                st.session_state.pop(f"{loaded_project_key}_cold_water_mode", None)
+                st.session_state.project_payload = loaded_payload
+                st.rerun()
+        with new_col:
+            st.write("")
+            if st.button("Nouveau", width="stretch"):
+                new_payload = empty_project_payload()
+                new_project_key = str(new_payload.get("project_id", "projet"))[:8]
+                st.session_state.pop(f"{new_project_key}_cold_water_mode", None)
+                st.session_state.project_payload = new_payload
+                st.rerun()
+        with save_col:
+            st.write("")
+            if st.button("Enregistrer", type="primary", width="stretch"):
+                st.session_state.helionop_save_requested = True
+
+
 
 def init_session() -> None:
     if "project_payload" not in st.session_state:
@@ -927,51 +1026,7 @@ def render_opportunity_notes_app() -> None:
         "Version de travail : estimation ECS, bouclage sanitaire, prédimensionnement CESC et raccord au modèle économique. "
         "La productivité est fixée par défaut à 500 kWh/m².an avant branchement du moteur SOLO 2018."
     )
-    
-    # ---------------------------------------------------------------------------
-    # Barre latérale : gestion des projets.
-    # ---------------------------------------------------------------------------
-    with st.sidebar:
-        st.header("Projets")
-        if "save_notice" in st.session_state:
-            st.success(st.session_state.pop("save_notice"))
-    
-        project_files = list_project_files()
-        project_labels = []
-        project_by_label = {}
-        for project_file in project_files:
-            try:
-                data = project_file.payload
-                site = data.get("site", {})
-                name = site.get("project_name") or data.get("name") or project_file.name
-                airtable_id = site.get("airtable_id", "")
-                updated = data.get("updated_at", "") or project_file.updated_at
-                label = f"{name}"
-                if airtable_id:
-                    label += f" | Airtable {airtable_id}"
-                if updated:
-                    label += f" - {updated}"
-            except Exception:
-                label = project_file.path.stem
-            project_labels.append(label)
-            project_by_label[label] = project_file.path
-    
-        selected_project_label = st.selectbox("Projet enregistré", options=["-"] + project_labels, index=0)
-        col_load, col_new = st.columns(2)
-        with col_load:
-            if st.button("Charger", width="stretch", disabled=selected_project_label == "-"):
-                loaded_payload = load_project(project_by_label[selected_project_label])
-                loaded_project_key = str(loaded_payload.get("project_id", "projet"))[:8]
-                st.session_state.pop(f"{loaded_project_key}_cold_water_mode", None)
-                st.session_state.project_payload = loaded_payload
-                st.rerun()
-        with col_new:
-            if st.button("Nouveau", width="stretch"):
-                new_payload = empty_project_payload()
-                new_project_key = str(new_payload.get("project_id", "projet"))[:8]
-                st.session_state.pop(f"{new_project_key}_cold_water_mode", None)
-                st.session_state.project_payload = new_payload
-                st.rerun()
+    render_project_load_save_bar()
     
     payload = st.session_state.project_payload
     site_default = dict_to_site_inputs(payload.get("site"))
@@ -981,6 +1036,7 @@ def render_opportunity_notes_app() -> None:
     economic_default = payload.get("economic", {}) or {}
     project_ui_key = str(payload.get("project_id", "projet"))[:8]
     _initialise_helionop_project_location(site_default, str(payload.get("project_id", "projet")))
+    _restore_helionop_architectural_state(payload, str(payload.get("project_id", "projet")))
     
     # ---------------------------------------------------------------------------
     # Onglets de saisie et résultats.
@@ -2029,7 +2085,7 @@ def render_opportunity_notes_app() -> None:
                 )
         with col_b:
             reference_energy_cost = st.number_input(
-                "Coût énergie référence (€/MWh)",
+                "Coût énergie de référence (€HT/MWh)",
                 min_value=0.0,
                 value=float(economic_default.get("reference_energy_cost_eur_mwh", 75.0)),
                 step=5.0,
@@ -2054,6 +2110,11 @@ def render_opportunity_notes_app() -> None:
                 value=float(economic_default.get("eta_appoint", 0.82)),
                 step=0.01,
             )
+
+        fig_cost_reference = build_solar_thermal_cost_reference_plotly(go, selected_cost_eur_m2=float(works_cost))
+        if fig_cost_reference is not None:
+            st.plotly_chart(fig_cost_reference, width="stretch")
+            st.caption(SOLAR_THERMAL_COST_REFERENCE_NOTE)
     
         with st.expander("Hypothèses économiques avancées", expanded=False):
             col_1, col_2, col_3 = st.columns(3)
@@ -2119,29 +2180,29 @@ def render_opportunity_notes_app() -> None:
                 ",", " "
             )
         )
-        chart_col, kpi_col = st.columns([1, 3])
-        with chart_col:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Production solaire", f"{number(economic_results.annual_production_mwh, 1)} MWh/an")
+        col2.metric("Investissement", eur(economic_results.investment_cost_eur, 0))
+        col3.metric("Aides", eur(economic_results.aid_total_eur, 0), percent(economic_results.aid_rate))
+        col4.metric("Reste à charge", eur(economic_results.net_investment_eur, 0))
+
+        col5, col6, col7, col8 = st.columns(4)
+        col5.metric("Économies annuelles", eur(economic_results.annual_savings_eur, 0))
+        col6.metric("Temps retour brut", f"{number(economic_results.raw_payback_years, 1)} ans")
+        col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
+        col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
+
+        heat_cost_col, cashflow_col = st.columns([1, 3])
+        with heat_cost_col:
             fig_breakdown = render_heat_cost_breakdown_plotly(economic_results)
             if fig_breakdown is not None:
                 st.plotly_chart(fig_breakdown, width="stretch")
 
-        with kpi_col:
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Production solaire", f"{number(economic_results.annual_production_mwh, 1)} MWh/an")
-            col2.metric("Investissement", eur(economic_results.investment_cost_eur, 0))
-            col3.metric("Aides", eur(economic_results.aid_total_eur, 0), percent(economic_results.aid_rate))
-            col4.metric("Reste à charge", eur(economic_results.net_investment_eur, 0))
-
-            col5, col6, col7, col8 = st.columns(4)
-            col5.metric("Économies annuelles", eur(economic_results.annual_savings_eur, 0))
-            col6.metric("Temps retour brut", f"{number(economic_results.raw_payback_years, 1)} ans")
-            col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
-            col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
-    
-        cashflow_rows = list(build_yearly_cashflow_projection(economic_inputs, economic_results))
-        fig_cashflow = render_cumulative_cashflow_plotly(cashflow_rows)
-        if fig_cashflow is not None:
-            st.plotly_chart(fig_cashflow, width="stretch")
+        with cashflow_col:
+            cashflow_rows = list(build_yearly_cashflow_projection(economic_inputs, economic_results))
+            fig_cashflow = render_cumulative_cashflow_plotly(cashflow_rows)
+            if fig_cashflow is not None:
+                st.plotly_chart(fig_cashflow, width="stretch")
     
     # ---------------------------------------------------------------------------
     # Synthèse et export.
@@ -2178,6 +2239,7 @@ def render_opportunity_notes_app() -> None:
         "sizing": asdict(sizing_inputs),
         "loop": asdict(loop_inputs),
         "economic": economic_payload,
+        "architectural_constraints": _current_helionop_architectural_payload(),
         "results": {"opportunity": opportunity_results.as_dict(), "economic": economic_results.as_dict()},
     }
     
@@ -2224,6 +2286,7 @@ def render_opportunity_notes_app() -> None:
                 economic_inputs=economic_inputs,
                 opportunity_results=opportunity_results,
                 economic_results=economic_results,
+                architectural_constraints=_current_helionop_architectural_payload(),
             ),
             file_name=f"{slugify(site_inputs.project_name)}_note_opportunite.pdf",
             mime="application/pdf",
@@ -2231,12 +2294,10 @@ def render_opportunity_notes_app() -> None:
         with st.expander("Voir le JSON complet", expanded=False):
             st.code(json.dumps(current_payload, ensure_ascii=False, indent=2), language="json")
     
-    with st.sidebar:
-        st.divider()
-        if st.button("Enregistrer le projet", width="stretch"):
-            saved_path = save_project(current_payload)
-            st.session_state.project_payload = current_payload
-            st.session_state.save_notice = f"Projet enregistré : {saved_path.name}"
-            st.rerun()
+    if st.session_state.pop("helionop_save_requested", False):
+        saved_path = save_project(current_payload)
+        st.session_state.project_payload = current_payload
+        st.session_state.save_notice = f"Projet enregistré : {saved_path.name}"
+        st.rerun()
 
 

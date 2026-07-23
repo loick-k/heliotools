@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from io import BytesIO
 from typing import Any
 
+from reportlab.lib.utils import ImageReader
+
+from ..architectural_patrimony_service import CATEGORY_CONFIG
+from ..architectural_static_map import StaticMapError, render_static_map
 from ..common.pdf import PdfReport, _fmt_number
 from ..pdf_report import CARD_FILL, CARD_STROKE, MUTED_COLOR, TEXT_COLOR
 from .cesc_economic_model import CescEconomicInputs, CescEconomicResults, build_yearly_cashflow_projection
@@ -99,17 +104,23 @@ def _cashflow_chart_rows(inputs: CescEconomicInputs, results: CescEconomicResult
 
 
 def _cost_table_rows(results: CescEconomicResults) -> list[dict[str, Any]]:
-    return [
+    rows = [
         {
             "Famille": line.category,
             "Poste": line.label,
             "Coût total": _eur(line.total_cost_eur, 0) if line.total_cost_eur is not None else "-",
             "Aide": _eur(line.ademe_aid_eur, 0) if line.ademe_aid_eur is not None else "-",
             "Net": _eur(line.net_cost_eur, 0) if line.net_cost_eur is not None else "-",
-            "Coût chaleur": _eur_mwh(line.cost_eur_mwh_year, 1) if line.cost_eur_mwh_year is not None else "-",
+            "Coût chaleur": _eur_mwh(
+                line.cost_eur_mwh_year if line.cost_eur_mwh_year is not None else results.solar_heat_cost_eur_mwh,
+                1,
+            )
+            if line.label.lower() == "total"
+            else (_eur_mwh(line.cost_eur_mwh_year, 1) if line.cost_eur_mwh_year is not None else "-"),
         }
         for line in results.cost_lines
     ]
+    return rows
 
 
 def _heat_cost_rows(results: CescEconomicResults) -> list[dict[str, Any]]:
@@ -119,6 +130,94 @@ def _heat_cost_rows(results: CescEconomicResults) -> list[dict[str, Any]]:
         {"Poste": "P4 investissement", "EUR/MWh": results.heat_cost_p4_eur_mwh or 0.0},
         {"Poste": "Référence", "EUR/MWh": results.average_reference_energy_cost_eur_mwh or 0.0},
     ]
+
+
+def _total_heat_cost_label(results: CescEconomicResults) -> str:
+    total = (
+        float(results.heat_cost_p1_eur_mwh or 0.0)
+        + float(results.heat_cost_p2_eur_mwh or 0.0)
+        + float(results.heat_cost_p4_eur_mwh or 0.0)
+    )
+    return _eur_mwh(total, 1)
+
+
+def _architectural_count_rows(architectural_constraints: dict[str, Any] | None) -> list[dict[str, Any]]:
+    result = architectural_constraints.get("result") if isinstance(architectural_constraints, dict) else None
+    if not isinstance(result, dict):
+        return []
+    counts = result.get("counts") if isinstance(result.get("counts"), dict) else {}
+    return [
+        {
+            "Catégorie": category,
+            "Protection": str(config.get("title", category)),
+            "Objets détectés": int(counts.get(category, 0) or 0),
+        }
+        for category, config in CATEGORY_CONFIG.items()
+    ]
+
+
+def _draw_architectural_map(
+    report: PdfReport,
+    architectural_constraints: dict[str, Any] | None,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    if not isinstance(architectural_constraints, dict):
+        report.note(
+            "Aucune analyse de contraintes architecturales n'est enregistrée dans ce projet.",
+            x=x,
+            y=y + height - 10,
+            width=width,
+            size=8,
+        )
+        return
+    latitude = architectural_constraints.get("latitude")
+    longitude = architectural_constraints.get("longitude")
+    result = architectural_constraints.get("result")
+    address = str(architectural_constraints.get("selected_address") or "")
+    if latitude is None or longitude is None:
+        report.note(
+            "Aucune coordonnée projet n'est disponible pour générer la carte des contraintes architecturales.",
+            x=x,
+            y=y + height - 10,
+            width=width,
+            size=8,
+        )
+        return
+    try:
+        image = render_static_map(
+            latitude=float(latitude),
+            longitude=float(longitude),
+            result=result if isinstance(result, dict) else None,
+            address=address,
+            zoom=16,
+            width=1100,
+            height=620,
+        )
+        image_buffer = BytesIO()
+        image.save(image_buffer, format="PNG")
+        image_buffer.seek(0)
+        report.canvas.drawImage(
+            ImageReader(image_buffer),
+            x,
+            y,
+            width=width,
+            height=height,
+            preserveAspectRatio=True,
+            anchor="c",
+            mask="auto",
+        )
+    except (StaticMapError, ValueError, OSError) as exc:
+        report.note(
+            f"La carte n'a pas pu être générée dans le PDF : {exc}",
+            x=x,
+            y=y + height - 10,
+            width=width,
+            size=8,
+        )
 
 
 def _ecs_pie_rows(results: OpportunityResults) -> list[dict[str, Any]]:
@@ -212,6 +311,7 @@ def build_opportunity_note_pdf(
     economic_inputs: CescEconomicInputs,
     opportunity_results: OpportunityResults,
     economic_results: CescEconomicResults,
+    architectural_constraints: dict[str, Any] | None = None,
 ) -> bytes:
     """Construit le PDF de note d'opportunité à partir des résultats affichés."""
 
@@ -225,13 +325,9 @@ def build_opportunity_note_pdf(
     margin = 34
     content_width = report.page_width - 2 * margin
     half_w = (report.page_width - 84) / 2
-    status_title, status_body = _opportunity_status(opportunity_results, economic_results)
     coverage = _coverage_ratio(opportunity_results)
 
     y = report.start_page()
-    y = report.section_title("Conclusion rapide", x=margin, y=y)
-    y = _draw_callout(report, status_title, status_body, x=margin, y=y, width=content_width)
-
     y = report.section_title("Synthèse du projet", x=margin, y=y)
     y = report.kpi_grid(
         [
@@ -241,6 +337,7 @@ def build_opportunity_note_pdf(
             ("Taux couverture ECS", _percent(coverage, 0)),
             ("Production solaire", f"{_fmt_number(opportunity_results.estimated_solar_production_mwh_year, 1)} MWh/an"),
             ("Stockage proposé", f"{_fmt_number(opportunity_results.storage.total_volume_l, 0)} L"),
+            ("Ratio V/S obtenu", f"{_fmt_number(opportunity_results.collectors.storage_ratio_l_m2, 0)} L/m²"),
             ("Coût chaleur solaire", _eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1)),
             ("Temps retour brut", f"{_fmt_number(economic_results.raw_payback_years, 1)} ans"),
         ],
@@ -273,6 +370,7 @@ def build_opportunity_note_pdf(
         col_weights=[1.0, 2.0],
         font_size=8,
         row_height=13,
+        show_header_rule=False,
     )
     report.draw_footer()
 
@@ -331,6 +429,7 @@ def build_opportunity_note_pdf(
         y_cols=[("Besoin utile ECS", "Besoin utile ECS"), ("ECS + bouclage", "ECS + bouclage")],
         title="Besoin ECS mensuel",
         y_label="MWh/mois",
+        x_label="Mois",
     )
     report.bar_chart(
         _annual_balance_rows(opportunity_results),
@@ -342,14 +441,6 @@ def build_opportunity_note_pdf(
         value_col="MWh/an",
         title="Bilan annuel besoin / production",
         y_label="MWh/an",
-    )
-    _draw_dimensioning_box(
-        report,
-        x=margin,
-        y=112,
-        width=content_width,
-        results=opportunity_results,
-        sizing_inputs=sizing_inputs,
     )
     report.draw_footer()
 
@@ -365,6 +456,7 @@ def build_opportunity_note_pdf(
         col_weights=[0.8, 1.4, 1.2, 1.1, 1.1, 1.2],
         font_size=8,
         row_height=15,
+        show_header_rule=False,
     )
     report.note(
         "Le volume moyen est exprimé en litres par jour équivalents à 60 °C. Il sert de référence au prédimensionnement solaire.",
@@ -385,7 +477,7 @@ def build_opportunity_note_pdf(
             ("Économies annuelles", _eur(economic_results.annual_savings_eur, 0)),
             ("Temps retour brut", f"{_fmt_number(economic_results.raw_payback_years, 1)} ans"),
             ("Économies période", _eur(economic_results.savings_over_period_eur, 0)),
-            ("Coût chaleur solaire", _eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1)),
+            ("Coût chaleur P1'+P2+P4", _total_heat_cost_label(economic_results)),
             ("Référence moyenne", _eur_mwh(economic_results.average_reference_energy_cost_eur_mwh, 1)),
         ],
         x=margin,
@@ -404,6 +496,7 @@ def build_opportunity_note_pdf(
         y_cols=[("Flux moyen", "Flux moyen"), ("Flux inflation", "Flux avec inflation")],
         title="Flux cumulé sur la période",
         y_label="EUR",
+        x_label="Année",
     )
     report.bar_chart(
         _heat_cost_rows(economic_results),
@@ -430,6 +523,7 @@ def build_opportunity_note_pdf(
         col_weights=[1.45, 1.65, 1.0, 0.9, 0.9, 1.15],
         font_size=8,
         row_height=16,
+        show_header_rule=False,
     )
     report.note(
         "P1 correspond aux auxiliaires électriques, P2 au suivi-maintenance, et P4 à l'investissement net aidé ramené à la chaleur utile solaire.",
@@ -437,6 +531,58 @@ def build_opportunity_note_pdf(
         y=300,
         width=content_width,
         size=8,
+    )
+
+    y = report.start_page(title="Note d'opportunité - contraintes architecturales")
+    y = report.section_title("Analyse des contraintes architecturales", x=margin, y=y)
+    if isinstance(architectural_constraints, dict):
+        project_type = str(architectural_constraints.get("project_type") or "-")
+        result = architectural_constraints.get("result")
+        has_protection = bool(result.get("has_protection")) if isinstance(result, dict) else None
+        status = "Protections détectées" if has_protection else "Aucune protection détectée"
+        if has_protection is None:
+            status = "Analyse non réalisée"
+        y = report.kpi_grid(
+            [
+                ("Configuration", project_type),
+                ("Statut", status),
+                ("Latitude", _fmt_number(float(architectural_constraints.get("latitude") or 0.0), 6)),
+                ("Longitude", _fmt_number(float(architectural_constraints.get("longitude") or 0.0), 6)),
+            ],
+            x=margin,
+            y=y,
+            width=content_width,
+        )
+    else:
+        y = report.note(
+            "Aucune analyse de contraintes architecturales n'est enregistrée dans ce projet.",
+            x=margin,
+            y=y,
+            width=content_width,
+            size=8,
+        )
+    table_y = y - 4
+    rows = _architectural_count_rows(architectural_constraints)
+    if rows:
+        report.table(
+            rows,
+            x=margin,
+            y=table_y,
+            width=content_width,
+            columns=["Catégorie", "Protection", "Objets détectés"],
+            max_rows=4,
+            col_weights=[0.8, 2.5, 0.9],
+            font_size=8,
+            row_height=14,
+            show_header_rule=False,
+        )
+    _draw_architectural_map(
+        report,
+        architectural_constraints,
+        x=margin,
+        y=58,
+        width=content_width,
+        height=250,
     )
 
     return report.finish()

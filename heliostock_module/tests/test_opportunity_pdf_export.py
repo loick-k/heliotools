@@ -41,8 +41,9 @@ def test_opportunity_note_pdf_export_builds_from_default_results():
     assert payload.startswith(b"%PDF")
     assert len(payload) > 5000
     text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(payload)).pages)
-    assert "Conclusion rapide" in text
+    assert "Conclusion rapide" not in text
     assert "Répartition annuelle des besoins" in text
     assert "Besoin ECS mensuel" in text
-    assert "Prédimensionnement proposé" in text
+    assert "Ratio V/S obtenu" in text
+    assert "Prédimensionnement proposé" not in text
     assert "Détail des postes économiques" in text

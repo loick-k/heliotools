@@ -26,6 +26,10 @@ from ..opportunity_notes.cesc_economic_model import (
     compute_cesc_economic_model,
     get_ademe_aid_eur_per_mwh_year,
 )
+from ..common.solar_thermal_cost_reference import (
+    SOLAR_THERMAL_COST_REFERENCE_NOTE,
+    build_solar_thermal_cost_reference_plotly,
+)
 
 
 APP_KEY = "helioeco"
@@ -222,13 +226,18 @@ def render_helioeco_app() -> None:
         surface_m2 = st.number_input("Surface capteurs (m²)", min_value=0.0, value=33.8, step=1.0)
         productivity = st.number_input("Productivité estimée (kWh/m².an)", min_value=0.0, value=562.0, step=10.0)
     with col_b:
-        reference_energy_cost = st.number_input("Coût énergie de référence (€/MWh)", min_value=0.0, value=75.0, step=5.0)
+        reference_energy_cost = st.number_input("Coût énergie de référence (€HT/MWh)", min_value=0.0, value=75.0, step=5.0)
         inflation = st.number_input("Inflation énergie de référence (%/an)", value=3.0, step=0.5) / 100.0
         years = st.number_input("Durée d'analyse (ans)", min_value=1, value=20, step=1)
     with col_c:
         works_cost = st.number_input("Coût travaux installation (€HT/m²)", min_value=0.0, value=1563.0, step=50.0)
         eta_appoint = st.number_input("Rendement appoint global", min_value=0.01, max_value=1.5, value=0.82, step=0.01)
         st.metric("Forfait ADEME appliqué", _eur(get_ademe_aid_eur_per_mwh_year(typologie), 0) + "/MWh.an")
+
+    fig_cost_reference = build_solar_thermal_cost_reference_plotly(go, selected_cost_eur_m2=float(works_cost))
+    if fig_cost_reference is not None:
+        st.plotly_chart(fig_cost_reference, width="stretch")
+        st.caption(SOLAR_THERMAL_COST_REFERENCE_NOTE)
 
     with st.expander("Hypothèses avancées", expanded=False):
         adv_a, adv_b, adv_c = st.columns(3)

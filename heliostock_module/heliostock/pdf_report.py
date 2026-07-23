@@ -672,6 +672,7 @@ class PdfReport:
         col_weights: list[float] | None = None,
         font_size: float = 7,
         row_height: float = 11,
+        show_header_rule: bool = True,
     ) -> float:
         if not rows:
             self.canvas.setFillColorRGB(*MUTED_COLOR)
@@ -693,8 +694,9 @@ class PdfReport:
             max_chars = max(8, int(col_widths[idx] / max(font_size * 0.55, 1)))
             self.canvas.drawString(col_x[idx], y, _safe_text(column)[:max_chars])
         y -= 12
-        self.canvas.setStrokeColorRGB(*GRID_COLOR)
-        self.canvas.line(x, y + 5, x + width, y + 5)
+        if show_header_rule:
+            self.canvas.setStrokeColorRGB(*GRID_COLOR)
+            self.canvas.line(x, y + 5, x + width, y + 5)
         self.canvas.setFont(PDF_FONT_REGULAR, font_size)
         for row in rows[:max_rows]:
             for idx, column in enumerate(columns):
@@ -790,6 +792,7 @@ class PdfReport:
         y_cols: list[tuple[str, str]],
         title: str,
         y_label: str = "",
+        x_label: str = "",
     ) -> None:
         data = list(rows)
         self.canvas.setFillColorRGB(*TEXT_COLOR)
@@ -822,7 +825,10 @@ class PdfReport:
             self.canvas.line(plot_x, gy, plot_x + plot_w, gy)
         self.canvas.setFont(PDF_FONT_REGULAR, 6.5)
         self.canvas.setFillColorRGB(*MUTED_COLOR)
-        self.canvas.drawString(plot_x, y + height - 5, _safe_text(y_label))
+        if y_label:
+            self.canvas.drawString(plot_x, y + height - 5, _safe_text(y_label))
+        if x_label:
+            self.canvas.drawCentredString(plot_x + plot_w / 2, y - 4, _safe_text(x_label))
         for col_idx, (col, label) in enumerate(y_cols):
             color = CHART_COLORS[col_idx % len(CHART_COLORS)]
             points: list[tuple[float, float]] = []
