@@ -1559,7 +1559,7 @@ def render_portal_sidebar() -> str:
         if selected_page == APP_HOME_LABEL or (selected_page == APP_ADMIN_LABEL and is_admin_authenticated()):
             app_name = selected_page
 
-        if app_name == APP_HELIOSTOCK_LABEL:
+        if False and app_name == APP_HELIOSTOCK_LABEL:
             current_view = st.session_state.get("heliostock_view", "solver")
             if current_view not in {"solver", "notice"}:
                 current_view = "solver"
@@ -1670,3 +1670,95 @@ def render_project_save_controls() -> None:
             st.success(f"Projet enregistré : {payload['name']}")
 
 
+def _save_heliostock_project(project_name: str) -> None:
+    payload = _project_payload(project_name)
+    path = HELIOSTOCK_PROJECT_STORE.save_project(
+        payload=payload,
+        owner_email=_current_user_email(),
+        project_name=str(payload["name"]),
+        project_id=str(payload.get("project_id", "")) or None,
+    )
+    demand_path, result_path = _project_artifact_paths(path)
+    legacy_demand_path, legacy_result_path = _legacy_project_sidecar_paths(path)
+    demand_bytes = st.session_state.get("heliostock_demand_file_bytes")
+    if demand_bytes:
+        demand_path.write_bytes(bytes(demand_bytes))
+        legacy_demand_path.unlink(missing_ok=True)
+    else:
+        demand_path.unlink(missing_ok=True)
+        legacy_demand_path.unlink(missing_ok=True)
+    _upsert_project_backup(
+        path=path,
+        payload=payload,
+        demand_bytes=bytes(demand_bytes) if demand_bytes else None,
+    )
+    cached_result = st.session_state.get("heliostock_last_result")
+    if cached_result is not None:
+        _save_local_result_json(result_path, cached_result)
+        legacy_result_path.unlink(missing_ok=True)
+    else:
+        result_path.unlink(missing_ok=True)
+        legacy_result_path.unlink(missing_ok=True)
+    st.session_state["heliostock_current_project_name"] = str(payload["name"])
+    st.session_state["heliostock_current_project_id"] = str(payload["project_id"])
+    st.success(f"Projet enregistré : {payload['name']}")
+
+
+def _delete_heliostock_project(path: Path) -> None:
+    demand_path, result_path = _project_artifact_paths(path)
+    legacy_demand_path, legacy_result_path = _legacy_project_sidecar_paths(path)
+    demand_path.unlink(missing_ok=True)
+    result_path.unlink(missing_ok=True)
+    legacy_demand_path.unlink(missing_ok=True)
+    legacy_result_path.unlink(missing_ok=True)
+    _delete_project_backup(path)
+    path.unlink(missing_ok=True)
+    st.session_state.pop("heliostock_current_project_name", None)
+    st.session_state.pop("heliostock_current_project_id", None)
+
+
+def render_heliostock_project_controls() -> None:
+    """Render HelioStock project load/save/delete controls in the main page."""
+
+    if "heliostock_project_notice" in st.session_state:
+        st.success(st.session_state.pop("heliostock_project_notice"))
+
+    project_files = _project_files()
+    labels = _unique_project_labels(project_files) if project_files else []
+    default_name = str(st.session_state.get("heliostock_current_project_name", "") or "")
+
+    with st.container(border=True):
+        select_col, load_col, new_col, delete_col, name_col, save_col = st.columns([4, 1, 1, 1, 3, 1])
+        selected_label = select_col.selectbox(
+            "Projet enregistré",
+            options=["-"] + labels,
+            index=0,
+            key="portal_project_to_load",
+        )
+        selected_path = None
+        if selected_label != "-" and selected_label in labels:
+            selected_path = project_files[labels.index(selected_label)]
+
+        if load_col.button("Charger", width="stretch", disabled=selected_path is None):
+            _load_project(selected_path)
+            st.session_state["heliostock_project_notice"] = "Projet chargé."
+            st.rerun()
+
+        if new_col.button("Nouveau", width="stretch"):
+            _clear_project_session_state()
+            st.session_state.pop("heliostock_last_result", None)
+            st.session_state["heliostock_project_notice"] = "Nouveau projet prêt."
+            st.rerun()
+
+        if delete_col.button("Supprimer", width="stretch", disabled=selected_path is None):
+            _delete_heliostock_project(selected_path)
+            st.session_state["heliostock_project_notice"] = "Projet supprimé."
+            st.rerun()
+
+        project_name = name_col.text_input(
+            "Nom du projet",
+            value=default_name,
+            key="portal_project_name",
+        )
+        if save_col.button("Enregistrer", type="primary", width="stretch"):
+            _save_heliostock_project(project_name)

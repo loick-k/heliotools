@@ -143,14 +143,15 @@ def render_socol_schematheque_app() -> None:
 
     header_left, header_right = st.columns([5, 1.2], vertical_alignment="center")
     with header_left:
-        st.markdown('<div class="socol-kicker">Outil de sélection hydraulique</div>', unsafe_allow_html=True)
         st.markdown('<div class="socol-title">Schémathèque SOCOL solaire thermique</div>', unsafe_allow_html=True)
         st.markdown(
             '<div class="socol-subtitle">Sélectionnez les caractéristiques de l’installation : le schéma est recomposé automatiquement à partir des briques du classeur SOCOL.</div>',
             unsafe_allow_html=True,
         )
     with header_right:
-        logo = ROOT / "assets" / "socol_logo.png"
+        logo = ROOT / "assets" / "socol_logo.jpg"
+        if not logo.exists():
+            logo = ROOT / "assets" / "socol_logo.png"
         if logo.exists():
             st.image(str(logo), width="stretch")
 
@@ -198,29 +199,8 @@ def render_socol_schematheque_app() -> None:
     png_bytes = image_to_png_bytes(diagram)
     payload = configuration_payload(result, catalog)
 
-    status_class = "socol-pill-ok" if result.valid else "socol-pill-ko"
-    status_text = "Configuration référencée" if result.valid else "Configuration non référencée"
-    st.markdown(f'<div class="{status_class}">{status_text}</div>', unsafe_allow_html=True)
-
-    cards = st.columns(3)
-    for column, label, component in zip(
-        cards,
-        ("Production", "Stockage", "Distribution"),
-        (result.production, result.storage, result.distribution),
-    ):
-        with column:
-            state = "OK" if component.valid else "À vérifier"
-            st.markdown(
-                f"""
-                <div class="socol-card">
-                  <div class="socol-label">{state} - {label}</div>
-                  <div class="socol-code">{component.requested_code}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
     if not result.valid:
+        st.markdown('<div class="socol-pill-ko">Configuration non référencée</div>', unsafe_allow_html=True)
         invalid_parts = [
             label
             for label, component in (

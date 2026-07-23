@@ -21,7 +21,7 @@ from .ui_forms import (
     render_solar_form,
     render_weather_form,
 )
-from .ui_portal import HELIOSTOCK_NOTICE, render_project_save_controls
+from .ui_portal import HELIOSTOCK_NOTICE, render_heliostock_project_controls
 from .ui_project import render_heliostock_project_form
 
 
@@ -136,6 +136,8 @@ def render_heliostock_hourly() -> pd.DataFrame:
         "de sondes avec pygfunction, puis propose une comparaison technico-économique des différents scénarios."
     )
     render_heliostock_view_switch()
+    if st.session_state.get("heliostock_view", "solver") == "solver":
+        render_heliostock_project_controls()
 
     st.session_state["heliostock_input_tabs_enabled"] = True
     input_tabs = st.tabs(
@@ -200,7 +202,6 @@ def render_heliostock_hourly() -> pd.DataFrame:
         solar=solar_parametric_form,
     )
     with input_tabs[10]:
-        render_project_save_controls()
         current_snapshot, current_snapshot_hash = _snapshot_from_forms(
             project_form=project_form,
             weather_form=weather_form,
