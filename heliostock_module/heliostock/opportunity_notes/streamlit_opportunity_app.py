@@ -2046,7 +2046,7 @@ def render_opportunity_notes_app() -> None:
             ),
         )
     
-        inputs_col, reference_col = st.columns([2, 1])
+        inputs_col, reference_col = st.columns(2)
         with inputs_col:
             col_a, col_b, col_c = st.columns(3)
             with col_a:
