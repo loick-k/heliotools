@@ -110,6 +110,17 @@ def _polygon_area_m2(coords_lon_lat: list[list[float]]) -> float:
     return abs(area) / 2.0
 
 
+def _polygon_centroid_lat_lon(coords_lon_lat: list[list[float]]) -> tuple[float, float] | None:
+    if len(coords_lon_lat) < 3:
+        return None
+    coords = coords_lon_lat[:-1] if coords_lon_lat[0] == coords_lon_lat[-1] else coords_lon_lat
+    if not coords:
+        return None
+    lon = sum(float(coord[0]) for coord in coords) / len(coords)
+    lat = sum(float(coord[1]) for coord in coords) / len(coords)
+    return lat, lon
+
+
 def _bearing_deg_from_north(point_a: list[float], point_b: list[float]) -> float:
     lon1 = math.radians(float(point_a[0]))
     lat1 = math.radians(float(point_a[1]))
@@ -270,6 +281,26 @@ def _measurement_map(
             name="Mesures sauvegardées",
             style_function=lambda _feature: {"color": "#22B2A6", "weight": 3, "fillOpacity": 0.18},
         ).add_to(map_object)
+        for feature in drawings:
+            geometry_type = (feature.get("geometry") or {}).get("type")
+            if geometry_type not in {"Polygon", "Rectangle"}:
+                continue
+            coords = _feature_coordinates(feature)
+            area_m2 = _polygon_area_m2(coords)
+            centroid = _polygon_centroid_lat_lon(coords)
+            if centroid is None or area_m2 <= 0:
+                continue
+            folium.Marker(
+                centroid,
+                icon=folium.DivIcon(
+                    html=(
+                        "<div style='background:#ffffff; border:1px solid #22B2A6; border-radius:4px; "
+                        "padding:2px 6px; font-size:12px; font-weight:600; color:#0f172a; "
+                        "box-shadow:0 1px 4px rgba(15,23,42,0.25); white-space:nowrap;'>"
+                        f"{area_m2:.1f} m²</div>"
+                    )
+                ),
+            ).add_to(map_object)
     Draw(
         export=False,
         position="topleft",
@@ -330,6 +361,10 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         drawings = []
         st.session_state[drawings_key] = drawings
 
+    metrics = st.session_state.get(metrics_key)
+    if isinstance(metrics, dict) and isinstance(metrics.get("surface_m2"), (float, int)) and metrics["surface_m2"] > 0:
+        st.success(f"Surface dessinée : {metrics['surface_m2']:.1f} m²")
+
     map_state = st_folium(
         _measurement_map(latitude=latitude, longitude=longitude, address=address, drawings=drawings),
         height=560,
@@ -342,6 +377,7 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         drawings = new_drawings
         st.session_state[drawings_key] = drawings
         st.session_state[metrics_key] = compute_surface_orientation_metrics(drawings)
+        st.rerun()
 
     if st.button("Effacer les mesures", key=_key(state_prefix, "clear"), width="content"):
         st.session_state[drawings_key] = []
