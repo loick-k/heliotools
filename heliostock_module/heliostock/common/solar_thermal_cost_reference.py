@@ -180,9 +180,9 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
     )
 
     markers = [
-        (mean - sigma, f"μ - σ<br>{mean - sigma:.0f} €HT/m²", "#7bc96f", "dash"),
-        (mean, f"μ<br>{mean:.0f} €HT/m²", "#087a1e", "dash"),
-        (mean + sigma, f"μ + σ<br>{mean + sigma:.0f} €HT/m²", "#7bc96f", "dash"),
+        (mean - sigma, f"μ - σ<br>{mean - sigma:.0f}", "#7bc96f", "dash"),
+        (mean, f"μ<br>{mean:.0f}", "#087a1e", "dash"),
+        (mean + sigma, f"μ + σ<br>{mean + sigma:.0f}", "#7bc96f", "dash"),
     ]
     for value, label, color, dash in markers:
         fig.add_vline(x=value, line_color=color, line_dash=dash, line_width=2)
@@ -194,7 +194,7 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
             bgcolor="rgba(246, 252, 246, 0.96)",
             bordercolor=color,
             borderwidth=1,
-            font={"color": "#166534", "size": 12},
+            font={"color": "#166534", "size": 10},
         )
 
     if selected_cost_eur_m2 is not None and selected_cost_eur_m2 > 0:
@@ -207,34 +207,10 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
             annotation_position="bottom right",
         )
 
-    stats_text = (
-        f"<b>Statistiques (N = {SOLAR_THERMAL_COST_REFERENCE_N})</b><br>"
-        f"Moyenne : {mean:.0f} €HT/m²<br>"
-        f"Écart-type : {sigma:.0f} €HT/m²<br>"
-        f"Médiane : {SOLAR_THERMAL_COST_REFERENCE_MEDIAN_EUR_M2:.0f} €HT/m²<br>"
-        f"Min : {SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2:.0f} €HT/m²<br>"
-        f"Max : {SOLAR_THERMAL_COST_REFERENCE_MAX_EUR_M2:.0f} €HT/m²<br>"
-        f"Q1 : {SOLAR_THERMAL_COST_REFERENCE_Q1_EUR_M2:.0f} €HT/m²<br>"
-        f"Q3 : {SOLAR_THERMAL_COST_REFERENCE_Q3_EUR_M2:.0f} €HT/m²"
-    )
-    fig.add_annotation(
-        x=0.78,
-        y=0.73,
-        xref="paper",
-        yref="paper",
-        text=stats_text,
-        align="left",
-        showarrow=False,
-        bgcolor="rgba(255, 255, 255, 0.92)",
-        bordercolor="#cbd5e1",
-        borderwidth=1,
-        font={"color": "#1f2937", "size": 12},
-    )
-
     fig.update_layout(
-        title=f"Coûts des travaux de nouvelles installations solaires thermiques en €HT/m² - {SOLAR_THERMAL_COST_REFERENCE_DATE}",
-        height=390,
-        margin={"l": 20, "r": 20, "t": 70, "b": 55},
+        title=f"Coûts des travaux de nouvelles installations solaires thermiques - {SOLAR_THERMAL_COST_REFERENCE_DATE}",
+        height=530,
+        margin={"l": 24, "r": 20, "t": 76, "b": 64},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
         hovermode="x unified",
         bargap=0.08,
@@ -243,7 +219,6 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
         title="Coût travaux (€HT/m² capteurs)",
         range=[380, 3650],
         dtick=500,
-        ticksuffix=" €HT/m²",
         showgrid=True,
         gridcolor="#e5e7eb",
     )
