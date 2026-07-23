@@ -163,9 +163,9 @@ def _draw_heat_cost_comparison_chart(
     canvas.drawString(x, y + height + 14, "Coût de chaleur : référence vs solaire thermique")
 
     plot_x = x + 42
-    plot_y = y + 18
+    plot_y = y + 30
     plot_w = width - 74
-    plot_h = height - 44
+    plot_h = height - 58
     canvas.setStrokeColorRGB(*GRID_COLOR)
     canvas.setFillColorRGB(*MUTED_COLOR)
     canvas.setFont(PDF_FONT_REGULAR, 6.5)
@@ -203,14 +203,15 @@ def _draw_heat_cost_comparison_chart(
     canvas.drawCentredString(solar_x + bar_w / 2, plot_y - 10, "Solaire")
     canvas.drawCentredString(ref_x + bar_w / 2, plot_y - 10, "Référence")
 
-    legend_x = plot_x + plot_w - 98
-    legend_y = y + height - 12
+    legend_x = plot_x
+    legend_y = y + 10
     for idx, (label, _value, color) in enumerate(segments):
-        ly = legend_y - idx * 11
+        lx = legend_x + idx * 92
+        ly = legend_y
         canvas.setFillColorRGB(*color)
-        canvas.rect(legend_x, ly - 5, 7, 7, fill=1, stroke=0)
+        canvas.rect(lx, ly - 5, 7, 7, fill=1, stroke=0)
         canvas.setFillColorRGB(*MUTED_COLOR)
-        canvas.drawString(legend_x + 10, ly - 5, label[:24])
+        canvas.drawString(lx + 10, ly - 5, label[:20])
 
 
 def _architectural_count_rows(architectural_constraints: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -505,6 +506,7 @@ def build_opportunity_note_pdf(
         title="Besoin ECS mensuel",
         y_label="MWh/mois",
         x_label="Mois",
+        color=CHART_COLORS[0],
     )
     report.bar_chart(
         _annual_balance_rows(opportunity_results),
@@ -561,11 +563,14 @@ def build_opportunity_note_pdf(
     )
     y -= 4
     report.section_title("Flux et coûts de chaleur", x=margin, y=y)
+    chart_gap = 34
+    chart_w = (content_width - chart_gap) / 2
+    heat_chart_x = margin + chart_w + chart_gap
     report.line_chart(
         _cashflow_chart_rows(economic_inputs, economic_results),
         x=margin,
         y=84,
-        width=half_w,
+        width=chart_w,
         height=175,
         x_col="Année",
         y_cols=[("Flux moyen", "Flux moyen"), ("Flux inflation", "Flux avec inflation")],
@@ -576,9 +581,9 @@ def build_opportunity_note_pdf(
     _draw_heat_cost_comparison_chart(
         report,
         economic_results,
-        x=right_x,
+        x=heat_chart_x,
         y=84,
-        width=half_w,
+        width=chart_w,
         height=175,
     )
     report.draw_footer()

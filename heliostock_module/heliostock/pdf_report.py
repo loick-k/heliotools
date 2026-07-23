@@ -722,6 +722,7 @@ class PdfReport:
         title: str,
         y_label: str = "",
         x_label: str = "",
+        color: tuple[float, float, float] | None = None,
     ) -> None:
         chart = [row for row in rows if _numeric(row.get(value_col)) > 0]
         self.canvas.setFillColorRGB(*TEXT_COLOR)
@@ -746,8 +747,8 @@ class PdfReport:
             value = _numeric(row.get(value_col))
             bx = plot_x + idx * plot_w / len(chart) + (plot_w / len(chart) - bar_w) / 2
             bh = value / max_value * plot_h
-            color = CHART_COLORS[idx % len(CHART_COLORS)]
-            self.canvas.setFillColorRGB(*color)
+            bar_color = color or CHART_COLORS[idx % len(CHART_COLORS)]
+            self.canvas.setFillColorRGB(*bar_color)
             self.canvas.rect(bx, y, bar_w, bh, fill=1, stroke=0)
             self.canvas.setFillColorRGB(*MUTED_COLOR)
             self.canvas.drawCentredString(bx + bar_w / 2, y + bh + 4, _fmt_number(value, 1))
