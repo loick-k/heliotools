@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -480,6 +481,7 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     metrics_key = _key(state_prefix, "metrics")
     center_key = _key(state_prefix, "map_center")
     zoom_key = _key(state_prefix, "map_zoom")
+    signature_key = _key(state_prefix, "drawings_signature")
     drawings = st.session_state.get(drawings_key)
     if not isinstance(drawings, list):
         drawings = []
@@ -515,12 +517,19 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         measured_center = _drawings_center_lat_lon(drawings)
         if measured_center is not None:
             st.session_state[center_key] = measured_center
+        drawings_signature = json.dumps(drawings, sort_keys=True, ensure_ascii=False)
+        if st.session_state.get(signature_key) != drawings_signature:
+            st.session_state[signature_key] = drawings_signature
+            st.session_state["helionop_default_tab"] = "2. Orientation / surface"
+            st.rerun()
 
     if st.button("Effacer les mesures", key=_key(state_prefix, "clear"), width="content"):
         st.session_state[drawings_key] = []
         st.session_state[metrics_key] = {}
         st.session_state.pop(center_key, None)
         st.session_state.pop(zoom_key, None)
+        st.session_state.pop(signature_key, None)
+        st.session_state["helionop_default_tab"] = "2. Orientation / surface"
         st.rerun()
 
     metrics = st.session_state.get(metrics_key)

@@ -1043,19 +1043,27 @@ def render_opportunity_notes_app() -> None:
     # ---------------------------------------------------------------------------
     # Onglets de saisie et résultats.
     # ---------------------------------------------------------------------------
-    tab_site, tab_surface, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(
-        [
-            "1. Projet",
-            "2. Orientation / surface",
-            "3. Eau froide",
-            "4. Besoins ECS",
-            "5. Bouclage sanitaire",
-            "6. Prédimensionnement",
-            "7. Contraintes architecturales",
-            "8. Économie",
-            "9. Synthèse / export",
-        ]
-    )
+    tab_labels = [
+        "1. Projet",
+        "2. Orientation / surface",
+        "3. Eau froide",
+        "4. Besoins ECS",
+        "5. Bouclage sanitaire",
+        "6. Prédimensionnement",
+        "7. Contraintes architecturales",
+        "8. Économie",
+        "9. Synthèse / export",
+    ]
+    default_tab = st.session_state.get("helionop_default_tab")
+    if default_tab not in tab_labels:
+        default_tab = tab_labels[0]
+    try:
+        tab_site, tab_surface, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(
+            tab_labels,
+            default=default_tab,
+        )
+    except TypeError:
+        tab_site, tab_surface, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(tab_labels)
 
     housing_counts = dict(needs_default.housing_counts)
     housing_ratios = dict(needs_default.housing_ratios_l_day)
