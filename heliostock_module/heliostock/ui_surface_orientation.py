@@ -222,13 +222,21 @@ def _measurement_map(
     address: str,
     drawings: list[dict[str, Any]],
 ) -> folium.Map:
-    map_object = folium.Map(location=[latitude, longitude], zoom_start=19, tiles=None, control_scale=True)
+    map_object = folium.Map(
+        location=[latitude, longitude],
+        zoom_start=20,
+        max_zoom=22,
+        tiles=None,
+        control_scale=True,
+    )
     folium.TileLayer(
         tiles=GEOPORTAIL_ORTHO_WMTS,
         attr="Géoplateforme / IGN",
         name="Géoportail - orthophotos",
         overlay=False,
         control=True,
+        max_zoom=22,
+        max_native_zoom=20,
     ).add_to(map_object)
     folium.TileLayer(
         tiles=GEOPORTAIL_PLAN_WMTS,
@@ -236,8 +244,17 @@ def _measurement_map(
         name="Géoportail - plan IGN",
         overlay=False,
         control=True,
+        max_zoom=22,
+        max_native_zoom=20,
     ).add_to(map_object)
-    folium.TileLayer("OpenStreetMap", name="OpenStreetMap", overlay=False, control=True).add_to(map_object)
+    folium.TileLayer(
+        "OpenStreetMap",
+        name="OpenStreetMap",
+        overlay=False,
+        control=True,
+        max_zoom=22,
+        max_native_zoom=19,
+    ).add_to(map_object)
     folium.Marker(
         [latitude, longitude],
         tooltip=address or "Projet",
