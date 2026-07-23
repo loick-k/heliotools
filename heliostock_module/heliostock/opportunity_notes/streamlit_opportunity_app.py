@@ -78,6 +78,7 @@ from ..epw_reader import read_epw_hourly_weather_from_zip
 from ..geocoding_service import GeocodingServiceError, search_addresses
 from ..ui_architectural_constraints import PROJECT_TYPES, render_architectural_constraints_test
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
+from ..socol_schematheque import render_socol_schematheque_app
 from ..ui_surface_orientation import (
     current_surface_orientation_payload,
     render_surface_orientation_measurement,
@@ -1060,20 +1061,43 @@ def render_opportunity_notes_app() -> None:
         "4. Besoins ECS",
         "5. Bouclage sanitaire",
         "6. Prédimensionnement",
-        "7. Contraintes architecturales",
-        "8. Économie",
-        "9. Synthèse / export",
+        "7. Schémathèque SOCOL",
+        "8. Contraintes architecturales",
+        "9. Économie",
+        "10. Synthèse / export",
     ]
     default_tab = st.session_state.get("helionop_default_tab")
     if default_tab not in tab_labels:
         default_tab = tab_labels[0]
     try:
-        tab_site, tab_surface, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(
+        (
+            tab_site,
+            tab_surface,
+            tab_energy,
+            tab_needs,
+            tab_loop,
+            tab_sizing,
+            tab_socol,
+            tab_architecture,
+            tab_economics,
+            tab_export,
+        ) = st.tabs(
             tab_labels,
             default=default_tab,
         )
     except TypeError:
-        tab_site, tab_surface, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(tab_labels)
+        (
+            tab_site,
+            tab_surface,
+            tab_energy,
+            tab_needs,
+            tab_loop,
+            tab_sizing,
+            tab_socol,
+            tab_architecture,
+            tab_economics,
+            tab_export,
+        ) = st.tabs(tab_labels)
 
     housing_counts = dict(needs_default.housing_counts)
     housing_ratios = dict(needs_default.housing_ratios_l_day)
@@ -2103,6 +2127,9 @@ def render_opportunity_notes_app() -> None:
             percent(solar_coverage_ratio),
             f"sur {number(opportunity_results.annual_total_ecs_energy_mwh, 1)} MWh/an ECS + bouclage",
         )
+
+    with tab_socol:
+        render_socol_schematheque_app()
 
     with tab_architecture:
         render_architectural_constraints_test(state_prefix="helionop", show_address_inputs=False, show_map=True)
