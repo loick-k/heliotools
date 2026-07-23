@@ -86,3 +86,17 @@ elif selected_app == ui_portal.APP_HELIOECO_LABEL:
     except Exception:
         _show_startup_error("HelioEco a rencontré une erreur.")
 
+elif selected_app == ui_portal.APP_SOCOL_LABEL:
+    try:
+        from heliostock.socol_schematheque import render_socol_schematheque_app
+
+        render_socol_schematheque_app()
+    except ModuleNotFoundError as exc:
+        st.error(
+            "La schémathèque SOCOL nécessite des dépendances optionnelles. "
+            "Vérifie que `Pillow` est installé, puis relance l'application."
+        )
+        st.caption(str(exc))
+    except Exception:
+        _show_startup_error("La schémathèque SOCOL a rencontré une erreur.")
+

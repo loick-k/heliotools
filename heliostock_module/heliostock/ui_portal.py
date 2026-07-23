@@ -56,7 +56,14 @@ APP_ADMIN_LABEL = "Administration HelioTools"
 APP_DASHBOARD_LABEL = "Dashboard solaire thermique"
 APP_OPPORTUNITY_LABEL = "HelioNOP"
 APP_HELIOECO_LABEL = "HelioEco"
-APP_ACCESS_LABELS = (APP_HELIOSTOCK_LABEL, APP_DASHBOARD_LABEL, APP_OPPORTUNITY_LABEL, APP_HELIOECO_LABEL)
+APP_SOCOL_LABEL = "Schémathèque SOCOL"
+APP_ACCESS_LABELS = (
+    APP_HELIOSTOCK_LABEL,
+    APP_DASHBOARD_LABEL,
+    APP_OPPORTUNITY_LABEL,
+    APP_HELIOECO_LABEL,
+    APP_SOCOL_LABEL,
+)
 PORTAL_PAGE_LABELS = (APP_HOME_LABEL, APP_ADMIN_LABEL)
 
 
@@ -1393,6 +1400,11 @@ def render_heliotools_home_page() -> None:
             APP_HELIOECO_LABEL,
             "Simulation économique solaire thermique centrée sur P1', P2, P4, aides et temps de retour.",
             "Ouvrir HelioEco",
+        ),
+        (
+            APP_SOCOL_LABEL,
+            "Schémathèque dynamique de principes hydrauliques solaires thermiques SOCOL.",
+            "Ouvrir la schémathèque",
         ),
     ]
     cards = [card for card in cards + optional_cards if card[0] in allowed_apps]
