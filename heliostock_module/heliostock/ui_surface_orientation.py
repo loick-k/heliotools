@@ -235,8 +235,9 @@ def _measurement_map(
         name="Géoportail - orthophotos",
         overlay=False,
         control=True,
+        show=True,
         max_zoom=22,
-        max_native_zoom=20,
+        max_native_zoom=19,
     ).add_to(map_object)
     folium.TileLayer(
         tiles=GEOPORTAIL_PLAN_WMTS,
@@ -244,14 +245,16 @@ def _measurement_map(
         name="Géoportail - plan IGN",
         overlay=False,
         control=True,
+        show=False,
         max_zoom=22,
-        max_native_zoom=20,
+        max_native_zoom=19,
     ).add_to(map_object)
     folium.TileLayer(
         "OpenStreetMap",
         name="OpenStreetMap",
         overlay=False,
         control=True,
+        show=False,
         max_zoom=22,
         max_native_zoom=19,
     ).add_to(map_object)
@@ -314,7 +317,7 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     st.subheader("Mesure de surface et d'orientation")
     st.caption(
         "Trace un polygone ou un rectangle pour mesurer une surface, puis trace une ligne dans le sens de l'orientation "
-        "de la toiture ou de la zone au sol. L'écart est exprimé par rapport au sud : 0° = sud, -90° = est, +90° = ouest."
+        "de la toiture ou de la zone au sol. L'orientation est exprimée par rapport au sud : 0° = sud, -90° = est, +90° = ouest."
     )
     if folium is None or Draw is None or st_folium is None:
         st.error("Le module de cartographie folium / streamlit-folium n'est pas disponible dans cet environnement.")
@@ -359,8 +362,9 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Surface mesurée", f"{surface_m2:.1f} m²" if isinstance(surface_m2, (float, int)) and surface_m2 > 0 else "n.d.")
     col2.metric("Orientation", label)
-    col3.metric("Écart au sud", f"{delta_south:+.0f}°" if isinstance(delta_south, (float, int)) else "n.d.")
+    col3.metric("Orientation / sud", f"{delta_south:+.0f}°" if isinstance(delta_south, (float, int)) else "n.d.")
     col4.metric("Azimut depuis le nord", f"{bearing:.0f}°" if isinstance(bearing, (float, int)) else "n.d.")
+    st.caption("Convention orientation / sud : 0° = plein sud, valeur négative = vers l'est, valeur positive = vers l'ouest.")
 
     if not drawings:
         st.info("Dessine au moins un polygone pour obtenir une surface. Ajoute une ligne pour définir clairement l'orientation.")
