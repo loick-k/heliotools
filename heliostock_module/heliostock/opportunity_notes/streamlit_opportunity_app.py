@@ -2119,7 +2119,6 @@ def render_opportunity_notes_app() -> None:
         with reference_col:
             fig_cost_reference = build_solar_thermal_cost_reference_plotly(go, selected_cost_eur_m2=float(works_cost))
             if fig_cost_reference is not None:
-                fig_cost_reference.update_layout(height=280, margin=dict(l=12, r=12, t=46, b=38))
                 st.plotly_chart(fig_cost_reference, width="stretch")
                 st.caption(SOLAR_THERMAL_COST_REFERENCE_NOTE)
     

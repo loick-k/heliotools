@@ -1,18 +1,126 @@
 from __future__ import annotations
 
 import math
+import statistics
 from typing import Any
 
 
 SOLAR_THERMAL_COST_REFERENCE_DATE = "13/01/2026"
-SOLAR_THERMAL_COST_REFERENCE_N = 89
-SOLAR_THERMAL_COST_REFERENCE_MEAN_EUR_M2 = 1471.0
-SOLAR_THERMAL_COST_REFERENCE_SIGMA_EUR_M2 = 524.0
-SOLAR_THERMAL_COST_REFERENCE_MEDIAN_EUR_M2 = 1404.0
-SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2 = 546.0
-SOLAR_THERMAL_COST_REFERENCE_MAX_EUR_M2 = 3513.0
-SOLAR_THERMAL_COST_REFERENCE_Q1_EUR_M2 = 1119.0
-SOLAR_THERMAL_COST_REFERENCE_Q3_EUR_M2 = 1717.0
+SOLAR_THERMAL_COSTS_EUR_M2 = (
+    2373.0,
+    1512.0,
+    1262.0,
+    1010.0,
+    1666.0,
+    2100.0,
+    1725.0,
+    1481.0,
+    1343.0,
+    1175.0,
+    1746.0,
+    1357.0,
+    1702.0,
+    1559.0,
+    1975.0,
+    1982.0,
+    1487.0,
+    1119.492337,
+    1372.217391,
+    3513.0,
+    1374.0,
+    1606.0,
+    1234.0,
+    1000.0,
+    1069.0,
+    2492.0,
+    3324.0,
+    1699.0,
+    1654.0,
+    1341.0,
+    1511.0,
+    1609.0,
+    1269.0,
+    1951.0,
+    1275.0,
+    2485.0,
+    1582.0,
+    1782.0,
+    1773.0,
+    1721.0,
+    1192.0,
+    1179.0,
+    546.0,
+    964.0,
+    1267.0,
+    1142.0,
+    900.0,
+    886.0,
+    1678.0,
+    979.0,
+    989.0,
+    750.0,
+    912.0,
+    1531.0,
+    1320.0,
+    1404.0,
+    2478.0,
+    2198.0,
+    1440.0,
+    1245.0,
+    1665.0,
+    1322.0,
+    2504.0,
+    2480.0,
+    1539.0,
+    1124.0,
+    1808.0,
+    2121.0,
+    1259.0,
+    735.0,
+    1021.0,
+    1472.0,
+    1581.0,
+    1980.0,
+    1895.0,
+    1266.0,
+    1683.0,
+    1206.0,
+    1791.0,
+    1535.0,
+    1516.0,
+    1717.0,
+    1245.0,
+    2467.0,
+    1636.0,
+    1647.0,
+    1475.0,
+    2004.0,
+    1129.0,
+)
+
+
+def _percentile(values: tuple[float, ...], percent: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (len(ordered) - 1) * percent / 100.0
+    lower = math.floor(rank)
+    upper = math.ceil(rank)
+    if lower == upper:
+        return ordered[int(rank)]
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (rank - lower)
+
+
+SOLAR_THERMAL_COST_REFERENCE_N = len(SOLAR_THERMAL_COSTS_EUR_M2)
+SOLAR_THERMAL_COST_REFERENCE_MEAN_EUR_M2 = statistics.fmean(SOLAR_THERMAL_COSTS_EUR_M2)
+SOLAR_THERMAL_COST_REFERENCE_SIGMA_EUR_M2 = statistics.pstdev(SOLAR_THERMAL_COSTS_EUR_M2)
+SOLAR_THERMAL_COST_REFERENCE_MEDIAN_EUR_M2 = statistics.median(SOLAR_THERMAL_COSTS_EUR_M2)
+SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2 = min(SOLAR_THERMAL_COSTS_EUR_M2)
+SOLAR_THERMAL_COST_REFERENCE_MAX_EUR_M2 = max(SOLAR_THERMAL_COSTS_EUR_M2)
+SOLAR_THERMAL_COST_REFERENCE_Q1_EUR_M2 = _percentile(SOLAR_THERMAL_COSTS_EUR_M2, 25.0)
+SOLAR_THERMAL_COST_REFERENCE_Q3_EUR_M2 = _percentile(SOLAR_THERMAL_COSTS_EUR_M2, 75.0)
 
 SOLAR_THERMAL_COST_REFERENCE_NOTE = (
     "Repère indicatif pour des installations solaires thermiques neuves : moyenne 1 471 €HT/m², "
@@ -34,23 +142,30 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
 
     mean = SOLAR_THERMAL_COST_REFERENCE_MEAN_EUR_M2
     sigma = SOLAR_THERMAL_COST_REFERENCE_SIGMA_EUR_M2
-    bin_centers = [500 + 150 * index for index in range(21)]
-    histogram_density = [_normal_density(center, mean, sigma) for center in bin_centers]
-    curve_x = [450 + 25 * index for index in range(129)]
+    costs = list(SOLAR_THERMAL_COSTS_EUR_M2)
+    curve_x = [
+        SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2 - 100.0
+        + index
+        * (
+            (SOLAR_THERMAL_COST_REFERENCE_MAX_EUR_M2 - SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2 + 200.0)
+            / 499.0
+        )
+        for index in range(500)
+    ]
     curve_y = [_normal_density(x, mean, sigma) for x in curve_x]
 
     fig = go_module.Figure()
     fig.add_trace(
-        go_module.Bar(
-            x=bin_centers,
-            y=histogram_density,
-            width=120,
-            name="Histogramme indicatif des coûts",
+        go_module.Histogram(
+            x=costs,
+            nbinsx=15,
+            histnorm="probability density",
+            name="Histogramme des coûts (€/m²)",
             marker_color="#b7d7b5",
             marker_line_color="#386641",
             marker_line_width=1,
-            opacity=0.78,
-            hovertemplate="Coût : %{x:.0f} €HT/m²<br>Densité indicative : %{y:.5f}<extra></extra>",
+            opacity=0.62,
+            hovertemplate="Coût : %{x:.0f} €HT/m²<br>Densité : %{y:.5f}<extra></extra>",
         )
     )
     fig.add_trace(
@@ -65,9 +180,9 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
     )
 
     markers = [
-        (mean - sigma, "μ - σ<br>947 €HT/m²", "#7bc96f", "dash"),
-        (mean, "μ<br>1 471 €HT/m²", "#087a1e", "dash"),
-        (mean + sigma, "μ + σ<br>1 995 €HT/m²", "#7bc96f", "dash"),
+        (mean - sigma, f"μ - σ<br>{mean - sigma:.0f} €HT/m²", "#7bc96f", "dash"),
+        (mean, f"μ<br>{mean:.0f} €HT/m²", "#087a1e", "dash"),
+        (mean + sigma, f"μ + σ<br>{mean + sigma:.0f} €HT/m²", "#7bc96f", "dash"),
     ]
     for value, label, color, dash in markers:
         fig.add_vline(x=value, line_color=color, line_dash=dash, line_width=2)
@@ -118,10 +233,11 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
 
     fig.update_layout(
         title=f"Coûts des travaux de nouvelles installations solaires thermiques en €HT/m² - {SOLAR_THERMAL_COST_REFERENCE_DATE}",
-        height=430,
+        height=390,
         margin={"l": 20, "r": 20, "t": 70, "b": 55},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
         hovermode="x unified",
+        bargap=0.08,
     )
     fig.update_xaxes(
         title="Coût travaux (€HT/m² capteurs)",
