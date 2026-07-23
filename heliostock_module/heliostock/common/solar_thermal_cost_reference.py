@@ -143,29 +143,35 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
     mean = SOLAR_THERMAL_COST_REFERENCE_MEAN_EUR_M2
     sigma = SOLAR_THERMAL_COST_REFERENCE_SIGMA_EUR_M2
     costs = list(SOLAR_THERMAL_COSTS_EUR_M2)
+    bin_count = 15
+    x_min = SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2 - 100.0
+    x_max = SOLAR_THERMAL_COST_REFERENCE_MAX_EUR_M2 + 100.0
+    bin_width = (x_max - x_min) / bin_count
+    histogram_counts = [0 for _ in range(bin_count)]
+    for cost in costs:
+        index = min(bin_count - 1, max(0, int((cost - x_min) / bin_width)))
+        histogram_counts[index] += 1
     curve_x = [
-        SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2 - 100.0
-        + index
-        * (
-            (SOLAR_THERMAL_COST_REFERENCE_MAX_EUR_M2 - SOLAR_THERMAL_COST_REFERENCE_MIN_EUR_M2 + 200.0)
-            / 499.0
-        )
+        x_min + index * ((x_max - x_min) / 499.0)
         for index in range(500)
     ]
-    curve_y = [_normal_density(x, mean, sigma) for x in curve_x]
+    curve_y = [
+        _normal_density(x, mean, sigma) * SOLAR_THERMAL_COST_REFERENCE_N * bin_width
+        for x in curve_x
+    ]
+    y_max = max(max(histogram_counts), max(curve_y), 1.0)
 
     fig = go_module.Figure()
     fig.add_trace(
         go_module.Histogram(
             x=costs,
-            nbinsx=15,
-            histnorm="probability density",
-            name="Histogramme des coûts (€/m²)",
+            xbins={"start": x_min, "end": x_max, "size": bin_width},
+            name="Nombre de devis",
             marker_color="#b7d7b5",
             marker_line_color="#386641",
             marker_line_width=1,
             opacity=0.62,
-            hovertemplate="Coût : %{x:.0f} €HT/m²<br>Densité : %{y:.5f}<extra></extra>",
+            hovertemplate="Coût : %{x:.0f} €HT/m²<br>Nombre de devis : %{y}<extra></extra>",
         )
     )
     fig.add_trace(
@@ -173,45 +179,59 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
             x=curve_x,
             y=curve_y,
             mode="lines",
-            name=f"Courbe de Gauss (N = {SOLAR_THERMAL_COST_REFERENCE_N})",
+            name="Tendance statistique",
             line={"color": "#087a1e", "width": 3},
-            hovertemplate="Coût : %{x:.0f} €HT/m²<br>Densité : %{y:.5f}<extra></extra>",
+            hovertemplate="Coût : %{x:.0f} €HT/m²<br>Nombre estimé : %{y:.1f}<extra></extra>",
         )
     )
 
-    markers = [
-        (mean - sigma, f"μ - σ<br>{mean - sigma:.0f}", "#7bc96f", "dash"),
-        (mean, f"μ<br>{mean:.0f}", "#087a1e", "dash"),
-        (mean + sigma, f"μ + σ<br>{mean + sigma:.0f}", "#7bc96f", "dash"),
-    ]
-    for value, label, color, dash in markers:
-        fig.add_vline(x=value, line_color=color, line_dash=dash, line_width=2)
-        fig.add_annotation(
-            x=value,
-            y=max(curve_y) * 1.16,
-            text=label,
-            showarrow=False,
-            bgcolor="rgba(246, 252, 246, 0.96)",
-            bordercolor=color,
-            borderwidth=1,
-            font={"color": "#166534", "size": 10},
-        )
+    for value, color, dash, line_width in [
+        (mean - sigma, "#7bc96f", "dash", 1),
+        (mean, "#087a1e", "dash", 2),
+        (mean + sigma, "#7bc96f", "dash", 1),
+    ]:
+        fig.add_vline(x=value, line_color=color, line_dash=dash, line_width=line_width)
+    fig.add_annotation(
+        x=mean,
+        y=y_max * 1.05,
+        text=f"Moyenne : {mean:.0f} €HT/m²",
+        showarrow=False,
+        bgcolor="rgba(246, 252, 246, 0.96)",
+        bordercolor="#087a1e",
+        borderwidth=1,
+        font={"color": "#166534", "size": 11},
+    )
 
     if selected_cost_eur_m2 is not None and selected_cost_eur_m2 > 0:
+        selected_cost = float(selected_cost_eur_m2)
         fig.add_vline(
-            x=float(selected_cost_eur_m2),
+            x=selected_cost,
             line_color="#e9473d",
             line_dash="dot",
             line_width=3,
-            annotation_text=f"Valeur saisie : {float(selected_cost_eur_m2):.0f} €HT/m²",
-            annotation_position="bottom right",
+        )
+        fig.add_annotation(
+            x=selected_cost,
+            y=y_max * 0.88,
+            text=f"Valeur saisie : {selected_cost:.0f} €HT/m²",
+            showarrow=True,
+            arrowhead=2,
+            ax=36,
+            ay=-30,
+            bgcolor="rgba(255, 255, 255, 0.94)",
+            bordercolor="#e9473d",
+            borderwidth=1,
+            font={"color": "#991b1b", "size": 11},
         )
 
     fig.update_layout(
-        title=f"Coûts des travaux de nouvelles installations solaires thermiques - {SOLAR_THERMAL_COST_REFERENCE_DATE}",
+        title=(
+            "Référence coût travaux solaire thermique"
+            f"<br><sup>Échantillon N = {SOLAR_THERMAL_COST_REFERENCE_N} - {SOLAR_THERMAL_COST_REFERENCE_DATE}</sup>"
+        ),
         height=530,
-        margin={"l": 24, "r": 20, "t": 76, "b": 64},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+        margin={"l": 24, "r": 20, "t": 82, "b": 88},
+        legend={"orientation": "h", "yanchor": "top", "y": -0.18, "xanchor": "center", "x": 0.5},
         hovermode="x unified",
         bargap=0.08,
     )
@@ -222,5 +242,5 @@ def build_solar_thermal_cost_reference_plotly(go_module: Any, *, selected_cost_e
         showgrid=True,
         gridcolor="#e5e7eb",
     )
-    fig.update_yaxes(title="Densité", showgrid=True, gridcolor="#e5e7eb")
+    fig.update_yaxes(title="Nombre de devis", range=[0, y_max * 1.18], dtick=2, showgrid=True, gridcolor="#e5e7eb")
     return fig
