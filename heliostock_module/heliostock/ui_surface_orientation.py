@@ -54,20 +54,60 @@ def _project_location(prefix: str) -> tuple[str, float, float]:
     return address, latitude, longitude
 
 
+def _normalise_coordinate(coord: Any) -> list[float] | None:
+    if isinstance(coord, dict):
+        lat = coord.get("lat")
+        lon = coord.get("lng", coord.get("lon"))
+        if lat is None or lon is None:
+            return None
+        return [float(lon), float(lat)]
+    if isinstance(coord, (list, tuple)) and len(coord) >= 2:
+        lon = float(coord[0])
+        lat = float(coord[1])
+        # Some Leaflet callbacks may return [lat, lon]. In France, latitude is
+        # around 41-51 and longitude around -5/+10, so this is easy to detect.
+        if abs(lon) > 20.0 and abs(lat) <= 20.0:
+            lon, lat = lat, lon
+        return [lon, lat]
+    return None
+
+
+def _normalise_coordinates(value: Any) -> Any:
+    if isinstance(value, (list, tuple)) and value and all(not isinstance(item, (list, tuple, dict)) for item in value):
+        return _normalise_coordinate(value)
+    if isinstance(value, dict):
+        return _normalise_coordinate(value)
+    if isinstance(value, (list, tuple)):
+        normalised = [_normalise_coordinates(item) for item in value]
+        return [item for item in normalised if item is not None]
+    return None
+
+
 def _normalise_feature(feature: dict[str, Any]) -> dict[str, Any] | None:
-    geometry = feature.get("geometry") if isinstance(feature, dict) else None
+    if not isinstance(feature, dict):
+        return None
+    if feature.get("type") in {"LineString", "Polygon", "Rectangle"}:
+        geometry = feature
+    else:
+        geometry = feature.get("geometry") if isinstance(feature, dict) else None
     if not isinstance(geometry, dict):
         return None
     geometry_type = geometry.get("type")
     if geometry_type not in {"LineString", "Polygon", "Rectangle"}:
         return None
-    return {"type": "Feature", "properties": feature.get("properties") or {}, "geometry": geometry}
+    coordinates = _normalise_coordinates(geometry.get("coordinates") or geometry.get("latlngs") or [])
+    if not coordinates:
+        return None
+    normalised_geometry = {"type": "Polygon" if geometry_type == "Rectangle" else geometry_type, "coordinates": coordinates}
+    if normalised_geometry["type"] == "Polygon" and coordinates and coordinates and isinstance(coordinates[0][0], (float, int)):
+        normalised_geometry["coordinates"] = [coordinates]
+    return {"type": "Feature", "properties": feature.get("properties") or {}, "geometry": normalised_geometry}
 
 
 def _drawings_from_map_state(map_state: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not isinstance(map_state, dict):
         return []
-    raw_drawings = map_state.get("all_drawings") or []
+    raw_drawings = map_state.get("all_drawings") or map_state.get("drawings") or map_state.get("features") or []
     if not isinstance(raw_drawings, list):
         raw_drawings = []
     drawings = [_normalise_feature(feature) for feature in raw_drawings if isinstance(feature, dict)]
@@ -361,10 +401,6 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         drawings = []
         st.session_state[drawings_key] = drawings
 
-    metrics = st.session_state.get(metrics_key)
-    if isinstance(metrics, dict) and isinstance(metrics.get("surface_m2"), (float, int)) and metrics["surface_m2"] > 0:
-        st.success(f"Surface dessinée : {metrics['surface_m2']:.1f} m²")
-
     map_state = st_folium(
         _measurement_map(latitude=latitude, longitude=longitude, address=address, drawings=drawings),
         height=560,
@@ -372,12 +408,12 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         returned_objects=["all_drawings", "last_active_drawing"],
         key=_key(state_prefix, "map"),
     )
-    new_drawings = _drawings_from_map_state(map_state)
+    session_map_state = st.session_state.get(_key(state_prefix, "map"))
+    new_drawings = _drawings_from_map_state(map_state) or _drawings_from_map_state(session_map_state)
     if new_drawings != drawings:
         drawings = new_drawings
         st.session_state[drawings_key] = drawings
         st.session_state[metrics_key] = compute_surface_orientation_metrics(drawings)
-        st.rerun()
 
     if st.button("Effacer les mesures", key=_key(state_prefix, "clear"), width="content"):
         st.session_state[drawings_key] = []
@@ -394,6 +430,9 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     bearing = metrics.get("orientation_bearing_deg")
     label = str(metrics.get("orientation_label") or "non déterminée")
     source = str(metrics.get("orientation_source") or "non déterminée")
+
+    if isinstance(surface_m2, (float, int)) and surface_m2 > 0:
+        st.success(f"Surface dessinée : {surface_m2:.1f} m²")
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Surface mesurée", f"{surface_m2:.1f} m²" if isinstance(surface_m2, (float, int)) and surface_m2 > 0 else "n.d.")
