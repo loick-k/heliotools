@@ -78,6 +78,11 @@ from ..epw_reader import read_epw_hourly_weather_from_zip
 from ..geocoding_service import GeocodingServiceError, search_addresses
 from ..ui_architectural_constraints import PROJECT_TYPES, render_architectural_constraints_test
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
+from ..ui_surface_orientation import (
+    current_surface_orientation_payload,
+    render_surface_orientation_measurement,
+    restore_surface_orientation_state,
+)
 from .. import ui_portal
 
 APP_KEY = "helionop"
@@ -1033,20 +1038,22 @@ def render_opportunity_notes_app() -> None:
     project_ui_key = str(payload.get("project_id", "projet"))[:8]
     _initialise_helionop_project_location(site_default, str(payload.get("project_id", "projet")))
     _restore_helionop_architectural_state(payload, str(payload.get("project_id", "projet")))
+    restore_surface_orientation_state(payload, project_id=str(payload.get("project_id", "projet")), state_prefix="helionop")
     
     # ---------------------------------------------------------------------------
     # Onglets de saisie et résultats.
     # ---------------------------------------------------------------------------
-    tab_site, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(
+    tab_site, tab_surface, tab_energy, tab_needs, tab_loop, tab_sizing, tab_architecture, tab_economics, tab_export = st.tabs(
         [
             "1. Projet",
-            "2. Eau froide",
-            "3. Besoins ECS",
-            "4. Bouclage sanitaire",
-            "5. Prédimensionnement",
-            "6. Contraintes architecturales",
-            "7. Économie",
-            "8. Synthèse / export",
+            "2. Orientation / surface",
+            "3. Eau froide",
+            "4. Besoins ECS",
+            "5. Bouclage sanitaire",
+            "6. Prédimensionnement",
+            "7. Contraintes architecturales",
+            "8. Économie",
+            "9. Synthèse / export",
         ]
     )
 
@@ -1197,6 +1204,9 @@ def render_opportunity_notes_app() -> None:
         building_state=building_state,
         data_source=data_source,
     )
+
+    with tab_surface:
+        render_surface_orientation_measurement(state_prefix="helionop")
 
     # ---------------------------------------------------------------------------
     # Eau froide et paramètres de prédimensionnement.
@@ -2241,6 +2251,7 @@ def render_opportunity_notes_app() -> None:
         "loop": asdict(loop_inputs),
         "economic": economic_payload,
         "architectural_constraints": _current_helionop_architectural_payload(),
+        "surface_orientation": current_surface_orientation_payload("helionop"),
         "results": {"opportunity": opportunity_results.as_dict(), "economic": economic_results.as_dict()},
     }
     
