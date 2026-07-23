@@ -766,6 +766,65 @@ def propose_storage(average_daily_volume_l_60c: float, max_tank_count: int = 3) 
     )
 
 
+def propose_storage_for_collector_surface(
+    target_daily_volume_l_60c: float,
+    collector_surface_m2: float,
+    max_tank_count: int = 3,
+    target_storage_ratio_l_m2: float = DEFAULT_TARGET_STORAGE_RATIO_L_M2,
+) -> StorageProposal:
+    """Propose un stockage compatible avec une surface capteurs contrainte.
+
+    Quand l'emprise disponible plafonne la surface solaire, le volume de stockage
+    est recalé pour rester dans la plage standard 50 à 70 L/m².
+    """
+
+    surface = max(0.0, float(collector_surface_m2))
+    if surface <= 0:
+        return propose_storage(target_daily_volume_l_60c, max_tank_count)
+
+    min_volume_l = surface * MIN_STORAGE_RATIO_L_M2
+    max_volume_l = surface * MAX_STORAGE_RATIO_L_M2
+    target_ratio_volume_l = surface * max(
+        MIN_STORAGE_RATIO_L_M2,
+        min(MAX_STORAGE_RATIO_L_M2, float(target_storage_ratio_l_m2)),
+    )
+    target_daily_volume_l = max(0.0, float(target_daily_volume_l_60c))
+    target = min(target_daily_volume_l, target_ratio_volume_l) if target_daily_volume_l > 0 else target_ratio_volume_l
+
+    combos = _all_tank_combinations(max_tank_count)
+    if not combos:
+        raise ValueError("Aucune combinaison de stockage disponible.")
+
+    def is_homogeneous(combo: tuple[int, ...]) -> bool:
+        return len(set(combo)) == 1
+
+    valid_combos = [combo for combo in combos if min_volume_l <= sum(combo) <= max_volume_l]
+    candidate_pool = valid_combos or combos
+
+    def score(combo: tuple[int, ...]) -> tuple[int, float, float, int, int]:
+        total = sum(combo)
+        if total < min_volume_l:
+            bound_gap = min_volume_l - total
+        elif total > max_volume_l:
+            bound_gap = total - max_volume_l
+        else:
+            bound_gap = 0.0
+        return (0 if bound_gap == 0 else 1, bound_gap, abs(total - target), 0 if is_homogeneous(combo) else 1, len(combo))
+
+    best = min(candidate_pool, key=score)
+    total = sum(best)
+    diff = total - target_daily_volume_l
+    diff_percent = (diff / target_daily_volume_l) if target_daily_volume_l > 0 else None
+    return StorageProposal(
+        total_volume_l=total,
+        tank_sizes_l=best,
+        tank_count=len(best),
+        target_daily_volume_l=target_daily_volume_l,
+        difference_l=diff,
+        difference_percent=diff_percent,
+    )
+
+
 def _is_balanced_collector_count(count: int) -> bool:
     return count > 0 and (count % 2 == 0 or count % 3 == 0)
 
@@ -864,6 +923,24 @@ def compute_opportunity_results(
         sizing.target_storage_ratio_l_m2,
         sizing.max_collector_surface_m2,
     )
+    if (
+        sizing.max_collector_surface_m2 is not None
+        and sizing.max_collector_surface_m2 > 0
+        and collectors.surface_m2 > 0
+        and collectors.storage_ratio_l_m2 > MAX_STORAGE_RATIO_L_M2
+    ):
+        storage = propose_storage_for_collector_surface(
+            average_daily_l,
+            collectors.surface_m2,
+            sizing.max_tank_count,
+            sizing.target_storage_ratio_l_m2,
+        )
+        collectors = propose_collectors(
+            storage.total_volume_l,
+            sizing.collector_unit_area_m2,
+            sizing.target_storage_ratio_l_m2,
+            sizing.max_collector_surface_m2,
+        )
     estimated_production = collectors.surface_m2 * sizing.productivity_kwh_m2_year / 1000.0
     return OpportunityResults(
         monthly_needs=monthly,

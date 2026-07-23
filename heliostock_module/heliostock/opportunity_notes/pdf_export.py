@@ -4,10 +4,11 @@ from datetime import datetime
 from io import BytesIO
 from typing import Any
 
+from PIL import Image, ImageDraw
 from reportlab.lib.utils import ImageReader
 
 from ..architectural_patrimony_service import CATEGORY_CONFIG
-from ..architectural_static_map import StaticMapError, render_static_map
+from ..architectural_static_map import StaticMapError, _create_background, _draw_geometry, _draw_project_marker, render_static_map
 from ..common.pdf import PdfReport, _fmt_number
 from ..pdf_report import CARD_FILL, CARD_STROKE, CHART_COLORS, GRID_COLOR, MUTED_COLOR, PDF_FONT_BOLD, PDF_FONT_REGULAR, TEXT_COLOR
 from .cesc_economic_model import CescEconomicInputs, CescEconomicResults, build_yearly_cashflow_projection
@@ -101,6 +102,123 @@ def _cashflow_chart_rows(inputs: CescEconomicInputs, results: CescEconomicResult
         }
         for row in build_yearly_cashflow_projection(inputs, results)
     ]
+
+
+def _cashflow_zero_year(rows: list[dict[str, Any]], value_key: str) -> int | None:
+    for row in rows:
+        try:
+            if float(row.get(value_key, 0.0)) >= 0:
+                return int(float(row.get("AnnÃ©e", 0)))
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _draw_cashflow_chart(
+    report: PdfReport,
+    rows: list[dict[str, Any]],
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    canvas = report.canvas
+    canvas.setFillColorRGB(*TEXT_COLOR)
+    canvas.setFont(PDF_FONT_BOLD, 10)
+    canvas.drawString(x, y + height + 14, "Flux cumulÃ© sur la pÃ©riode")
+
+    if not rows:
+        canvas.setFillColorRGB(*MUTED_COLOR)
+        canvas.setFont(PDF_FONT_REGULAR, 8)
+        canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+        return
+
+    years = [float(row.get("AnnÃ©e", 0.0)) for row in rows]
+    mean_values = [float(row.get("Flux moyen", 0.0)) for row in rows]
+    inflation_values = [float(row.get("Flux inflation", 0.0)) for row in rows]
+    all_values = mean_values + inflation_values + [0.0]
+    min_x, max_x = min(years), max(years)
+    min_y, max_y = min(all_values), max(all_values)
+    if max_x <= min_x:
+        max_x = min_x + 1
+    if max_y <= min_y:
+        max_y = min_y + 1
+
+    plot_x = x + 44
+    plot_y = y + 18
+    plot_w = width - 96
+    plot_h = height - 46
+
+    def px(value: float) -> float:
+        return plot_x + (value - min_x) / (max_x - min_x) * plot_w
+
+    def py(value: float) -> float:
+        return plot_y + (value - min_y) / (max_y - min_y) * plot_h
+
+    canvas.setStrokeColorRGB(*GRID_COLOR)
+    canvas.setLineWidth(0.6)
+    for step in range(5):
+        gy = plot_y + step * plot_h / 4
+        value = min_y + (max_y - min_y) * step / 4
+        canvas.line(plot_x, gy, plot_x + plot_w, gy)
+        canvas.setFillColorRGB(*MUTED_COLOR)
+        canvas.setFont(PDF_FONT_REGULAR, 6.5)
+        canvas.drawRightString(plot_x - 5, gy - 2, _fmt_number(value, 0))
+
+    zero_y = py(0.0)
+    canvas.setStrokeColorRGB(0.08, 0.08, 0.08)
+    canvas.setDash(4, 4)
+    canvas.setLineWidth(1.0)
+    canvas.line(plot_x, zero_y, plot_x + plot_w, zero_y)
+    canvas.setDash()
+    canvas.setFillColorRGB(*MUTED_COLOR)
+    canvas.setFont(PDF_FONT_REGULAR, 7)
+    canvas.drawRightString(plot_x + plot_w, zero_y + 4, "Ã‰quilibre 0 EUR")
+
+    for values, color in [(mean_values, CHART_COLORS[0]), (inflation_values, CHART_COLORS[1])]:
+        points = [(px(year), py(value)) for year, value in zip(years, values)]
+        canvas.setStrokeColorRGB(*color)
+        canvas.setLineWidth(1.4)
+        for start, end in zip(points, points[1:]):
+            canvas.line(start[0], start[1], end[0], end[1])
+        canvas.setFillColorRGB(*color)
+        for point_x, point_y in points:
+            canvas.circle(point_x, point_y, 2.0, fill=1, stroke=0)
+
+    for key, label, x_shift in [
+        ("Flux moyen", "Retour moyen", -18),
+        ("Flux inflation", "Retour inflation", 14),
+    ]:
+        year = _cashflow_zero_year(rows, key)
+        if year is None:
+            continue
+        line_x = px(float(year))
+        canvas.setStrokeColorRGB(0.08, 0.08, 0.08)
+        canvas.setDash(2, 2)
+        canvas.line(line_x, plot_y, line_x, plot_y + plot_h)
+        canvas.setDash()
+        canvas.setFillColorRGB(*MUTED_COLOR)
+        canvas.setFont(PDF_FONT_REGULAR, 7)
+        canvas.drawString(line_x + x_shift, plot_y + plot_h + 4, f"{label} : {year} ans")
+
+    canvas.setFillColorRGB(*MUTED_COLOR)
+    canvas.setFont(PDF_FONT_REGULAR, 7)
+    canvas.drawString(plot_x, y + height - 5, "EUR")
+    canvas.drawCentredString(plot_x + plot_w / 2, y - 4, "AnnÃ©e")
+    for step in range(5):
+        tx = plot_x + step * plot_w / 4
+        value = min_x + (max_x - min_x) * step / 4
+        canvas.drawCentredString(tx, plot_y - 10, _fmt_number(value, 0))
+
+    legend_x = plot_x + plot_w - 126
+    legend_y = y + height + 11
+    for index, (label, color) in enumerate([("Flux moyen", CHART_COLORS[0]), ("Flux avec inflation", CHART_COLORS[1])]):
+        ly = legend_y - index * 11
+        canvas.setFillColorRGB(*color)
+        canvas.rect(legend_x, ly - 5, 7, 5, fill=1, stroke=0)
+        canvas.setFillColorRGB(*MUTED_COLOR)
+        canvas.drawString(legend_x + 10, ly - 5, label)
 
 
 def _cost_table_rows(results: CescEconomicResults) -> list[dict[str, Any]]:
@@ -379,6 +497,113 @@ def _draw_dimensioning_box(
     return y - height - 10
 
 
+def _surface_orientation_metrics(surface_orientation: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(surface_orientation, dict):
+        return {}
+    metrics = surface_orientation.get("metrics")
+    return metrics if isinstance(metrics, dict) else {}
+
+
+def _surface_orientation_drawings(surface_orientation: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(surface_orientation, dict):
+        return []
+    drawings = surface_orientation.get("drawings")
+    return [feature for feature in drawings if isinstance(feature, dict)] if isinstance(drawings, list) else []
+
+
+def _geometry_lon_lat_coordinates(value: Any) -> list[list[float]]:
+    coords: list[list[float]] = []
+    if isinstance(value, (list, tuple)) and len(value) >= 2 and all(isinstance(item, (int, float)) for item in value[:2]):
+        coords.append([float(value[0]), float(value[1])])
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            coords.extend(_geometry_lon_lat_coordinates(item))
+    return coords
+
+
+def _surface_orientation_center(
+    drawings: list[dict[str, Any]],
+    fallback_latitude: float,
+    fallback_longitude: float,
+) -> tuple[float, float]:
+    coords: list[list[float]] = []
+    for feature in drawings:
+        geometry = feature.get("geometry") if isinstance(feature, dict) else None
+        if isinstance(geometry, dict):
+            coords.extend(_geometry_lon_lat_coordinates(geometry.get("coordinates")))
+    if not coords:
+        return fallback_latitude, fallback_longitude
+    longitude = sum(coord[0] for coord in coords) / len(coords)
+    latitude = sum(coord[1] for coord in coords) / len(coords)
+    return latitude, longitude
+
+
+def _draw_surface_orientation_map(
+    report: PdfReport,
+    surface_orientation: dict[str, Any] | None,
+    *,
+    fallback_latitude: float,
+    fallback_longitude: float,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    drawings = _surface_orientation_drawings(surface_orientation)
+    if not drawings:
+        report.note(
+            "Aucune emprise de toiture ou zone au sol n'est enregistrÃ©e dans ce projet.",
+            x=x,
+            y=y + height - 10,
+            width=width,
+            size=8,
+        )
+        return
+
+    latitude, longitude = _surface_orientation_center(drawings, fallback_latitude, fallback_longitude)
+    try:
+        base, left, top, _tiles_loaded = _create_background(
+            longitude=longitude,
+            latitude=latitude,
+            zoom=19,
+            width=1100,
+            height=620,
+        )
+        overlay = Image.new("RGBA", base.size, (255, 255, 255, 0))
+        for feature in drawings:
+            geometry = feature.get("geometry") if isinstance(feature, dict) else None
+            if not isinstance(geometry, dict):
+                continue
+            color = (34, 178, 166, 210) if geometry.get("type") == "Polygon" else (233, 71, 61, 240)
+            _draw_geometry(overlay=overlay, geometry=geometry, color=color, zoom=19, left=left, top=top)
+        _draw_project_marker(overlay=overlay, latitude=fallback_latitude, longitude=fallback_longitude, zoom=19, left=left, top=top)
+        rendered = Image.alpha_composite(base.convert("RGBA"), overlay).convert("RGB")
+        draw = ImageDraw.Draw(rendered, "RGBA")
+        draw.rounded_rectangle([12, 12, 420, 64], radius=8, fill=(255, 255, 255, 225), outline=(90, 90, 90, 120))
+        draw.text((26, 24), "Emprise et orientation mesurÃ©es dans HelioNOP", fill=(30, 30, 30, 255))
+        image_buffer = BytesIO()
+        rendered.save(image_buffer, format="PNG")
+        image_buffer.seek(0)
+        report.canvas.drawImage(
+            ImageReader(image_buffer),
+            x,
+            y,
+            width=width,
+            height=height,
+            preserveAspectRatio=True,
+            anchor="c",
+            mask="auto",
+        )
+    except Exception as exc:
+        report.note(
+            f"La carte orientation/surface n'a pas pu Ãªtre gÃ©nÃ©rÃ©e dans le PDF : {exc}",
+            x=x,
+            y=y + height - 10,
+            width=width,
+            size=8,
+        )
+
+
 def build_opportunity_note_pdf(
     *,
     site_inputs: SiteInputs,
@@ -389,6 +614,7 @@ def build_opportunity_note_pdf(
     opportunity_results: OpportunityResults,
     economic_results: CescEconomicResults,
     architectural_constraints: dict[str, Any] | None = None,
+    surface_orientation: dict[str, Any] | None = None,
 ) -> bytes:
     """Construit le PDF de note d'opportunité à partir des résultats affichés."""
 

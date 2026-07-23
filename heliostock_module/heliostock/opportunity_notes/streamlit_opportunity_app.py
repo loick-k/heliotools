@@ -959,9 +959,9 @@ def render_heat_cost_breakdown_plotly(results):
     )
     fig.update_layout(
         barmode="stack",
-        height=560,
-        margin={"l": 58, "r": 8, "t": 82, "b": 32},
-        legend={"orientation": "v", "yanchor": "top", "y": 1.18, "xanchor": "left", "x": 0},
+        height=470,
+        margin={"l": 58, "r": 12, "t": 68, "b": 36},
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
         xaxis_title=None,
         yaxis_title="Coût de la chaleur (€/MWh utile)",
     )
@@ -1004,12 +1004,22 @@ def render_cumulative_cashflow_plotly(cashflow_rows: list[dict[str, float | int]
     payback_avg = first_positive_year(cashflow_rows, "Flux cumulé moyen (€)")
     payback_inflation = first_positive_year(cashflow_rows, "Flux cumulé inflation annuelle (€)")
     if payback_avg is not None:
-        fig.add_vline(x=payback_avg, line_dash="dot", annotation_text=f"Retour moyen : {payback_avg} ans")
+        fig.add_vline(
+            x=payback_avg,
+            line_dash="dot",
+            annotation_text=f"Retour moyen : {payback_avg} ans",
+            annotation_position="top left",
+        )
     if payback_inflation is not None and payback_inflation != payback_avg:
-        fig.add_vline(x=payback_inflation, line_dash="dot", annotation_text=f"Retour inflation : {payback_inflation} ans")
+        fig.add_vline(
+            x=payback_inflation,
+            line_dash="dot",
+            annotation_text=f"Retour inflation : {payback_inflation} ans",
+            annotation_position="top right",
+        )
     fig.update_layout(
-        height=390,
-        margin={"l": 10, "r": 20, "t": 45, "b": 40},
+        height=470,
+        margin={"l": 20, "r": 28, "t": 68, "b": 46},
         xaxis_title="Année",
         yaxis_title="Flux cumulé (€)",
         hovermode="x unified",
@@ -2028,6 +2038,28 @@ def render_opportunity_notes_app() -> None:
             else "n.d."
         )
         col4.metric("Ratio V/S", collector_ratio_label)
+        if max_collector_surface_from_measurement is not None and isinstance(surface_orientation_metrics, dict):
+            measured_ground_surface = surface_orientation_metrics.get("surface_m2")
+            usage_ratio = (
+                opportunity_results.collectors.surface_m2 / max_collector_surface_from_measurement
+                if max_collector_surface_from_measurement > 0
+                else 0.0
+            )
+            cap_col1, cap_col2, cap_col3, cap_col4 = st.columns(4)
+            cap_col1.metric(
+                "Surface au sol mesurée",
+                f"{number(float(measured_ground_surface), 1)} m²"
+                if isinstance(measured_ground_surface, (float, int)) and measured_ground_surface > 0
+                else "n.d.",
+            )
+            cap_col2.metric("Critère d'implantation", "2 m² sol / m² capteur")
+            cap_col3.metric("Surface capteurs max.", f"{number(max_collector_surface_from_measurement, 1)} m²")
+            cap_col4.metric("Utilisation de la surface", f"{number(usage_ratio * 100.0, 0)} %")
+            if opportunity_results.collectors.surface_m2 <= max_collector_surface_from_measurement + 1e-9:
+                st.success(
+                    "Critère surface respecté : la surface proposée reste inférieure ou égale à la borne "
+                    "calculée depuis l'emprise dessinée."
+                )
         if opportunity_results.collectors.collector_count == 0:
             st.error(
                 "La surface disponible mesurée ne permet pas d'installer un capteur complet avec l'hypothèse "
@@ -2083,6 +2115,8 @@ def render_opportunity_notes_app() -> None:
         st.caption("Les valeurs sont préremplies avec le prédimensionnement et les hypothèses économiques par défaut de l'onglet CESC.")
         recommended_economic_surface = float(opportunity_results.collectors.surface_m2)
         recommended_economic_productivity = float(sizing_inputs.productivity_kwh_m2_year)
+
+        st.markdown("#### Hypothèses principales")
         use_predesign_for_economics = st.checkbox(
             "Reprendre la surface et la productivité du prédimensionnement",
             value=bool(economic_default.get("use_predesign_for_economics", True)),
@@ -2092,82 +2126,80 @@ def render_opportunity_notes_app() -> None:
                 "elle-même calculée à partir du volume ECS équivalent à 60 °C."
             ),
         )
-    
-        inputs_col, reference_col = st.columns(2)
-        with inputs_col:
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                economic_typology = st.selectbox(
-                    "Scénario d'aide ADEME",
-                    options=list(ECONOMIC_SCENARIOS),
-                    index=list(ECONOMIC_SCENARIOS).index(economic_default.get("typologie", "CESC"))
-                    if economic_default.get("typologie", "CESC") in ECONOMIC_SCENARIOS
-                    else 0,
-                )
-                if use_predesign_for_economics:
-                    economic_surface = recommended_economic_surface
-                    economic_productivity = recommended_economic_productivity
-                    st.metric("Surface économique (m²)", f"{number(economic_surface, 1)} m²")
-                    st.metric("Productivité économique", f"{number(economic_productivity, 0)} kWh/m².an")
-                    st.caption(
-                        "Ces valeurs sont reprises automatiquement depuis le prédimensionnement calculé "
-                        "sur le volume ECS équivalent à 60 °C."
-                    )
-                else:
-                    economic_surface = st.number_input(
-                        "Surface économique (m²)",
-                        min_value=0.0,
-                        value=float(economic_default.get("surface_m2", recommended_economic_surface)),
-                        step=1.0,
-                        key=f"{project_ui_key}_economic_surface_m2",
-                    )
-                    economic_productivity = st.number_input(
-                        "Productivité économique (kWh/m².an)",
-                        min_value=0.0,
-                        value=float(economic_default.get("productivity_kwh_m2_year", recommended_economic_productivity)),
-                        step=10.0,
-                        key=f"{project_ui_key}_economic_productivity_kwh_m2_year",
-                    )
-            with col_b:
-                reference_energy_cost = st.number_input(
-                    "Coût énergie de référence (€HT/MWh)",
-                    min_value=0.0,
-                    value=float(economic_default.get("reference_energy_cost_eur_mwh", 75.0)),
-                    step=5.0,
-                )
-                inflation = st.number_input(
-                    "Inflation énergie référence (%/an)",
-                    value=float(economic_default.get("reference_energy_inflation_percent", 3.0)),
-                    step=0.5,
-                ) / 100.0
-                years = st.number_input("Durée d'analyse (ans)", min_value=1, value=int(economic_default.get("years", 20)), step=1)
-            with col_c:
-                works_cost = st.number_input(
-                    "Coût travaux installation (€HT/m²)",
-                    min_value=0.0,
-                    value=float(economic_default.get("works_cost_eur_m2", 1563.0)),
-                    step=50.0,
-                )
-                eta_appoint = st.number_input(
-                    "Rendement appoint global",
-                    min_value=0.01,
-                    max_value=1.5,
-                    value=float(economic_default.get("eta_appoint", 0.82)),
-                    step=0.01,
-                )
-                electricity_cost = st.number_input(
-                    "Coût électricité auxiliaires (€HT/MWh)",
-                    min_value=0.0,
-                    value=float(economic_default.get("electricity_cost_eur_mwh", DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH)),
-                    step=10.0,
-                    help="Utilisé pour calculer le P1' : consommation électrique des auxiliaires solaires × coût de l'électricité.",
-                )
 
-        with reference_col:
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            economic_typology = st.selectbox(
+                "Scénario d'aide ADEME",
+                options=list(ECONOMIC_SCENARIOS),
+                index=list(ECONOMIC_SCENARIOS).index(economic_default.get("typologie", "CESC"))
+                if economic_default.get("typologie", "CESC") in ECONOMIC_SCENARIOS
+                else 0,
+            )
+            if use_predesign_for_economics:
+                economic_surface = recommended_economic_surface
+                economic_productivity = recommended_economic_productivity
+                st.metric("Surface économique", f"{number(economic_surface, 1)} m²")
+                st.metric("Productivité économique", f"{number(economic_productivity, 0)} kWh/m².an")
+                st.caption(
+                    "Repris depuis le prédimensionnement calculé sur le volume ECS équivalent à 60 °C."
+                )
+            else:
+                economic_surface = st.number_input(
+                    "Surface économique (m²)",
+                    min_value=0.0,
+                    value=float(economic_default.get("surface_m2", recommended_economic_surface)),
+                    step=1.0,
+                    key=f"{project_ui_key}_economic_surface_m2",
+                )
+                economic_productivity = st.number_input(
+                    "Productivité économique (kWh/m².an)",
+                    min_value=0.0,
+                    value=float(economic_default.get("productivity_kwh_m2_year", recommended_economic_productivity)),
+                    step=10.0,
+                    key=f"{project_ui_key}_economic_productivity_kwh_m2_year",
+                )
+        with col_b:
+            reference_energy_cost = st.number_input(
+                "Coût énergie de référence (€HT/MWh)",
+                min_value=0.0,
+                value=float(economic_default.get("reference_energy_cost_eur_mwh", 75.0)),
+                step=5.0,
+            )
+            inflation = st.number_input(
+                "Inflation énergie référence (%/an)",
+                value=float(economic_default.get("reference_energy_inflation_percent", 3.0)),
+                step=0.5,
+            ) / 100.0
+            years = st.number_input("Durée d'analyse (ans)", min_value=1, value=int(economic_default.get("years", 20)), step=1)
+        with col_c:
+            works_cost = st.number_input(
+                "Coût travaux installation (€HT/m²)",
+                min_value=0.0,
+                value=float(economic_default.get("works_cost_eur_m2", 1563.0)),
+                step=50.0,
+            )
+            eta_appoint = st.number_input(
+                "Rendement appoint global",
+                min_value=0.01,
+                max_value=1.5,
+                value=float(economic_default.get("eta_appoint", 0.82)),
+                step=0.01,
+            )
+            electricity_cost = st.number_input(
+                "Coût électricité auxiliaires (€HT/MWh)",
+                min_value=0.0,
+                value=float(economic_default.get("electricity_cost_eur_mwh", DEFAULT_AUXILIARY_ELECTRICITY_COST_EUR_MWH)),
+                step=10.0,
+                help="Utilisé pour calculer le P1' : consommation électrique des auxiliaires solaires × coût de l'électricité.",
+            )
+
+        with st.expander("Repère indicatif sur le coût des travaux solaires thermiques", expanded=False):
+            st.caption(SOLAR_THERMAL_COST_REFERENCE_NOTE)
             fig_cost_reference = build_solar_thermal_cost_reference_plotly(go, selected_cost_eur_m2=float(works_cost))
             if fig_cost_reference is not None:
-                st.plotly_chart(fig_cost_reference, width="stretch")
-                st.caption(SOLAR_THERMAL_COST_REFERENCE_NOTE)
+                fig_cost_reference.update_layout(height=430, margin={"l": 56, "r": 20, "t": 70, "b": 70})
+                st.plotly_chart(fig_cost_reference, width="stretch", config={"displayModeBar": False})
     
         with st.expander("Hypothèses économiques avancées", expanded=False):
             col_1, col_2, col_3 = st.columns(3)
@@ -2222,7 +2254,8 @@ def render_opportunity_notes_app() -> None:
             ademe_aid_max_rate_on_works=ademe_cap,
         )
         economic_results = compute_cesc_economic_model(economic_inputs)
-    
+
+        st.markdown("#### Résultats économiques")
         st.caption(
             f"Forfait ADEME appliqué : {ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY[economic_typology]:,.0f} €/MWh.an".replace(
                 ",", " "
@@ -2240,17 +2273,18 @@ def render_opportunity_notes_app() -> None:
         col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
         col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
 
+        st.markdown("#### Lecture graphique")
         heat_cost_col, cashflow_col = st.columns([1, 3])
         with heat_cost_col:
             fig_breakdown = render_heat_cost_breakdown_plotly(economic_results)
             if fig_breakdown is not None:
-                st.plotly_chart(fig_breakdown, width="stretch")
+                st.plotly_chart(fig_breakdown, width="stretch", config={"displayModeBar": False})
 
         with cashflow_col:
             cashflow_rows = list(build_yearly_cashflow_projection(economic_inputs, economic_results))
             fig_cashflow = render_cumulative_cashflow_plotly(cashflow_rows)
             if fig_cashflow is not None:
-                st.plotly_chart(fig_cashflow, width="stretch")
+                st.plotly_chart(fig_cashflow, width="stretch", config={"displayModeBar": False})
     
     # ---------------------------------------------------------------------------
     # Synthèse et export.
