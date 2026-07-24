@@ -910,49 +910,17 @@ def build_opportunity_note_pdf(
 
     y = report.start_page(title="Note d'opportunité - schémathèque SOCOL")
     y = report.section_title("Schémathèque SOCOL solaire thermique", x=margin, y=y)
-    socol_valid = socol.get("valid") if isinstance(socol, dict) else None
-    source = socol.get("source") if isinstance(socol, dict) else None
-    codes = socol.get("codes") if isinstance(socol, dict) and isinstance(socol.get("codes"), dict) else {}
-    source_label = "-"
-    if isinstance(source, dict):
-        source_label = f"{source.get('name', 'SOCOL')} - v{source.get('version', '-')}, {source.get('date', '-')}"
-    y = report.kpi_grid(
-        [
-            ("Configuration", "référencée" if socol_valid is True else "non référencée" if socol_valid is False else "non renseignée"),
-            ("Source", source_label),
-            ("Production", str(codes.get("production", "-"))),
-            ("Stockage", str(codes.get("storage", "-"))),
-        ],
-        x=margin,
-        y=y,
-        width=content_width,
-    )
-    table_w = content_width * 0.46
     rows = _socol_selection_rows(socol)
     if rows:
         report.table(
             rows,
             x=margin,
             y=y,
-            width=table_w,
+            width=content_width,
             columns=["Paramètre", "Valeur"],
             max_rows=8,
-            col_weights=[0.9, 1.7],
-            font_size=7.5,
-            row_height=14,
-            show_header_rule=False,
-        )
-    code_rows = _socol_code_rows(socol)
-    if code_rows:
-        report.table(
-            code_rows,
-            x=margin + table_w + 22,
-            y=y,
-            width=content_width - table_w - 22,
-            columns=["Bloc", "Code SOCOL", "Statut"],
-            max_rows=3,
-            col_weights=[0.8, 2.1, 0.8],
-            font_size=7.5,
+            col_weights=[0.8, 2.2],
+            font_size=8,
             row_height=15,
             show_header_rule=False,
         )

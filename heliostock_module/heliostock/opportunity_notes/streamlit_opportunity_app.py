@@ -2418,7 +2418,6 @@ def render_opportunity_notes_app() -> None:
     if st.session_state.pop("helionop_save_requested", False):
         saved_path = save_project(current_payload)
         st.session_state.project_payload = current_payload
-        st.session_state.save_notice = f"Projet enregistré : {saved_path.name}"
-        st.rerun()
+        st.success(f"Projet enregistré : {saved_path.name}")
 
 
