@@ -78,7 +78,7 @@ from ..epw_reader import read_epw_hourly_weather_from_zip
 from ..geocoding_service import GeocodingServiceError, search_addresses
 from ..ui_architectural_constraints import PROJECT_TYPES, render_architectural_constraints_test
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
-from ..socol_schematheque import render_socol_schematheque_app
+from ..socol_schematheque import current_socol_payload, render_socol_schematheque_app, restore_socol_state
 from ..ui_surface_orientation import (
     current_surface_orientation_payload,
     render_surface_orientation_measurement,
@@ -193,6 +193,13 @@ def _current_helionop_architectural_payload() -> dict[str, Any]:
         "project_type": str(st.session_state.get("helionop_architectural_project_type") or PROJECT_TYPES[0]),
         "result": st.session_state.get("helionop_architectural_result"),
     }
+
+
+def _restore_helionop_socol_state(payload: dict[str, Any], project_id: str) -> None:
+    if st.session_state.get("helionop_socol_payload_project_id") == project_id:
+        return
+    st.session_state["helionop_socol_payload_project_id"] = project_id
+    restore_socol_state(payload.get("socol") if isinstance(payload, dict) else None)
 
 
 def _render_project_location_form() -> tuple[str, float, float]:
@@ -1050,6 +1057,7 @@ def render_opportunity_notes_app() -> None:
     _initialise_helionop_project_location(site_default, str(payload.get("project_id", "projet")))
     _restore_helionop_architectural_state(payload, str(payload.get("project_id", "projet")))
     restore_surface_orientation_state(payload, project_id=str(payload.get("project_id", "projet")), state_prefix="helionop")
+    _restore_helionop_socol_state(payload, str(payload.get("project_id", "projet")))
     
     # ---------------------------------------------------------------------------
     # Onglets de saisie et résultats.
@@ -2350,6 +2358,7 @@ def render_opportunity_notes_app() -> None:
         "economic": economic_payload,
         "architectural_constraints": _current_helionop_architectural_payload(),
         "surface_orientation": current_surface_orientation_payload("helionop"),
+        "socol": current_socol_payload(),
         "results": {"opportunity": opportunity_results.as_dict(), "economic": economic_results.as_dict()},
     }
     
@@ -2398,6 +2407,7 @@ def render_opportunity_notes_app() -> None:
                 economic_results=economic_results,
                 architectural_constraints=_current_helionop_architectural_payload(),
                 surface_orientation=current_surface_orientation_payload("helionop"),
+                socol=current_socol_payload(),
             ),
             file_name=f"{slugify(site_inputs.project_name)}_note_opportunite.pdf",
             mime="application/pdf",

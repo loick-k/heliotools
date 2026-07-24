@@ -202,6 +202,21 @@ def _drawings_center_lat_lon(drawings: list[dict[str, Any]]) -> tuple[float, flo
     return lat, lon
 
 
+def _location_signature(address: str, latitude: float, longitude: float) -> str:
+    return f"{float(latitude):.6f}|{float(longitude):.6f}|{address.strip()}"
+
+
+def _distance_meters(point_a: tuple[float, float], point_b: tuple[float, float]) -> float:
+    lat1 = math.radians(float(point_a[0]))
+    lon1 = math.radians(float(point_a[1]))
+    lat2 = math.radians(float(point_b[0]))
+    lon2 = math.radians(float(point_b[1]))
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    a = math.sin(dlat / 2.0) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2.0) ** 2
+    return 6_371_000.0 * 2.0 * math.atan2(math.sqrt(a), math.sqrt(max(0.0, 1.0 - a)))
+
+
 def _bearing_deg_from_north(point_a: list[float], point_b: list[float]) -> float:
     lon1 = math.radians(float(point_a[0]))
     lat1 = math.radians(float(point_a[1]))
@@ -452,6 +467,12 @@ def restore_surface_orientation_state(payload: dict[str, Any], *, project_id: st
     st.session_state[_key(state_prefix, "payload_project_id")] = project_id
     saved = payload.get("surface_orientation")
     if not isinstance(saved, dict):
+        st.session_state[_key(state_prefix, "drawings")] = []
+        st.session_state[_key(state_prefix, "metrics")] = {}
+        st.session_state.pop(_key(state_prefix, "map_center"), None)
+        st.session_state.pop(_key(state_prefix, "map_zoom"), None)
+        st.session_state.pop(_key(state_prefix, "drawings_signature"), None)
+        st.session_state.pop(_key(state_prefix, "location_signature"), None)
         return
     drawings = saved.get("drawings")
     metrics = saved.get("metrics")
@@ -482,10 +503,23 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     center_key = _key(state_prefix, "map_center")
     zoom_key = _key(state_prefix, "map_zoom")
     signature_key = _key(state_prefix, "drawings_signature")
+    location_signature_key = _key(state_prefix, "location_signature")
     drawings = st.session_state.get(drawings_key)
     if not isinstance(drawings, list):
         drawings = []
         st.session_state[drawings_key] = drawings
+    current_location_signature = _location_signature(address, latitude, longitude)
+    previous_location_signature = st.session_state.get(location_signature_key)
+    if previous_location_signature != current_location_signature:
+        drawings_center = _drawings_center_lat_lon(drawings)
+        if drawings_center is not None and _distance_meters(drawings_center, (latitude, longitude)) > 2_000.0:
+            drawings = []
+            st.session_state[drawings_key] = drawings
+            st.session_state[metrics_key] = {}
+            st.session_state.pop(signature_key, None)
+        st.session_state[center_key] = (latitude, longitude)
+        st.session_state[zoom_key] = 20
+        st.session_state[location_signature_key] = current_location_signature
     saved_center = st.session_state.get(center_key)
     if not (isinstance(saved_center, (list, tuple)) and len(saved_center) >= 2):
         saved_center = _drawings_center_lat_lon(drawings) or (latitude, longitude)
@@ -505,9 +539,9 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         height=560,
         width="stretch",
         returned_objects=["all_drawings", "last_active_drawing"],
-        key=_key(state_prefix, "map"),
+        key=f"{_key(state_prefix, 'map')}_{current_location_signature}",
     )
-    session_map_state = st.session_state.get(_key(state_prefix, "map"))
+    session_map_state = st.session_state.get(f"{_key(state_prefix, 'map')}_{current_location_signature}")
     raw_new_drawings = _drawings_from_map_state(map_state) or _drawings_from_map_state(session_map_state)
     new_drawings = _merge_measurement_drawings(drawings, raw_new_drawings)
     if raw_new_drawings and new_drawings != drawings:

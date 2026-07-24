@@ -56,12 +56,14 @@ APP_ADMIN_LABEL = "Administration HelioTools"
 APP_DASHBOARD_LABEL = "Dashboard solaire thermique"
 APP_OPPORTUNITY_LABEL = "HelioNOP"
 APP_HELIOECO_LABEL = "HelioEco"
+APP_HELIORC_LABEL = "HelioRC"
 APP_SOCOL_LABEL = "Schémathèque SOCOL"
 APP_ACCESS_LABELS = (
     APP_HELIOSTOCK_LABEL,
     APP_DASHBOARD_LABEL,
     APP_OPPORTUNITY_LABEL,
     APP_HELIOECO_LABEL,
+    APP_HELIORC_LABEL,
     APP_SOCOL_LABEL,
 )
 PORTAL_PAGE_LABELS = (APP_HOME_LABEL, APP_ADMIN_LABEL)
@@ -1402,6 +1404,11 @@ def render_heliotools_home_page() -> None:
             "Ouvrir HelioEco",
         ),
         (
+            APP_HELIORC_LABEL,
+            "Note d'opportunité solaire thermique pour réseau de chaleur urbain.",
+            "Ouvrir HelioRC",
+        ),
+        (
             APP_SOCOL_LABEL,
             "Schémathèque dynamique de principes hydrauliques solaires thermiques SOCOL.",
             "Ouvrir la schémathèque",
@@ -1549,12 +1556,19 @@ def render_portal_sidebar() -> str:
             st.session_state["portal_page"] = requested_app
         if st.session_state.get("portal_app") not in app_options:
             st.session_state["portal_app"] = app_options[0]
-        app_name = st.selectbox(
-            "Application",
-            options=app_options,
-            key="portal_app",
-            on_change=_clear_portal_page_selection,
-        )
+        st.caption("Application")
+        for option in app_options:
+            selected = st.session_state.get("portal_app") == option and not st.session_state.get("portal_page")
+            if st.button(
+                option,
+                key=f"portal_app_button_{safe_slug(option)}",
+                width="stretch",
+                type="primary" if selected else "secondary",
+            ):
+                st.session_state["portal_app"] = option
+                _clear_portal_page_selection()
+                st.rerun()
+        app_name = st.session_state.get("portal_app", app_options[0])
         selected_page = st.session_state.get("portal_page")
         if selected_page == APP_HOME_LABEL or (selected_page == APP_ADMIN_LABEL and is_admin_authenticated()):
             app_name = selected_page

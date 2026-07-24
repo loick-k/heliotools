@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from datetime import datetime
 from io import BytesIO
 from typing import Any
@@ -613,6 +614,80 @@ def _draw_surface_orientation_map(
         )
 
 
+def _socol_selection_rows(socol: dict[str, Any] | None) -> list[dict[str, str]]:
+    if not isinstance(socol, dict):
+        return []
+    selection = socol.get("selection")
+    if not isinstance(selection, dict):
+        return []
+    labels = {
+        "circuit": "Circuit solaire",
+        "exchanger": "Échangeur",
+        "backup_energy": "Énergie appoint",
+        "backup_type": "Position appoint",
+        "storage_fluid": "Fluide de stockage",
+        "tank_count": "Nombre de ballons",
+        "ecs_production": "Production ECS",
+        "loop_type": "Bouclage",
+    }
+    return [{"Paramètre": label, "Valeur": str(selection.get(key) or "-")} for key, label in labels.items()]
+
+
+def _socol_code_rows(socol: dict[str, Any] | None) -> list[dict[str, str]]:
+    if not isinstance(socol, dict):
+        return []
+    codes = socol.get("codes")
+    resolved = socol.get("resolved_components")
+    if not isinstance(codes, dict):
+        return []
+    resolved = resolved if isinstance(resolved, dict) else {}
+    labels = {"production": "Production", "storage": "Stockage", "distribution": "Distribution"}
+    rows: list[dict[str, str]] = []
+    for key, label in labels.items():
+        component = resolved.get(key)
+        valid = component.get("valid") if isinstance(component, dict) else None
+        rows.append(
+            {
+                "Bloc": label,
+                "Code SOCOL": str(codes.get(key) or "-"),
+                "Statut": "référencé" if valid is True else "non référencé" if valid is False else "-",
+            }
+        )
+    return rows
+
+
+def _draw_socol_diagram(
+    report: PdfReport,
+    socol: dict[str, Any] | None,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    if not isinstance(socol, dict) or not socol.get("diagram_png_base64"):
+        report.note("Aucun schéma SOCOL n'est enregistré dans ce projet.", x=x, y=y + height / 2, width=width, size=8)
+        return
+    try:
+        png_bytes = base64.b64decode(str(socol["diagram_png_base64"]))
+        image = Image.open(BytesIO(png_bytes)).convert("RGB")
+        image_buffer = BytesIO()
+        image.save(image_buffer, format="PNG")
+        image_buffer.seek(0)
+        report.canvas.drawImage(
+            ImageReader(image_buffer),
+            x,
+            y,
+            width=width,
+            height=height,
+            preserveAspectRatio=True,
+            anchor="c",
+            mask="auto",
+        )
+    except Exception as exc:
+        report.note(f"Le schéma SOCOL n'a pas pu être intégré au PDF : {exc}", x=x, y=y + height / 2, width=width, size=8)
+
+
 def build_opportunity_note_pdf(
     *,
     site_inputs: SiteInputs,
@@ -624,6 +699,7 @@ def build_opportunity_note_pdf(
     economic_results: CescEconomicResults,
     architectural_constraints: dict[str, Any] | None = None,
     surface_orientation: dict[str, Any] | None = None,
+    socol: dict[str, Any] | None = None,
 ) -> bytes:
     """Construit le PDF de note d'opportunité à partir des résultats affichés."""
 
@@ -829,6 +905,65 @@ def build_opportunity_note_pdf(
         y=y - 4,
         width=content_width,
         size=8,
+    )
+    report.draw_footer()
+
+    y = report.start_page(title="Note d'opportunité - schémathèque SOCOL")
+    y = report.section_title("Schémathèque SOCOL solaire thermique", x=margin, y=y)
+    socol_valid = socol.get("valid") if isinstance(socol, dict) else None
+    source = socol.get("source") if isinstance(socol, dict) else None
+    codes = socol.get("codes") if isinstance(socol, dict) and isinstance(socol.get("codes"), dict) else {}
+    source_label = "-"
+    if isinstance(source, dict):
+        source_label = f"{source.get('name', 'SOCOL')} - v{source.get('version', '-')}, {source.get('date', '-')}"
+    y = report.kpi_grid(
+        [
+            ("Configuration", "référencée" if socol_valid is True else "non référencée" if socol_valid is False else "non renseignée"),
+            ("Source", source_label),
+            ("Production", str(codes.get("production", "-"))),
+            ("Stockage", str(codes.get("storage", "-"))),
+        ],
+        x=margin,
+        y=y,
+        width=content_width,
+    )
+    table_w = content_width * 0.46
+    rows = _socol_selection_rows(socol)
+    if rows:
+        report.table(
+            rows,
+            x=margin,
+            y=y,
+            width=table_w,
+            columns=["Paramètre", "Valeur"],
+            max_rows=8,
+            col_weights=[0.9, 1.7],
+            font_size=7.5,
+            row_height=14,
+            show_header_rule=False,
+        )
+    code_rows = _socol_code_rows(socol)
+    if code_rows:
+        report.table(
+            code_rows,
+            x=margin + table_w + 22,
+            y=y,
+            width=content_width - table_w - 22,
+            columns=["Bloc", "Code SOCOL", "Statut"],
+            max_rows=3,
+            col_weights=[0.8, 2.1, 0.8],
+            font_size=7.5,
+            row_height=15,
+            show_header_rule=False,
+        )
+    _draw_socol_diagram(report, socol, x=margin, y=62, width=content_width, height=250)
+    report.note(
+        "Schéma indicatif issu de la schémathèque SOCOL intégrée à HelioTools. Il ne remplace pas une étude hydraulique "
+        "d'exécution ni une validation de conception.",
+        x=margin,
+        y=48,
+        width=content_width,
+        size=7.5,
     )
     report.draw_footer()
 

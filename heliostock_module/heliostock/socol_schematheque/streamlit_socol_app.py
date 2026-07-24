@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import asdict
 import json
 from pathlib import Path
@@ -56,6 +57,47 @@ def _selectbox(label: str, options: tuple[str, ...], name: str) -> str:
     current = st.session_state.get(_key(name))
     index = options.index(current) if current in options else 0
     return st.selectbox(label, options, index=index, key=_key(name))
+
+
+def current_socol_payload() -> dict[str, object]:
+    """Return the current SOCOL selection and composed diagram for project export/PDF."""
+    _init_selection_state()
+    catalog = _load_catalog()
+    selection = Selection(
+        circuit=str(st.session_state.get(_key("circuit"))),
+        exchanger=str(st.session_state.get(_key("exchanger"))),
+        backup_energy=str(st.session_state.get(_key("backup_energy"))),
+        storage_fluid=str(st.session_state.get(_key("storage_fluid"))),
+        backup_type=str(st.session_state.get(_key("backup_type"))),
+        tank_count=str(st.session_state.get(_key("tank_count"))),
+        ecs_production=str(st.session_state.get(_key("ecs_production"))),
+        loop_type=str(st.session_state.get(_key("loop_type"))),
+    )
+    result = resolve_diagram(selection, catalog)
+    diagram = compose_diagram(result)
+    png_bytes = image_to_png_bytes(diagram)
+    payload = configuration_payload(result, catalog)
+    payload["diagram_png_base64"] = base64.b64encode(png_bytes).decode("ascii")
+    payload["diagram_size_px"] = {"width": diagram.width, "height": diagram.height}
+    return payload
+
+
+def restore_socol_state(payload: dict[str, object] | None) -> None:
+    """Restore a saved SOCOL selection, or reset to defaults for old projects."""
+    if not isinstance(payload, dict):
+        _reset_selection()
+        st.session_state.pop(_key("payload"), None)
+        return
+
+    selection = payload.get("selection")
+    if not isinstance(selection, dict):
+        _reset_selection()
+        st.session_state.pop(_key("payload"), None)
+        return
+
+    for name, default_value in _selection_defaults().items():
+        st.session_state[_key(name)] = str(selection.get(name) or default_value)
+    st.session_state[_key("payload")] = payload
 
 
 def _render_styles() -> None:
@@ -198,6 +240,9 @@ def render_socol_schematheque_app() -> None:
     diagram = compose_diagram(result)
     png_bytes = image_to_png_bytes(diagram)
     payload = configuration_payload(result, catalog)
+    payload["diagram_png_base64"] = base64.b64encode(png_bytes).decode("ascii")
+    payload["diagram_size_px"] = {"width": diagram.width, "height": diagram.height}
+    st.session_state[_key("payload")] = payload
 
     if not result.valid:
         st.markdown('<div class="socol-pill-ko">Configuration non référencée</div>', unsafe_allow_html=True)
