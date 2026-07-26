@@ -19,10 +19,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-import folium
 import pandas as pd
 import streamlit as st
-from streamlit_folium import st_folium
 
 try:
     import plotly.graph_objects as go
@@ -76,7 +74,6 @@ from ..common.solar_thermal_cost_reference import (
     build_solar_thermal_cost_reference_plotly,
 )
 from ..epw_reader import read_epw_hourly_weather_from_zip
-from ..geocoding_service import GeocodingServiceError, search_addresses
 from ..ui_architectural_constraints import PROJECT_TYPES, render_architectural_constraints_test
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 from ..socol_schematheque import current_socol_payload, render_socol_schematheque_app, restore_socol_state
@@ -105,46 +102,6 @@ COLD_WATER_MODES: tuple[str, ...] = (
 )
 DEFAULT_PROJECT_LATITUDE = 47.2184
 DEFAULT_PROJECT_LONGITUDE = -1.5536
-
-
-@st.cache_data(ttl=86_400, show_spinner=False)
-def _cached_project_address_search(query: str) -> list[dict[str, object]]:
-    return search_addresses(query=query, limit=5)
-
-
-def _candidate_label(candidate: dict[str, object]) -> str:
-    label = str(candidate.get("label") or "Adresse trouvée")
-    context = str(candidate.get("context") or "")
-    score = candidate.get("score")
-    parts: list[str] = []
-    if context and context.lower() not in label.lower():
-        parts.append(context)
-    if isinstance(score, (float, int)):
-        parts.append(f"pertinence {score * 100:.0f} %")
-    return f"{label} - {' · '.join(parts)}" if parts else label
-
-
-def _project_map(latitude: float, longitude: float, address: str) -> folium.Map:
-    map_object = folium.Map(
-        location=[latitude, longitude],
-        zoom_start=16,
-        tiles="OpenStreetMap",
-        control_scale=True,
-    )
-    folium.Marker(
-        [latitude, longitude],
-        tooltip=address or "Adresse du projet",
-        popup=folium.Popup(f"<b>{address or 'Adresse du projet'}</b><br>{latitude:.6f}, {longitude:.6f}", max_width=280),
-        icon=folium.Icon(color="red", icon="info-sign"),
-    ).add_to(map_object)
-    folium.Circle(
-        [latitude, longitude],
-        radius=35,
-        color="#ef4444",
-        fill=False,
-        weight=2,
-    ).add_to(map_object)
-    return map_object
 
 
 def _propagate_helionop_project_location() -> None:
@@ -206,104 +163,6 @@ def _restore_helionop_socol_state(payload: dict[str, Any], project_id: str) -> N
 def _on_helionop_location_change(_: ProjectIdentity) -> None:
     st.session_state.pop("helionop_architectural_result", None)
     _propagate_helionop_project_location()
-
-
-def _render_project_location_form() -> tuple[str, float, float]:
-    with st.form("helionop_project_address_form", clear_on_submit=False):
-        address_query = st.text_input(
-            "Adresse",
-            placeholder="Ex. 10 rue de Strasbourg, 44000 Nantes",
-            key="helionop_project_address_query",
-        )
-        search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
-
-    if search_submitted:
-        try:
-            with st.spinner("Recherche dans la Base Adresse Nationale..."):
-                st.session_state["helionop_project_address_candidates"] = _cached_project_address_search(address_query)
-        except (GeocodingServiceError, ValueError) as exc:
-            st.session_state["helionop_project_address_candidates"] = []
-            st.error(str(exc))
-        else:
-            if not st.session_state["helionop_project_address_candidates"]:
-                st.warning("Aucune adresse correspondante n'a été trouvée.")
-
-    candidates = st.session_state.get("helionop_project_address_candidates", [])
-    if candidates:
-        selected_index = st.selectbox(
-            "Adresse proposée",
-            options=range(len(candidates)),
-            format_func=lambda index: _candidate_label(candidates[index]),
-            key="helionop_project_selected_address_candidate",
-        )
-        selected_candidate = candidates[int(selected_index)]
-        if st.button("Utiliser cette adresse", width="stretch", key="helionop_project_use_selected_address"):
-            st.session_state["helionop_project_latitude"] = float(selected_candidate["latitude"])
-            st.session_state["helionop_project_longitude"] = float(selected_candidate["longitude"])
-            st.session_state["helionop_project_address_label"] = str(selected_candidate["label"])
-            st.session_state.pop("helionop_architectural_result", None)
-            _propagate_helionop_project_location()
-            st.rerun()
-
-    latitude = float(st.session_state.get("helionop_project_latitude", DEFAULT_PROJECT_LATITUDE))
-    longitude = float(st.session_state.get("helionop_project_longitude", DEFAULT_PROJECT_LONGITUDE))
-    address = str(st.session_state.get("helionop_project_address_label") or "")
-    if address:
-        st.success(f"Adresse retenue : {address}")
-        _propagate_helionop_project_location()
-        map_state = st_folium(
-            _project_map(latitude, longitude, address),
-            height=360,
-            width="stretch",
-            returned_objects=["last_clicked"],
-            key="helionop_project_address_map",
-        )
-        st.caption("Clique sur la carte pour déplacer le point exact du projet. Le test de contraintes architecturales utilisera ce point.")
-        clicked = map_state.get("last_clicked") if isinstance(map_state, dict) else None
-        if isinstance(clicked, dict) and clicked.get("lat") is not None and clicked.get("lng") is not None:
-            clicked_latitude = float(clicked["lat"])
-            clicked_longitude = float(clicked["lng"])
-            if abs(clicked_latitude - latitude) > 1e-7 or abs(clicked_longitude - longitude) > 1e-7:
-                st.session_state["helionop_project_latitude"] = clicked_latitude
-                st.session_state["helionop_project_longitude"] = clicked_longitude
-                st.session_state.pop("helionop_architectural_result", None)
-                _propagate_helionop_project_location()
-                st.rerun()
-    else:
-        st.info("Recherche une adresse pour alimenter automatiquement le test de contraintes architecturales.")
-
-    return address, latitude, longitude
-
-
-def _render_project_weather_selection(site_default: SiteInputs, project_ui_key: str) -> tuple[str, str]:
-    region_names = list(DEFAULT_EPW_REGIONS.keys())
-    default_region = site_default.weather_region if site_default.weather_region in DEFAULT_EPW_REGIONS else region_names[0]
-    region_key = f"{project_ui_key}_nop_cold_weather_region"
-    if st.session_state.get(region_key) not in region_names:
-        st.session_state[region_key] = default_region
-
-    region_name = st.selectbox(
-        "Région météo",
-        options=region_names,
-        key=region_key,
-    )
-
-    station_labels = list(DEFAULT_EPW_REGIONS[region_name].keys())
-    station_key = f"{project_ui_key}_nop_cold_weather_station"
-    saved_station = WEATHER_STATION_LABEL_ALIASES.get(str(site_default.weather_station), str(site_default.weather_station))
-    legacy_station = st.session_state.get(station_key)
-    if legacy_station in WEATHER_STATION_LABEL_ALIASES:
-        st.session_state[station_key] = WEATHER_STATION_LABEL_ALIASES[str(legacy_station)]
-    if st.session_state.get(station_key) not in station_labels:
-        st.session_state[station_key] = saved_station if saved_station in station_labels else station_labels[0]
-
-    station_label = st.selectbox(
-        "Station météo",
-        options=station_labels,
-        key=station_key,
-    )
-    st.caption("Cette station sert au calcul ESM2 de température d'eau froide dans l'onglet 2.")
-    return str(region_name), str(station_label)
 
 
 def eur(value: float | None, digits: int = 0) -> str:
@@ -1124,6 +983,7 @@ def render_opportunity_notes_app() -> None:
     car_wash_liters_per_vehicle = needs_default.car_wash_liters_per_vehicle
     measured_daily = dict(needs_default.measured_daily_l_60c_by_month)
     monthly_coefficients = dict(needs_default.monthly_coefficients)
+    building_state = site_default.building_state if site_default.building_state in BUILDING_STATES else BUILDING_STATES[0]
     
     with tab_site:
         st.subheader("Caractéristiques du site")
@@ -1135,7 +995,6 @@ def render_opportunity_notes_app() -> None:
                 airtable_id=site_default.airtable_id,
                 client_name=site_default.client_name,
                 typology=site_default.typology,
-                building_state=site_default.building_state,
                 city=site_default.city,
                 address=site_default.address,
                 latitude=float(site_default.latitude or DEFAULT_PROJECT_LATITUDE),
@@ -1145,10 +1004,8 @@ def render_opportunity_notes_app() -> None:
             ),
             options=ProjectIdentityOptions(
                 show_typology=True,
-                show_building_state=True,
                 show_weather=True,
                 typology_options=tuple(SITE_TYPOLOGIES),
-                building_state_options=tuple(BUILDING_STATES),
                 weather_regions=DEFAULT_EPW_REGIONS,
                 weather_station_aliases=WEATHER_STATION_LABEL_ALIASES,
                 client_label="Maître d'ouvrage / client",
@@ -1171,7 +1028,6 @@ def render_opportunity_notes_app() -> None:
         weather_region = project_identity.weather_region or site_default.weather_region
         weather_station = project_identity.weather_station or site_default.weather_station
         typology = project_identity.typology or site_default.typology
-        building_state = project_identity.building_state or site_default.building_state
     data_source = site_default.data_source if site_default.data_source in DATA_SOURCES else list(DATA_SOURCES)[0]
 
     with tab_surface:
@@ -1259,6 +1115,13 @@ def render_opportunity_notes_app() -> None:
     # ---------------------------------------------------------------------------
     with tab_needs:
         st.subheader("Estimation des volumes ECS")
+        building_state = st.selectbox(
+            "Nature du bâtiment",
+            options=list(BUILDING_STATES),
+            index=list(BUILDING_STATES).index(building_state) if building_state in BUILDING_STATES else 0,
+            key=f"{project_ui_key}_building_state",
+            help="Cette information sert à qualifier la fiabilité attendue des données ECS, notamment pour les bâtiments existants.",
+        )
         data_source = st.radio(
             "Mode de détermination de la consommation ECS journalière",
             options=list(DATA_SOURCES),

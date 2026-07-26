@@ -312,6 +312,10 @@ def render_project_identity_form(
     defaults = defaults or ProjectIdentity()
     options = options or ProjectIdentityOptions()
     _init_identity_state(key_prefix, defaults, project_id)
+    pending_city_key = _key(key_prefix, "pending_city")
+    city_key = _key(key_prefix, "city")
+    if pending_city_key in st.session_state:
+        st.session_state[city_key] = str(st.session_state.pop(pending_city_key) or "")
 
     visible_core_fields = [
         options.show_project_name,
@@ -397,7 +401,7 @@ def render_project_identity_form(
                 st.session_state[_key(key_prefix, "project_longitude")] = float(selected_candidate["longitude"])
                 st.session_state[_key(key_prefix, "project_address_label")] = str(selected_candidate["label"])
                 if selected_candidate.get("city"):
-                    st.session_state[_key(key_prefix, "city")] = str(selected_candidate["city"])
+                    st.session_state[pending_city_key] = str(selected_candidate["city"])
                 identity = _current_identity(key_prefix)
                 if on_location_change is not None:
                     on_location_change(identity)

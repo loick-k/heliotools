@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import uuid
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
@@ -24,9 +25,14 @@ from .engine import (
 )
 from .report import build_opportunity_note
 from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, render_project_identity_form
+from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
+from .. import ui_portal
 
 APP_DIR = Path(__file__).resolve().parent
+PROJECT_STORE = JsonProjectStore("heliorc", app_label="HelioRC")
+DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliorc_projects.json"
+PROJECTS_SESSION_CACHE_KEY = "heliorc_projects_cache"
 
 
 def _render_styles() -> None:
@@ -101,15 +107,337 @@ def _init_state() -> None:
         "last_monthly": None,
         "last_inputs": None,
         "last_project": None,
+        "heliorc_current_project_id": "",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
+def _current_owner_email() -> str:
+    user = st.session_state.get("user")
+    if isinstance(user, dict):
+        return normalize_email(str(user.get("email", "")))
+    return ""
+
+
+def _current_project_data() -> dict[str, Any]:
+    project_date = st.session_state.get("project_date") or date.today()
+    if isinstance(project_date, date):
+        project_date_value = project_date.isoformat()
+    else:
+        project_date_value = str(project_date)
+    return {
+        "project_name": str(st.session_state.get("project_name") or "Nouveau projet HelioRC"),
+        "client": str(st.session_state.get("client") or ""),
+        "airtable_id": str(st.session_state.get("airtable_id") or ""),
+        "analyst": str(st.session_state.get("analyst") or ""),
+        "date": project_date_value,
+        "typology": str(st.session_state.get("heliorc_typology") or st.session_state.get("project_typology") or ""),
+        "region": str(st.session_state.get("heliorc_region") or st.session_state.get("project_region") or ""),
+        "department": str(st.session_state.get("heliorc_department") or st.session_state.get("project_department") or ""),
+        "city": str(st.session_state.get("heliorc_city") or st.session_state.get("project_city") or ""),
+        "address": str(st.session_state.get("heliorc_project_address_label") or st.session_state.get("project_address_label") or ""),
+        "latitude": st.session_state.get("heliorc_project_latitude", st.session_state.get("project_latitude")),
+        "longitude": st.session_state.get("heliorc_project_longitude", st.session_state.get("project_longitude")),
+        "weather_region": str(st.session_state.get("heliorc_weather_region") or st.session_state.get("weather_region") or ""),
+        "weather_station": str(st.session_state.get("heliorc_weather_station") or st.session_state.get("weather_station") or ""),
+        "notes": str(st.session_state.get("notes") or ""),
+        "needs_mode": str(st.session_state.get("needs_mode") or ""),
+    }
+
+
+def _current_inputs_data() -> dict[str, Any]:
+    manual_df = st.session_state.get("manual_needs_df")
+    monthly_needs = DEFAULT_MONTHLY_NEEDS_MWH
+    if isinstance(manual_df, pd.DataFrame) and "Besoins RCU (MWh)" in manual_df:
+        monthly_needs = manual_df["Besoins RCU (MWh)"].astype(float).tolist()
+    return {
+        "location_label": st.session_state.get("location_label"),
+        "zone": st.session_state.get("zone"),
+        "regime_label": st.session_state.get("regime_label"),
+        "mean_network_temperature_c": float(st.session_state.get("mean_temp", 65.0)),
+        "base_load_fraction": float(st.session_state.get("base_load_percent", 90)) / 100,
+        "monthly_needs_mwh": monthly_needs,
+        "needs_mode": st.session_state.get("needs_mode"),
+        "annual_heating_mwh": float(st.session_state.get("annual_heating", 0.0)),
+        "annual_ecs_mwh": float(st.session_state.get("annual_ecs", 0.0)),
+        "network_efficiency": float(st.session_state.get("network_efficiency_percent", 85)) / 100,
+        "calculation_mode": st.session_state.get("calculation_mode"),
+        "other_aid_eur": float(st.session_state.get("other_aid", 0.0)),
+        "electricity_price_eur_mwh": float(st.session_state.get("electricity_price", 0.0)),
+        "project_lifetime_years": int(st.session_state.get("project_lifetime", 30)),
+        "discount_rate_override": (
+            float(st.session_state.get("discount_rate_percent", 0.0)) / 100
+            if st.session_state.get("override_discount_rate")
+            else None
+        ),
+        "network_operates_summer": bool(st.session_state.get("network_operates_summer", True)),
+        "summer_excess_enr": bool(st.session_state.get("summer_excess_enr", False)),
+        "land_identified": bool(st.session_state.get("land_identified", True)),
+    }
+
+
+def _current_project_payload() -> dict[str, Any]:
+    project = _current_project_data()
+    project_id = str(st.session_state.get("heliorc_current_project_id") or "")
+    return {
+        "schema_version": 1,
+        "app_key": PROJECT_STORE.app_key,
+        "app_label": PROJECT_STORE.app_label,
+        "project_id": project_id,
+        "name": project["project_name"],
+        "owner_email": _current_owner_email(),
+        "project": project,
+        "inputs": _current_inputs_data(),
+    }
+
+
+def _project_file_label(project_file) -> str:
+    payload = project_file.payload
+    project = payload.get("project", {}) if isinstance(payload.get("project"), dict) else {}
+    name = str(project.get("project_name") or payload.get("name") or project_file.name)
+    airtable_id = str(project.get("airtable_id") or "")
+    updated = str(payload.get("updated_at") or project_file.updated_at or "")
+    parts = [name]
+    if airtable_id:
+        parts.append(f"Airtable {airtable_id}")
+    if updated:
+        parts.append(updated)
+    return " | ".join(parts)
+
+
+def _backup_projects_path_setting() -> str:
+    return (
+        ui_portal._secret_value("GITHUB_BACKUP_HELIORC_PROJECTS_PATH")
+        or ui_portal._secret_value("GITHUB_BACKUP_PROJECTS_PATH_HELIORC")
+        or DEFAULT_BACKUP_PROJECTS_PATH
+    )
+
+
+def _resolve_backup_projects_path() -> Path:
+    configured = Path(_backup_projects_path_setting())
+    if configured.is_absolute():
+        return configured
+    candidates = [
+        Path.cwd() / configured,
+        Path(__file__).resolve().parents[2] / configured,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _project_backup_slug(project: dict[str, Any]) -> str:
+    slug = str(project.get("slug", "") or "").strip()
+    if slug:
+        return safe_slug(slug, fallback="projet_heliorc")
+    owner = safe_slug(str(project.get("owner_email", "") or "anonymous"), fallback="anonymous")
+    project_id = str(project.get("project_id", "") or "")[:8]
+    name = safe_slug(str(project.get("name", "") or "Projet HelioRC"), fallback="projet_heliorc")
+    suffix = f"_{project_id}" if project_id else ""
+    return f"{owner}_{name}{suffix}"[:120]
+
+
+def _load_project_backups() -> list[dict[str, Any]]:
+    cached = st.session_state.get(PROJECTS_SESSION_CACHE_KEY)
+    if isinstance(cached, list):
+        return [dict(project) for project in cached if isinstance(project, dict)]
+
+    github_projects = ui_portal._github_read_json_list(_backup_projects_path_setting())
+    if github_projects:
+        ui_portal._write_json_list(_resolve_backup_projects_path(), github_projects)
+        st.session_state[PROJECTS_SESSION_CACHE_KEY] = github_projects
+        return github_projects
+
+    projects = ui_portal._read_json_list(_resolve_backup_projects_path())
+    if projects:
+        st.session_state[PROJECTS_SESSION_CACHE_KEY] = projects
+    return projects
+
+
+def _save_project_backups(projects: list[dict[str, Any]]) -> None:
+    clean_projects = [dict(project) for project in projects if isinstance(project, dict)]
+    st.session_state[PROJECTS_SESSION_CACHE_KEY] = clean_projects
+    ui_portal._write_json_list(_resolve_backup_projects_path(), clean_projects)
+    ui_portal._github_write_json_list(
+        _backup_projects_path_setting(),
+        clean_projects,
+        message="chore: update heliorc projects backup",
+    )
+
+
+def _restore_projects_from_backup() -> None:
+    for project in _load_project_backups():
+        payload = dict(project.get("payload", project)) if isinstance(project, dict) else {}
+        if not payload or str(payload.get("app_key", PROJECT_STORE.app_key)) != PROJECT_STORE.app_key:
+            continue
+        owner_email = normalize_email(str(payload.get("owner_email", "")))
+        if not owner_email:
+            continue
+        project_id = str(payload.get("project_id", "") or uuid.uuid4())
+        project_data = payload.get("project", {}) if isinstance(payload.get("project"), dict) else {}
+        name = str(payload.get("name") or project_data.get("project_name") or "Projet HelioRC")
+        PROJECT_STORE.ensure_owner_dir(owner_email)
+        path = PROJECT_STORE.project_path(owner_email=owner_email, project_id=project_id, project_name=name)
+        if not path.exists():
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _upsert_project_backup(*, path: Path, payload: dict[str, Any]) -> None:
+    backup_item = {
+        "slug": path.with_suffix("").name,
+        "saved_at": now_iso(),
+        "owner_email": payload.get("owner_email", ""),
+        "project_id": payload.get("project_id", ""),
+        "name": payload.get("name", path.stem),
+        "payload": payload,
+    }
+    slug = _project_backup_slug(backup_item)
+    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    projects.append(backup_item)
+    _save_project_backups(projects)
+
+
+def _delete_project_backup(*, payload: dict[str, Any] | None, path: Path) -> None:
+    payload = payload or {}
+    backup_item = {
+        "slug": path.with_suffix("").name,
+        "owner_email": payload.get("owner_email", ""),
+        "project_id": payload.get("project_id", ""),
+        "name": payload.get("name", path.stem),
+    }
+    slug = _project_backup_slug(backup_item)
+    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    _save_project_backups(projects)
+
+
+def _list_project_files():
+    _restore_projects_from_backup()
+    return PROJECT_STORE.list_projects(owner_email=_current_owner_email())
+
+
+def _load_heliorc_project_payload(payload: dict[str, Any]) -> None:
+    _load_imported_project(payload)
+    st.session_state["heliorc_current_project_id"] = str(payload.get("project_id") or "")
+
+
+def _reset_heliorc_project_state() -> None:
+    defaults = {
+        "project_name": "Étude d'opportunité solaire thermique",
+        "client": "",
+        "airtable_id": "",
+        "analyst": "",
+        "project_date": date.today(),
+        "project_city": "",
+        "project_address_label": "",
+        "project_latitude": 47.2184,
+        "project_longitude": -1.5536,
+        "heliorc_project_name": "Étude d'opportunité solaire thermique",
+        "heliorc_client_name": "",
+        "heliorc_airtable_id": "",
+        "heliorc_analyst": "",
+        "heliorc_city": "",
+        "heliorc_project_address_label": "",
+        "heliorc_project_latitude": 47.2184,
+        "heliorc_project_longitude": -1.5536,
+        "heliorc_notes": "",
+        "notes": "",
+        "last_results": None,
+        "last_monthly": None,
+        "last_inputs": None,
+        "last_project": None,
+        "heliorc_current_project_id": "",
+    }
+    for key, value in defaults.items():
+        st.session_state[key] = value
+
+
+def _render_project_store_controls() -> None:
+    owner_email = _current_owner_email()
+    if not owner_email:
+        st.info("Connecte-toi pour enregistrer et recharger les projets HelioRC.")
+        return
+
+    project_files = _list_project_files()
+    labels_by_path = {
+        str(project_file.path): _project_file_label(project_file)
+        for project_file in project_files
+    }
+    path_by_label = {
+        f"{label} [{index + 1}]": path
+        for index, (path, label) in enumerate(labels_by_path.items())
+    }
+
+    st.markdown("#### Projets HelioRC")
+    select_col, load_col, new_col, save_col, delete_col = st.columns([3.2, 0.9, 0.9, 0.9, 0.9])
+    with select_col:
+        selected_label = st.selectbox(
+            "Projet enregistré",
+            options=["-"] + list(path_by_label),
+            key="heliorc_project_store_selected",
+            label_visibility="collapsed",
+        )
+    selected_path = path_by_label.get(selected_label)
+    with load_col:
+        load_clicked = st.button("Charger", width="stretch", disabled=not selected_path)
+    with new_col:
+        new_clicked = st.button("Nouveau", width="stretch")
+    with save_col:
+        save_clicked = st.button("Enregistrer", type="primary", width="stretch")
+    with delete_col:
+        delete_clicked = st.button("Supprimer", width="stretch", disabled=not selected_path)
+
+    if load_clicked and selected_path:
+        try:
+            payload = PROJECT_STORE.load_project(path=Path(selected_path), owner_email=owner_email)
+            _load_heliorc_project_payload(payload)
+            st.success("Projet HelioRC chargé.")
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Chargement impossible : {exc}")
+
+    if new_clicked:
+        _reset_heliorc_project_state()
+        st.rerun()
+
+    if save_clicked:
+        try:
+            payload = _current_project_payload()
+            path = PROJECT_STORE.save_project(
+                payload=payload,
+                owner_email=owner_email,
+                project_name=str(payload.get("name") or "Projet HelioRC"),
+                project_id=str(payload.get("project_id") or "") or None,
+            )
+            saved_payload = PROJECT_STORE.load_project(path=path, owner_email=owner_email)
+            st.session_state["heliorc_current_project_id"] = str(saved_payload.get("project_id") or "")
+            _upsert_project_backup(path=path, payload=saved_payload)
+            st.success("Projet HelioRC enregistré.")
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Enregistrement impossible : {exc}")
+
+    if delete_clicked and selected_path:
+        try:
+            resolved = PROJECT_STORE.assert_project_path(Path(selected_path))
+            deleted_payload = None
+            try:
+                deleted_payload = PROJECT_STORE.load_project(path=resolved, owner_email=owner_email)
+            except Exception:
+                deleted_payload = None
+            resolved.unlink(missing_ok=True)
+            _delete_project_backup(payload=deleted_payload, path=resolved)
+            st.success("Projet HelioRC supprimé.")
+            st.rerun()
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"Suppression impossible : {exc}")
+
+
 def _load_imported_project(payload: dict[str, Any]) -> None:
     project_data = payload.get("project", {})
     input_data = payload.get("inputs", {})
+    st.session_state["heliorc_current_project_id"] = str(payload.get("project_id") or "")
     for key in ["project_name", "client", "airtable_id", "analyst", "notes"]:
         if key in project_data:
             st.session_state[key] = project_data[key]
@@ -171,6 +499,8 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
 
 def _render_project_tab() -> None:
     st.subheader("Projet")
+    _render_project_store_controls()
+    st.divider()
     imported = st.file_uploader(
         "Importer un projet HelioRC (JSON)",
         type=["json"],
