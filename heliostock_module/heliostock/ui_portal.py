@@ -21,6 +21,7 @@ import streamlit as st
 import pandas as pd
 
 from .common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
+from .common.project_identity import project_context_to_payload
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -1106,6 +1107,22 @@ def _project_payload(name: str) -> dict[str, Any]:
         for key in SAVEABLE_WIDGET_KEYS
         if key in st.session_state and _is_safe_project_widget_key(key)
     }
+    project_context_source = {
+        "project_name": widget_values.get("heliostock_project_name") or name,
+        "client_name": widget_values.get("heliostock_client_name"),
+        "airtable_id": widget_values.get("heliostock_airtable_id"),
+        "analyst": widget_values.get("heliostock_analyst"),
+        "project_date": widget_values.get("heliostock_project_date"),
+        "typology": widget_values.get("heliostock_typology"),
+        "region": widget_values.get("heliostock_region"),
+        "department": widget_values.get("heliostock_department"),
+        "city": widget_values.get("heliostock_city"),
+        "address": widget_values.get("heliostock_project_address_label"),
+        "latitude": widget_values.get("heliostock_project_latitude"),
+        "longitude": widget_values.get("heliostock_project_longitude"),
+        "weather_region": widget_values.get("weather_region"),
+        "weather_station": widget_values.get("weather_station"),
+    }
     current_shared = st.session_state.get("heliostock_current_project_shared_with", [])
     if not isinstance(current_shared, list):
         current_shared = []
@@ -1119,6 +1136,13 @@ def _project_payload(name: str) -> dict[str, Any]:
         "created_by_email": _current_user_email(),
         "saved_at": now_iso(),
         "app": "HelioStock",
+        "project_context": project_context_to_payload(
+            project_context_source,
+            app_key=HELIOSTOCK_PROJECT_STORE.app_key,
+            app_label=HELIOSTOCK_PROJECT_STORE.app_label,
+            geographic_scope="Bretagne et Pays de la Loire",
+            weather_source="EPW / TMYx",
+        ),
         "widget_values": widget_values,
         "shared_with_emails": sorted({_email_normalise(str(email)) for email in current_shared if _email_normalise(str(email))}),
         "has_demand_excel": bool(st.session_state.get("heliostock_demand_file_bytes")),

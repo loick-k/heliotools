@@ -32,6 +32,7 @@ from ..common.project_identity import (
     HELIORC_SITE_TYPOLOGIES,
     ProjectIdentity,
     ProjectIdentityOptions,
+    project_context_to_payload,
     render_project_identity_form,
 )
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
@@ -242,6 +243,14 @@ def _current_project_payload() -> dict[str, Any]:
         "project_id": project_id,
         "name": project["project_name"],
         "owner_email": _current_owner_email(),
+        "project_context": project_context_to_payload(
+            _project_identity_from_state(),
+            app_key=PROJECT_STORE.app_key,
+            app_label=PROJECT_STORE.app_label,
+            geographic_scope="France",
+            weather_source="PVGIS",
+            extra={"needs_mode": project.get("needs_mode", "")},
+        ),
         "project": project,
         "inputs": _current_inputs_data(),
     }

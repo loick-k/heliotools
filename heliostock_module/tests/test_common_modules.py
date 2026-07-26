@@ -1,4 +1,7 @@
+from datetime import date
+
 from heliostock.common.formatting import format_mwh_from_kwh, owner_slug, safe_slug
+from heliostock.common.project_identity import ProjectIdentity, project_context_to_payload
 from heliostock.common.project_store import JsonProjectStore
 from heliostock.economics_core import compute_heat_costs
 from heliostock.project_store import JsonProjectStore as LegacyJsonProjectStore
@@ -36,3 +39,50 @@ def test_project_store_uses_explicit_artifact_directories(tmp_path):
     assert result_path.parent.name == "results"
     assert input_path.parent.parent == result_path.parent.parent
     assert input_path.parent.parent == path.with_suffix("")
+
+
+def test_project_context_payload_normalizes_shared_fields():
+    context = project_context_to_payload(
+        ProjectIdentity(
+            project_name="Projet test",
+            client_name="Client",
+            airtable_id="rec123",
+            analyst="Analyste",
+            project_date=date(2026, 7, 26),
+            typology="Industrie",
+            region="Bretagne",
+            department="35 - Ille-et-Vilaine",
+            city="Rennes",
+            address="1 rue Exemple, Rennes",
+            latitude=48.1173,
+            longitude=-1.6778,
+            weather_region="Bretagne",
+            weather_station="Rennes",
+        ),
+        app_key="heliostock",
+        app_label="HelioStock",
+        geographic_scope="Bretagne et Pays de la Loire",
+        weather_source="EPW / TMYx",
+    )
+
+    assert context["schema_version"] == 1
+    assert context["project_name"] == "Projet test"
+    assert context["project_date"] == "2026-07-26"
+    assert context["latitude"] == 48.1173
+    assert context["weather"] == {"source": "EPW / TMYx", "region": "Bretagne", "station": "Rennes"}
+
+
+def test_project_context_payload_preserves_app_specific_scope_and_weather_source():
+    context = project_context_to_payload(
+        {"project_name": "Réseau test", "client": "Collectivité", "weather_station": "PVGIS 44"},
+        app_key="heliorc",
+        app_label="HelioRC",
+        geographic_scope="France",
+        weather_source="PVGIS",
+        extra={"needs_mode": "ratio"},
+    )
+
+    assert context["client_name"] == "Collectivité"
+    assert context["geographic_scope"] == "France"
+    assert context["weather"]["source"] == "PVGIS"
+    assert context["extra"] == {"needs_mode": "ratio"}

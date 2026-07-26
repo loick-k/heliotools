@@ -67,7 +67,7 @@ from .opportunity_model import (
 )
 from .pdf_export import build_opportunity_note_pdf
 from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
-from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, render_project_identity_form
+from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, project_context_to_payload, render_project_identity_form
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..common.solar_thermal_cost_reference import (
     SOLAR_THERMAL_COST_REFERENCE_NOTE,
@@ -2246,6 +2246,14 @@ def render_opportunity_notes_app() -> None:
         "owner_email": current_owner_email(),
         "created_at": payload.get("created_at", now_iso()),
         "updated_at": now_iso(),
+        "project_context": project_context_to_payload(
+            site_inputs,
+            app_key=APP_KEY,
+            app_label=APP_LABEL,
+            geographic_scope="Bretagne et Pays de la Loire",
+            weather_source="EPW / TMYx",
+            extra={"data_source": site_inputs.data_source},
+        ),
         "site": asdict(site_inputs),
         "needs": asdict(needs_inputs),
         "sizing": asdict(sizing_inputs),
