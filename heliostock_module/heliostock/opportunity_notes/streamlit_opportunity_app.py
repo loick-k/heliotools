@@ -69,6 +69,7 @@ from .opportunity_model import (
 )
 from .pdf_export import build_opportunity_note_pdf
 from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
+from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, render_project_identity_form
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..common.solar_thermal_cost_reference import (
     SOLAR_THERMAL_COST_REFERENCE_NOTE,
@@ -200,6 +201,11 @@ def _restore_helionop_socol_state(payload: dict[str, Any], project_id: str) -> N
         return
     st.session_state["helionop_socol_payload_project_id"] = project_id
     restore_socol_state(payload.get("socol") if isinstance(payload, dict) else None)
+
+
+def _on_helionop_location_change(_: ProjectIdentity) -> None:
+    st.session_state.pop("helionop_architectural_result", None)
+    _propagate_helionop_project_location()
 
 
 def _render_project_location_form() -> tuple[str, float, float]:
@@ -1121,26 +1127,51 @@ def render_opportunity_notes_app() -> None:
     
     with tab_site:
         st.subheader("Caractéristiques du site")
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            project_name = st.text_input("Nom du projet", value=site_default.project_name)
-            airtable_id = st.text_input("ID Airtable", value=site_default.airtable_id)
-        with col_b:
-            client_name = st.text_input("Maître d'ouvrage / client", value=site_default.client_name)
-            city = st.text_input("Commune", value=site_default.city)
-        with col_c:
-            typology = st.selectbox(
-                "Typologie d'établissement",
-                options=list(SITE_TYPOLOGIES),
-                index=list(SITE_TYPOLOGIES).index(site_default.typology) if site_default.typology in SITE_TYPOLOGIES else 0,
-            )
-            building_state = st.radio(
-                "Nature du bâtiment",
-                options=list(BUILDING_STATES),
-                index=list(BUILDING_STATES).index(site_default.building_state)
-                if site_default.building_state in BUILDING_STATES
-                else 0,
-            )
+        project_identity = render_project_identity_form(
+            key_prefix="helionop",
+            project_id=str(payload.get("project_id", "projet")),
+            defaults=ProjectIdentity(
+                project_name=site_default.project_name,
+                airtable_id=site_default.airtable_id,
+                client_name=site_default.client_name,
+                typology=site_default.typology,
+                building_state=site_default.building_state,
+                city=site_default.city,
+                address=site_default.address,
+                latitude=float(site_default.latitude or DEFAULT_PROJECT_LATITUDE),
+                longitude=float(site_default.longitude or DEFAULT_PROJECT_LONGITUDE),
+                weather_region=site_default.weather_region,
+                weather_station=site_default.weather_station,
+            ),
+            options=ProjectIdentityOptions(
+                show_typology=True,
+                show_building_state=True,
+                show_weather=True,
+                typology_options=tuple(SITE_TYPOLOGIES),
+                building_state_options=tuple(BUILDING_STATES),
+                weather_regions=DEFAULT_EPW_REGIONS,
+                weather_station_aliases=WEATHER_STATION_LABEL_ALIASES,
+                client_label="Maître d'ouvrage / client",
+                address_help="Recherche une adresse pour alimenter automatiquement le test de contraintes architecturales.",
+                map_caption=(
+                    "Clique sur la carte pour déplacer le point exact du projet. Le test de contraintes architecturales "
+                    "utilisera ce point."
+                ),
+            ),
+            on_location_change=_on_helionop_location_change,
+        )
+        _propagate_helionop_project_location()
+        project_name = project_identity.project_name
+        airtable_id = project_identity.airtable_id
+        client_name = project_identity.client_name
+        city = project_identity.city
+        address = project_identity.address
+        latitude = project_identity.latitude
+        longitude = project_identity.longitude
+        weather_region = project_identity.weather_region or site_default.weather_region
+        weather_station = project_identity.weather_station or site_default.weather_station
+        typology = project_identity.typology or site_default.typology
+        building_state = project_identity.building_state or site_default.building_state
     
         data_source = st.radio(
             "Mode de détermination de la consommation ECS journalière",
@@ -1230,16 +1261,7 @@ def render_opportunity_notes_app() -> None:
                     key=f"{project_ui_key}_project_car_wash_vehicles_per_day",
                     help="Cette valeur sert à exprimer la consommation ECS équivalente en L/véhicule à 60 °C.",
                 )
-        st.markdown("### Localisation")
-        st.caption(
-            "L'adresse du projet est utilisée par l'onglet Contraintes architecturales. "
-            "Le point peut être ajusté manuellement en cliquant sur la carte."
-        )
-        address, latitude, longitude = _render_project_location_form()
 
-        st.markdown("### Station météo")
-        weather_region, weather_station = _render_project_weather_selection(site_default, project_ui_key)
-    
     site_inputs = SiteInputs(
         project_name=project_name,
         airtable_id=airtable_id,

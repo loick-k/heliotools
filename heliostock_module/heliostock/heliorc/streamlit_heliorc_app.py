@@ -23,6 +23,7 @@ from .engine import (
     estimate_monthly_needs,
 )
 from .report import build_opportunity_note
+from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, render_project_identity_form
 
 APP_DIR = Path(__file__).resolve().parent
 
@@ -123,8 +124,14 @@ def render_heliorc_app() -> None:
                     for key in ["project_name", "client", "airtable_id", "analyst", "notes"]:
                         if key in project_data:
                             st.session_state[key] = project_data[key]
+                    st.session_state["heliorc_project_name"] = st.session_state.get("project_name", "")
+                    st.session_state["heliorc_client_name"] = st.session_state.get("client", "")
+                    st.session_state["heliorc_airtable_id"] = st.session_state.get("airtable_id", "")
+                    st.session_state["heliorc_analyst"] = st.session_state.get("analyst", "")
+                    st.session_state["heliorc_notes"] = st.session_state.get("notes", "")
                     if project_data.get("date"):
                         st.session_state["project_date"] = date.fromisoformat(project_data["date"])
+                        st.session_state["heliorc_project_date"] = st.session_state["project_date"]
                     mapping = {
                         "location_label": "location_label",
                         "zone": "zone",
@@ -160,12 +167,33 @@ def render_heliorc_app() -> None:
                 except Exception as exc:  # noqa: BLE001
                     st.error(f"Import impossible : {exc}")
 
-        st.text_input("Nom du projet", key="project_name")
-        st.text_input("Maître d'ouvrage / territoire", key="client")
-        st.text_input("Référence / ID Airtable", key="airtable_id")
-        st.text_input("Analyste", key="analyst")
-        st.date_input("Date de la note", key="project_date")
-        st.text_area("Commentaire de synthèse", key="notes", height=110)
+        project_identity = render_project_identity_form(
+            key_prefix="heliorc",
+            defaults=ProjectIdentity(
+                project_name=str(st.session_state.get("project_name") or ""),
+                client_name=str(st.session_state.get("client") or ""),
+                airtable_id=str(st.session_state.get("airtable_id") or ""),
+                analyst=str(st.session_state.get("analyst") or ""),
+                project_date=st.session_state.get("project_date"),
+                notes=str(st.session_state.get("notes") or ""),
+            ),
+            options=ProjectIdentityOptions(
+                show_city=False,
+                show_address_search=False,
+                show_map=False,
+                show_analyst=True,
+                show_project_date=True,
+                show_notes=True,
+                client_label="Maître d'ouvrage / territoire",
+                airtable_label="Référence / ID Airtable",
+            ),
+        )
+        st.session_state["project_name"] = project_identity.project_name
+        st.session_state["client"] = project_identity.client_name
+        st.session_state["airtable_id"] = project_identity.airtable_id
+        st.session_state["analyst"] = project_identity.analyst
+        st.session_state["project_date"] = project_identity.project_date or date.today()
+        st.session_state["notes"] = project_identity.notes
 
     st.markdown(
         """

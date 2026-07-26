@@ -2,15 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import folium
 import streamlit as st
-from streamlit_folium import st_folium
 
-from .geocoding_service import GeocodingServiceError, search_addresses
-
-
-DEFAULT_PROJECT_LATITUDE = 47.2184
-DEFAULT_PROJECT_LONGITUDE = -1.5536
+from .common.project_identity import (
+    DEFAULT_PROJECT_LATITUDE,
+    DEFAULT_PROJECT_LONGITUDE,
+    ProjectIdentity,
+    ProjectIdentityOptions,
+    render_project_identity_form,
+)
+from .ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 
 
 @dataclass(frozen=True)
@@ -18,56 +19,28 @@ class HelioStockProjectForm:
     project_name: str
     client_name: str
     airtable_id: str
+    analyst: str
+    project_date: object
+    typology: str
+    region: str
+    department: str
     city: str
     address: str
     latitude: float
     longitude: float
+    weather_region: str
+    weather_station: str
 
 
-@st.cache_data(ttl=86_400, show_spinner=False)
-def _cached_project_address_search(query: str) -> list[dict[str, object]]:
-    return search_addresses(query=query, limit=5)
-
-
-def _candidate_label(candidate: dict[str, object]) -> str:
-    label = str(candidate.get("label") or "Adresse trouvée")
-    context = str(candidate.get("context") or "")
-    score = candidate.get("score")
-    parts: list[str] = []
-    if context and context.lower() not in label.lower():
-        parts.append(context)
-    if isinstance(score, (float, int)):
-        parts.append(f"pertinence {score * 100:.0f} %")
-    return f"{label} - {' · '.join(parts)}" if parts else label
-
-
-def _project_map(latitude: float, longitude: float, address: str) -> folium.Map:
-    map_object = folium.Map(
-        location=[latitude, longitude],
-        zoom_start=16,
-        tiles="OpenStreetMap",
-        control_scale=True,
-    )
-    folium.Marker(
-        [latitude, longitude],
-        tooltip=address or "Adresse du projet",
-        popup=folium.Popup(f"<b>{address or 'Adresse du projet'}</b><br>{latitude:.6f}, {longitude:.6f}", max_width=280),
-        icon=folium.Icon(color="red", icon="info-sign"),
-    ).add_to(map_object)
-    folium.Circle(
-        [latitude, longitude],
-        radius=35,
-        color="#ef4444",
-        fill=False,
-        weight=2,
-    ).add_to(map_object)
-    return map_object
-
-
-def _propagate_project_location_to_checks() -> None:
-    latitude = float(st.session_state.get("heliostock_project_latitude", DEFAULT_PROJECT_LATITUDE))
-    longitude = float(st.session_state.get("heliostock_project_longitude", DEFAULT_PROJECT_LONGITUDE))
-    address = str(st.session_state.get("heliostock_project_address_label") or "")
+def _propagate_project_location_to_checks(identity: ProjectIdentity | None = None) -> None:
+    if identity is None:
+        latitude = float(st.session_state.get("heliostock_project_latitude", DEFAULT_PROJECT_LATITUDE))
+        longitude = float(st.session_state.get("heliostock_project_longitude", DEFAULT_PROJECT_LONGITUDE))
+        address = str(st.session_state.get("heliostock_project_address_label") or "")
+    else:
+        latitude = identity.latitude
+        longitude = identity.longitude
+        address = identity.address
 
     st.session_state["gmi_address_query"] = address
     st.session_state["gmi_selected_address_label"] = address
@@ -79,12 +52,22 @@ def _propagate_project_location_to_checks() -> None:
     st.session_state["heliostock_architectural_longitude"] = longitude
 
 
-def render_heliostock_project_form() -> HelioStockProjectForm:
-    """Render the HelioStock project identity and shared address block."""
+def _propagate_project_weather(identity: ProjectIdentity) -> None:
+    if identity.weather_region:
+        st.session_state["weather_region"] = identity.weather_region
+    if identity.weather_station:
+        st.session_state["weather_station"] = identity.weather_station
 
-    pending_city = st.session_state.pop("heliostock_city_pending", None)
-    if pending_city:
-        st.session_state["heliostock_city"] = str(pending_city)
+
+def _on_location_change(identity: ProjectIdentity) -> None:
+    st.session_state.pop("gmi_result", None)
+    st.session_state.pop("heliostock_architectural_result", None)
+    _propagate_project_location_to_checks(identity)
+    _propagate_project_weather(identity)
+
+
+def render_heliostock_project_form() -> HelioStockProjectForm:
+    """Render the shared project identity block used by HelioStock."""
 
     st.subheader("Projet")
     st.caption(
@@ -92,87 +75,84 @@ def render_heliostock_project_form() -> HelioStockProjectForm:
         "et par le test de contraintes architecturales."
     )
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        project_name = st.text_input("Nom du projet", key="heliostock_project_name")
-        airtable_id = st.text_input("ID Airtable", key="heliostock_airtable_id")
-    with col_b:
-        client_name = st.text_input("Maître d'ouvrage", key="heliostock_client_name")
-        city = st.text_input("Commune", key="heliostock_city")
-
-    with st.form("heliostock_project_address_form", clear_on_submit=False):
-        address_query = st.text_input(
-            "Adresse",
-            placeholder="Ex. 10 rue de Strasbourg, 44000 Nantes",
-            key="heliostock_project_address_query",
-        )
-        search_submitted = st.form_submit_button("Rechercher l'adresse", width="stretch")
-
-    if search_submitted:
-        try:
-            with st.spinner("Recherche dans la Base Adresse Nationale..."):
-                st.session_state["heliostock_project_address_candidates"] = _cached_project_address_search(address_query)
-        except (GeocodingServiceError, ValueError) as exc:
-            st.session_state["heliostock_project_address_candidates"] = []
-            st.error(str(exc))
-        else:
-            if not st.session_state["heliostock_project_address_candidates"]:
-                st.warning("Aucune adresse correspondante n'a été trouvée.")
-
-    candidates = st.session_state.get("heliostock_project_address_candidates", [])
-    if candidates:
-        selected_index = st.selectbox(
-            "Adresse proposée",
-            options=range(len(candidates)),
-            format_func=lambda index: _candidate_label(candidates[index]),
-            key="heliostock_project_selected_address_candidate",
-        )
-        selected_candidate = candidates[int(selected_index)]
-        if st.button("Utiliser cette adresse", width="stretch", key="heliostock_project_use_selected_address"):
-            st.session_state["heliostock_project_latitude"] = float(selected_candidate["latitude"])
-            st.session_state["heliostock_project_longitude"] = float(selected_candidate["longitude"])
-            st.session_state["heliostock_project_address_label"] = str(selected_candidate["label"])
-            if selected_candidate.get("city"):
-                st.session_state["heliostock_city_pending"] = str(selected_candidate["city"])
-            st.session_state.pop("gmi_result", None)
-            st.session_state.pop("heliostock_architectural_result", None)
-            _propagate_project_location_to_checks()
-            st.rerun()
-
-    latitude = float(st.session_state.get("heliostock_project_latitude", DEFAULT_PROJECT_LATITUDE))
-    longitude = float(st.session_state.get("heliostock_project_longitude", DEFAULT_PROJECT_LONGITUDE))
-    address = str(st.session_state.get("heliostock_project_address_label") or "")
-    if address:
-        st.success(f"Adresse retenue : {address}")
-        _propagate_project_location_to_checks()
-        map_state = st_folium(
-            _project_map(latitude, longitude, address),
-            height=360,
-            width="stretch",
-            returned_objects=["last_clicked"],
-            key="heliostock_project_address_map",
-        )
-        st.caption("Clique sur la carte pour déplacer le point exact du projet. Les contrôles GMI et patrimoniaux utiliseront ce point.")
-        clicked = map_state.get("last_clicked") if isinstance(map_state, dict) else None
-        if isinstance(clicked, dict) and clicked.get("lat") is not None and clicked.get("lng") is not None:
-            clicked_latitude = float(clicked["lat"])
-            clicked_longitude = float(clicked["lng"])
-            if abs(clicked_latitude - latitude) > 1e-7 or abs(clicked_longitude - longitude) > 1e-7:
-                st.session_state["heliostock_project_latitude"] = clicked_latitude
-                st.session_state["heliostock_project_longitude"] = clicked_longitude
-                st.session_state.pop("gmi_result", None)
-                st.session_state.pop("heliostock_architectural_result", None)
-                _propagate_project_location_to_checks()
-                st.rerun()
-    else:
-        st.info("Recherche une adresse pour alimenter automatiquement les blocs GMI et contraintes architecturales.")
+    identity = render_project_identity_form(
+        key_prefix="heliostock",
+        defaults=ProjectIdentity(
+            project_name=str(st.session_state.get("heliostock_project_name") or ""),
+            client_name=str(st.session_state.get("heliostock_client_name") or ""),
+            airtable_id=str(st.session_state.get("heliostock_airtable_id") or ""),
+            analyst=str(st.session_state.get("heliostock_analyst") or ""),
+            project_date=st.session_state.get("heliostock_project_date"),
+            typology=str(st.session_state.get("heliostock_typology") or "Industrie"),
+            region=str(st.session_state.get("heliostock_region") or "Bretagne"),
+            department=str(st.session_state.get("heliostock_department") or "35 - Ille-et-Vilaine"),
+            city=str(st.session_state.get("heliostock_city") or ""),
+            address=str(st.session_state.get("heliostock_project_address_label") or ""),
+            latitude=float(st.session_state.get("heliostock_project_latitude", DEFAULT_PROJECT_LATITUDE)),
+            longitude=float(st.session_state.get("heliostock_project_longitude", DEFAULT_PROJECT_LONGITUDE)),
+            weather_region=str(st.session_state.get("weather_region") or "Bretagne"),
+            weather_station=str(st.session_state.get("weather_station") or "Rennes"),
+        ),
+        options=ProjectIdentityOptions(
+            show_analyst=True,
+            show_project_date=True,
+            show_typology=True,
+            show_region=True,
+            show_department=True,
+            show_weather=True,
+            typology_options=(
+                "Industrie",
+                "Logement collectif",
+                "EHPAD",
+                "Hôpital",
+                "Hôtel",
+                "Camping",
+                "Piscine et centre aquatique",
+                "Bâtiment public",
+                "Bâtiment sportif et loisirs",
+                "Station de lavage",
+                "Autre",
+            ),
+            region_options=("Bretagne", "Pays de la Loire"),
+            department_options=(
+                "22 - Côtes-d'Armor",
+                "29 - Finistère",
+                "35 - Ille-et-Vilaine",
+                "44 - Loire-Atlantique",
+                "49 - Maine-et-Loire",
+                "53 - Mayenne",
+                "56 - Morbihan",
+                "72 - Sarthe",
+                "85 - Vendée",
+            ),
+            weather_regions=DEFAULT_EPW_REGIONS,
+            weather_station_aliases=WEATHER_STATION_LABEL_ALIASES,
+            client_label="Maître d'ouvrage",
+            address_help="Recherche une adresse pour alimenter automatiquement les blocs GMI et contraintes architecturales.",
+            map_caption=(
+                "Clique sur la carte pour déplacer le point exact du projet. Les contrôles GMI et patrimoniaux "
+                "utiliseront ce point."
+            ),
+        ),
+        on_location_change=_on_location_change,
+    )
+    if identity.address:
+        _propagate_project_location_to_checks(identity)
+    _propagate_project_weather(identity)
 
     return HelioStockProjectForm(
-        project_name=str(project_name or ""),
-        client_name=str(client_name or ""),
-        airtable_id=str(airtable_id or ""),
-        city=str(city or ""),
-        address=address,
-        latitude=latitude,
-        longitude=longitude,
+        project_name=identity.project_name,
+        client_name=identity.client_name,
+        airtable_id=identity.airtable_id,
+        analyst=identity.analyst,
+        project_date=identity.project_date,
+        typology=identity.typology,
+        region=identity.region,
+        department=identity.department,
+        city=identity.city,
+        address=identity.address,
+        latitude=identity.latitude,
+        longitude=identity.longitude,
+        weather_region=identity.weather_region,
+        weather_station=identity.weather_station,
     )
