@@ -24,6 +24,7 @@ from .engine import (
 )
 from .report import build_opportunity_note
 from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, render_project_identity_form
+from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 
 APP_DIR = Path(__file__).resolve().parent
 
@@ -67,6 +68,15 @@ def _init_state() -> None:
         "airtable_id": "",
         "analyst": "",
         "project_date": date.today(),
+        "project_city": "",
+        "project_address_label": "",
+        "project_latitude": 47.2184,
+        "project_longitude": -1.5536,
+        "project_typology": "Réseau de chaleur",
+        "project_region": "Bretagne",
+        "project_department": "35 - Ille-et-Vilaine",
+        "weather_region": "Bretagne",
+        "weather_station": "Rennes",
         "notes": "",
         "location_label": "1 - Bourg-en-Bresse",
         "zone": "Nord",
@@ -97,6 +107,157 @@ def _init_state() -> None:
             st.session_state[key] = value
 
 
+def _load_imported_project(payload: dict[str, Any]) -> None:
+    project_data = payload.get("project", {})
+    input_data = payload.get("inputs", {})
+    for key in ["project_name", "client", "airtable_id", "analyst", "notes"]:
+        if key in project_data:
+            st.session_state[key] = project_data[key]
+    if "city" in project_data:
+        st.session_state["heliorc_city"] = project_data["city"]
+    if "address" in project_data:
+        st.session_state["heliorc_project_address_label"] = project_data["address"]
+    if "latitude" in project_data:
+        st.session_state["heliorc_project_latitude"] = float(project_data["latitude"])
+    if "longitude" in project_data:
+        st.session_state["heliorc_project_longitude"] = float(project_data["longitude"])
+    if "typology" in project_data:
+        st.session_state["heliorc_typology"] = project_data["typology"]
+    if "region" in project_data:
+        st.session_state["heliorc_region"] = project_data["region"]
+    if "department" in project_data:
+        st.session_state["heliorc_department"] = project_data["department"]
+    if "weather_region" in project_data:
+        st.session_state["heliorc_weather_region"] = project_data["weather_region"]
+        st.session_state["weather_region"] = project_data["weather_region"]
+    if "weather_station" in project_data:
+        st.session_state["heliorc_weather_station"] = project_data["weather_station"]
+        st.session_state["weather_station"] = project_data["weather_station"]
+    if project_data.get("date"):
+        st.session_state["project_date"] = date.fromisoformat(project_data["date"])
+        st.session_state["heliorc_project_date"] = st.session_state["project_date"]
+    mapping = {
+        "location_label": "location_label",
+        "zone": "zone",
+        "regime_label": "regime_label",
+        "mean_network_temperature_c": "mean_temp",
+        "calculation_mode": "calculation_mode",
+        "other_aid_eur": "other_aid",
+        "electricity_price_eur_mwh": "electricity_price",
+        "project_lifetime_years": "project_lifetime",
+        "network_operates_summer": "network_operates_summer",
+        "summer_excess_enr": "summer_excess_enr",
+        "land_identified": "land_identified",
+    }
+    for source_key, state_key in mapping.items():
+        if source_key in input_data:
+            st.session_state[state_key] = input_data[source_key]
+    if "base_load_fraction" in input_data:
+        st.session_state["base_load_percent"] = round(float(input_data["base_load_fraction"]) * 100)
+    monthly_values = input_data.get("monthly_needs_mwh")
+    if isinstance(monthly_values, list) and len(monthly_values) == 12:
+        st.session_state["manual_needs_df"] = _initial_monthly_dataframe([float(value) for value in monthly_values])
+        st.session_state.pop("manual_needs_editor", None)
+    rate = input_data.get("discount_rate_override")
+    st.session_state["override_discount_rate"] = rate is not None
+    if rate is not None:
+        st.session_state["discount_rate_percent"] = float(rate) * 100
+
+
+def _render_project_tab() -> None:
+    st.subheader("Projet")
+    imported = st.file_uploader(
+        "Importer un projet HelioRC (JSON)",
+        type=["json"],
+        help="Recharge les métadonnées, hypothèses et besoins mensuels exportés par l'application.",
+    )
+    if imported is not None:
+        payload_bytes = imported.getvalue()
+        payload_hash = hashlib.sha256(payload_bytes).hexdigest()
+        if payload_hash != st.session_state.get("_last_import_hash"):
+            try:
+                _load_imported_project(json.loads(payload_bytes.decode("utf-8")))
+                st.session_state["_last_import_hash"] = payload_hash
+                st.success("Projet importé.")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Import impossible : {exc}")
+
+    project_identity = render_project_identity_form(
+        key_prefix="heliorc",
+        defaults=ProjectIdentity(
+            project_name=str(st.session_state.get("project_name") or ""),
+            client_name=str(st.session_state.get("client") or ""),
+            airtable_id=str(st.session_state.get("airtable_id") or ""),
+            analyst=str(st.session_state.get("analyst") or ""),
+            project_date=st.session_state.get("project_date"),
+            typology=str(st.session_state.get("heliorc_typology") or st.session_state.get("project_typology") or ""),
+            region=str(st.session_state.get("heliorc_region") or st.session_state.get("project_region") or ""),
+            department=str(st.session_state.get("heliorc_department") or st.session_state.get("project_department") or ""),
+            city=str(st.session_state.get("heliorc_city") or st.session_state.get("project_city") or ""),
+            address=str(st.session_state.get("heliorc_project_address_label") or st.session_state.get("project_address_label") or ""),
+            latitude=float(st.session_state.get("heliorc_project_latitude", st.session_state.get("project_latitude", 47.2184))),
+            longitude=float(st.session_state.get("heliorc_project_longitude", st.session_state.get("project_longitude", -1.5536))),
+            weather_region=str(st.session_state.get("heliorc_weather_region") or st.session_state.get("weather_region") or "Bretagne"),
+            weather_station=str(st.session_state.get("heliorc_weather_station") or st.session_state.get("weather_station") or "Rennes"),
+            notes=str(st.session_state.get("notes") or ""),
+        ),
+        options=ProjectIdentityOptions(
+            show_analyst=True,
+            show_project_date=True,
+            show_typology=True,
+            show_region=True,
+            show_department=True,
+            show_weather=True,
+            show_notes=True,
+            typology_options=(
+                "Réseau de chaleur",
+                "Logement collectif",
+                "EHPAD",
+                "Hôpital",
+                "Piscine et centre aquatique",
+                "Bâtiment public",
+                "Industrie",
+                "Autre",
+            ),
+            region_options=("Bretagne", "Pays de la Loire"),
+            department_options=(
+                "22 - Côtes-d'Armor",
+                "29 - Finistère",
+                "35 - Ille-et-Vilaine",
+                "44 - Loire-Atlantique",
+                "49 - Maine-et-Loire",
+                "53 - Mayenne",
+                "56 - Morbihan",
+                "72 - Sarthe",
+                "85 - Vendée",
+            ),
+            weather_regions=DEFAULT_EPW_REGIONS,
+            weather_station_aliases=WEATHER_STATION_LABEL_ALIASES,
+            client_label="Maître d'ouvrage / territoire",
+            airtable_label="Référence / ID Airtable",
+        ),
+    )
+    st.session_state["project_name"] = project_identity.project_name
+    st.session_state["client"] = project_identity.client_name
+    st.session_state["airtable_id"] = project_identity.airtable_id
+    st.session_state["analyst"] = project_identity.analyst
+    st.session_state["project_date"] = project_identity.project_date or date.today()
+    st.session_state["notes"] = project_identity.notes
+    st.session_state["heliorc_city"] = project_identity.city
+    st.session_state["heliorc_project_address_label"] = project_identity.address
+    st.session_state["heliorc_project_latitude"] = project_identity.latitude
+    st.session_state["heliorc_project_longitude"] = project_identity.longitude
+    st.session_state["heliorc_typology"] = project_identity.typology
+    st.session_state["heliorc_region"] = project_identity.region
+    st.session_state["heliorc_department"] = project_identity.department
+    st.session_state["heliorc_weather_region"] = project_identity.weather_region
+    st.session_state["heliorc_weather_station"] = project_identity.weather_station
+    if project_identity.weather_region:
+        st.session_state["weather_region"] = project_identity.weather_region
+    if project_identity.weather_station:
+        st.session_state["weather_station"] = project_identity.weather_station
+
+
 
 def render_heliorc_app() -> None:
     """Render HelioRC inside the HelioTools portal."""
@@ -105,95 +266,6 @@ def render_heliorc_app() -> None:
     _init_state()
     locations = load_locations()
     location_labels = locations["label"].tolist()
-
-    with st.sidebar:
-        st.subheader("Projet")
-        imported = st.file_uploader(
-            "Importer un projet HelioRC (JSON)",
-            type=["json"],
-            help="Recharge les métadonnées, hypothèses et besoins mensuels exportés par l'application.",
-        )
-        if imported is not None:
-            payload_bytes = imported.getvalue()
-            payload_hash = hashlib.sha256(payload_bytes).hexdigest()
-            if payload_hash != st.session_state.get("_last_import_hash"):
-                try:
-                    payload = json.loads(payload_bytes.decode("utf-8"))
-                    project_data = payload.get("project", {})
-                    input_data = payload.get("inputs", {})
-                    for key in ["project_name", "client", "airtable_id", "analyst", "notes"]:
-                        if key in project_data:
-                            st.session_state[key] = project_data[key]
-                    st.session_state["heliorc_project_name"] = st.session_state.get("project_name", "")
-                    st.session_state["heliorc_client_name"] = st.session_state.get("client", "")
-                    st.session_state["heliorc_airtable_id"] = st.session_state.get("airtable_id", "")
-                    st.session_state["heliorc_analyst"] = st.session_state.get("analyst", "")
-                    st.session_state["heliorc_notes"] = st.session_state.get("notes", "")
-                    if project_data.get("date"):
-                        st.session_state["project_date"] = date.fromisoformat(project_data["date"])
-                        st.session_state["heliorc_project_date"] = st.session_state["project_date"]
-                    mapping = {
-                        "location_label": "location_label",
-                        "zone": "zone",
-                        "regime_label": "regime_label",
-                        "mean_network_temperature_c": "mean_temp",
-                        "calculation_mode": "calculation_mode",
-                        "other_aid_eur": "other_aid",
-                        "electricity_price_eur_mwh": "electricity_price",
-                        "project_lifetime_years": "project_lifetime",
-                        "network_operates_summer": "network_operates_summer",
-                        "summer_excess_enr": "summer_excess_enr",
-                        "land_identified": "land_identified",
-                    }
-                    for source_key, state_key in mapping.items():
-                        if source_key in input_data:
-                            st.session_state[state_key] = input_data[source_key]
-                    if "base_load_fraction" in input_data:
-                        st.session_state["base_load_percent"] = round(
-                            float(input_data["base_load_fraction"]) * 100
-                        )
-                    monthly_values = input_data.get("monthly_needs_mwh")
-                    if isinstance(monthly_values, list) and len(monthly_values) == 12:
-                        st.session_state["manual_needs_df"] = _initial_monthly_dataframe(
-                            [float(value) for value in monthly_values]
-                        )
-                        st.session_state.pop("manual_needs_editor", None)
-                    rate = input_data.get("discount_rate_override")
-                    st.session_state["override_discount_rate"] = rate is not None
-                    if rate is not None:
-                        st.session_state["discount_rate_percent"] = float(rate) * 100
-                    st.session_state["_last_import_hash"] = payload_hash
-                    st.success("Projet importé.")
-                except Exception as exc:  # noqa: BLE001
-                    st.error(f"Import impossible : {exc}")
-
-        project_identity = render_project_identity_form(
-            key_prefix="heliorc",
-            defaults=ProjectIdentity(
-                project_name=str(st.session_state.get("project_name") or ""),
-                client_name=str(st.session_state.get("client") or ""),
-                airtable_id=str(st.session_state.get("airtable_id") or ""),
-                analyst=str(st.session_state.get("analyst") or ""),
-                project_date=st.session_state.get("project_date"),
-                notes=str(st.session_state.get("notes") or ""),
-            ),
-            options=ProjectIdentityOptions(
-                show_city=False,
-                show_address_search=False,
-                show_map=False,
-                show_analyst=True,
-                show_project_date=True,
-                show_notes=True,
-                client_label="Maître d'ouvrage / territoire",
-                airtable_label="Référence / ID Airtable",
-            ),
-        )
-        st.session_state["project_name"] = project_identity.project_name
-        st.session_state["client"] = project_identity.client_name
-        st.session_state["airtable_id"] = project_identity.airtable_id
-        st.session_state["analyst"] = project_identity.analyst
-        st.session_state["project_date"] = project_identity.project_date or date.today()
-        st.session_state["notes"] = project_identity.notes
 
     st.markdown(
         """
@@ -209,9 +281,14 @@ def render_heliorc_app() -> None:
         "Reprise du moteur NO STH RCU v5.3 : prédimensionnement au talon estival, productivité paramétrique, stockage journalier, CAPEX, aide indicative et LCOH."
     )
 
-    input_tabs = st.tabs(["1. Contexte", "2. Besoins du RCU", "3. Hypothèses techniques et économiques"])
+    input_tabs = st.tabs(
+        ["1. Projet", "2. Contexte", "3. Besoins du RCU", "4. Hypothèses techniques et économiques"]
+    )
 
     with input_tabs[0]:
+        _render_project_tab()
+
+    with input_tabs[1]:
         col_a, col_b = st.columns([1.15, 0.85])
         with col_a:
             st.selectbox("Localisation", location_labels, key="location_label")
@@ -245,7 +322,7 @@ def render_heliorc_app() -> None:
                 unsafe_allow_html=True,
             )
 
-    with input_tabs[1]:
+    with input_tabs[2]:
         st.radio(
             "Mode de saisie",
             ["Besoins mensuels connus", "Estimation depuis les besoins annuels"],
@@ -322,7 +399,7 @@ def render_heliorc_app() -> None:
                 needs_preview = pd.DataFrame()
                 st.error(str(exc))
 
-    with input_tabs[2]:
+    with input_tabs[3]:
         tech_col, eco_col = st.columns(2)
         with tech_col:
             selected_regime = st.selectbox(

@@ -143,42 +143,40 @@ def render_heliostock_hourly() -> pd.DataFrame:
     input_tabs = st.tabs(
         [
             "1. Projet",
-            "2. Météo",
-            "3. Besoins process",
-            "4. Solaire thermique",
-            "5. Contraintes architecturales",
-            "6. PAC géothermie",
-            "7. Vérification GMI",
-            "8. Économie",
-            "9. Paramétrique PAC",
-            "10. Paramétrique solaire",
-            "11. Calcul et résultats",
+            "2. Besoins process",
+            "3. Solaire thermique",
+            "4. Contraintes architecturales",
+            "5. PAC géothermie",
+            "6. Vérification GMI",
+            "7. Économie",
+            "8. Paramétrique PAC",
+            "9. Paramétrique solaire",
+            "10. Calcul et résultats",
         ]
     )
 
     with input_tabs[0]:
         project_form = render_heliostock_project_form()
+    weather_form = render_weather_form()
     with input_tabs[1]:
-        weather_form = render_weather_form()
-    with input_tabs[2]:
         demand_form = render_demand_form(weather_form.hourly_weather)
     if not demand_form.valid:
         return pd.DataFrame()
 
-    with input_tabs[3]:
+    with input_tabs[2]:
         solar_form = render_solar_form(process_ht_target_c=demand_form.process_ht_target_c)
-    with input_tabs[4]:
+    with input_tabs[3]:
         render_architectural_constraints_test(state_prefix="heliostock", show_address_inputs=False, show_map=True)
-    with input_tabs[5]:
+    with input_tabs[4]:
         geothermal_form = render_geothermal_form(
             hourly_weather=weather_form.hourly_weather,
             demands=demand_form.demands,
             hourly_demand_override=demand_form.hourly_demand_override,
             process_bt_target_c=demand_form.process_bt_target_c,
         )
-    with input_tabs[6]:
+    with input_tabs[5]:
         render_gmi_verification_block(use_project_location=True, show_map=True)
-    with input_tabs[7]:
+    with input_tabs[6]:
         economics_inputs = render_economics_form()
     calculation_selection = CalculationSelection(
         calculation_profile="calcul_final",
@@ -193,15 +191,15 @@ def render_heliostock_hourly() -> pd.DataFrame:
         recharge_credit=geothermal_form.recharge_credit,
         reduced_borefield_safety_factor=geothermal_form.reduced_borefield_safety_factor,
     )
-    with input_tabs[8]:
+    with input_tabs[7]:
         pac_parametric_form = render_pac_parametric_form()
-    with input_tabs[9]:
+    with input_tabs[8]:
         solar_parametric_form = render_solar_parametric_form(solar_form.inputs.area_m2)
     parametric_forms = ParametricFormsResult(
         pac=pac_parametric_form,
         solar=solar_parametric_form,
     )
-    with input_tabs[10]:
+    with input_tabs[9]:
         current_snapshot, current_snapshot_hash = _snapshot_from_forms(
             project_form=project_form,
             weather_form=weather_form,

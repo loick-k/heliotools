@@ -239,91 +239,73 @@ class ParametricFormsResult:
     solar: ParametricRange
 
 
-def render_weather_form() -> WeatherFormResult:
-    with _top_level_input_section("1) Météo", expanded=True):
-        c1, c2, c3 = st.columns(3)
-        tilt_deg = c1.number_input(
-            "Inclinaison capteurs (°)",
-            min_value=0.0,
-            max_value=90.0,
-            step=1.0,
-            key="weather_tilt_deg",
-            **_widget_default("weather_tilt_deg", 35.0),
-        )
-        azimuth_deg_south = c2.number_input(
-            "Azimut vs sud (°)",
-            min_value=-180.0,
-            max_value=180.0,
-            step=5.0,
-            key="weather_azimuth_deg_south",
-            **_widget_default("weather_azimuth_deg_south", 0.0),
-        )
-        albedo = c3.number_input(
-            "Albédo du sol",
-            min_value=0.0,
-            max_value=1.0,
-            step=0.05,
-            key="weather_albedo",
-            **_widget_default("weather_albedo", 0.2),
-            help=(
-                "Part du rayonnement solaire réfléchie par le sol vers les capteurs. "
-                "0,20 correspond à un sol courant ; une surface claire ou enneigée peut être plus élevée."
-            ),
-        )
-        st.caption(
-            "Albédo : part du rayonnement solaire réfléchie par le sol vers les capteurs. "
-            "La valeur courante de 0,20 convient à un environnement standard."
-        )
-        station_col, map_col = st.columns(2)
-        region_names = list(DEFAULT_EPW_REGIONS.keys())
-        if st.session_state.get("weather_region") not in region_names:
-            st.session_state["weather_region"] = region_names[0]
-        with station_col:
-            region_name = st.selectbox("Région météo", options=region_names, index=0, key="weather_region")
-            stations_by_label = DEFAULT_EPW_REGIONS[region_name]
-            legacy_station = st.session_state.get("weather_station")
-            if legacy_station in WEATHER_STATION_LABEL_ALIASES:
-                st.session_state["weather_station"] = WEATHER_STATION_LABEL_ALIASES[str(legacy_station)]
-            if st.session_state.get("weather_station") not in stations_by_label:
-                st.session_state["weather_station"] = list(stations_by_label.keys())[0]
-            station_label = st.selectbox("Station météo", options=list(stations_by_label.keys()), index=0, key="weather_station")
-            station = stations_by_label[station_label]
-            st.caption("La station sélectionnée fournit la température extérieure et l'irradiation horaire EPW/TMY.")
-        with map_col:
-            region_stations = pd.DataFrame(
-                [
-                    {
-                        "station": item.label,
-                        "latitude": float(item.latitude_deg),
-                        "longitude": float(item.longitude_deg),
-                        "taille": 140 if item.label == station.label else 55,
-                        "couleur": "#f59e0b" if item.label == station.label else "#64748b",
-                    }
-                    for item in stations_by_label.values()
-                ]
-            )
-            st.map(
-                region_stations,
-                latitude="latitude",
-                longitude="longitude",
-                size="taille",
-                color="couleur",
-                zoom=6,
-                width="stretch",
-                height=360,
-            )
-            st.caption(f"Station affichée : {station.label}.")
+def render_solar_weather_orientation_inputs() -> None:
+    """Render collector geometry parameters used to project the EPW irradiance."""
 
-        if station.path.exists():
-            _location, hourly_weather = read_epw_hourly_weather_from_zip(
-                station.path,
-                tilt_deg=tilt_deg,
-                azimuth_deg_south=azimuth_deg_south,
-                albedo=albedo,
-            )
-        else:
-            hourly_weather = []
-            st.error(f"Fichier météo introuvable pour la station {region_name} - {station_label}.")
+    c1, c2, c3 = st.columns(3)
+    c1.number_input(
+        "Inclinaison capteurs (°)",
+        min_value=0.0,
+        max_value=90.0,
+        step=1.0,
+        key="weather_tilt_deg",
+        **_widget_default("weather_tilt_deg", 35.0),
+    )
+    c2.number_input(
+        "Azimut vs sud (°)",
+        min_value=-180.0,
+        max_value=180.0,
+        step=5.0,
+        key="weather_azimuth_deg_south",
+        **_widget_default("weather_azimuth_deg_south", 0.0),
+    )
+    c3.number_input(
+        "Albédo du sol",
+        min_value=0.0,
+        max_value=1.0,
+        step=0.05,
+        key="weather_albedo",
+        **_widget_default("weather_albedo", 0.2),
+        help=(
+            "Part du rayonnement solaire réfléchie par le sol vers les capteurs. "
+            "0,20 correspond à un sol courant ; une surface claire ou enneigée peut être plus élevée."
+        ),
+    )
+    st.caption(
+        "Albédo : part du rayonnement solaire réfléchie par le sol vers les capteurs. "
+        "La valeur courante de 0,20 convient à un environnement standard."
+    )
+
+
+def render_weather_form() -> WeatherFormResult:
+    """Load hourly weather from the station selected in 1) Projet."""
+
+    region_names = list(DEFAULT_EPW_REGIONS.keys())
+    if st.session_state.get("weather_region") not in region_names:
+        st.session_state["weather_region"] = region_names[0]
+    region_name = str(st.session_state["weather_region"])
+    stations_by_label = DEFAULT_EPW_REGIONS[region_name]
+    legacy_station = st.session_state.get("weather_station")
+    if legacy_station in WEATHER_STATION_LABEL_ALIASES:
+        st.session_state["weather_station"] = WEATHER_STATION_LABEL_ALIASES[str(legacy_station)]
+    if st.session_state.get("weather_station") not in stations_by_label:
+        st.session_state["weather_station"] = list(stations_by_label.keys())[0]
+    station_label = str(st.session_state["weather_station"])
+    station = stations_by_label[station_label]
+    tilt_deg = float(st.session_state.get("weather_tilt_deg", 35.0))
+    azimuth_deg_south = float(st.session_state.get("weather_azimuth_deg_south", 0.0))
+    albedo = float(st.session_state.get("weather_albedo", 0.2))
+
+    if station.path.exists():
+        _location, hourly_weather = read_epw_hourly_weather_from_zip(
+            station.path,
+            tilt_deg=tilt_deg,
+            azimuth_deg_south=azimuth_deg_south,
+            albedo=albedo,
+        )
+    else:
+        hourly_weather = []
+        st.error(f"Fichier météo introuvable pour la station {region_name} - {station_label}.")
 
     return WeatherFormResult(hourly_weather=hourly_weather)
 
@@ -453,6 +435,9 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
 
 def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
     with _top_level_input_section("3) Champ solaire et ballon journalier", expanded=True):
+        st.markdown("### Orientation et environnement capteurs")
+        render_solar_weather_orientation_inputs()
+        st.markdown("### Capteurs et ballon solaire")
         if st.session_state.get("solar_collector_name") not in COLLECTOR_LIBRARY:
             st.session_state["solar_collector_name"] = list(COLLECTOR_LIBRARY.keys())[0]
         collector_name = st.selectbox("Bibliothèque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0, key="solar_collector_name")

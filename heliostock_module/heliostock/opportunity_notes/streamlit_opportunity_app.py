@@ -1172,25 +1172,113 @@ def render_opportunity_notes_app() -> None:
         weather_station = project_identity.weather_station or site_default.weather_station
         typology = project_identity.typology or site_default.typology
         building_state = project_identity.building_state or site_default.building_state
-    
+    data_source = site_default.data_source if site_default.data_source in DATA_SOURCES else list(DATA_SOURCES)[0]
+
+    with tab_surface:
+        render_surface_orientation_measurement(state_prefix="helionop")
+    surface_orientation_payload = current_surface_orientation_payload("helionop")
+    surface_orientation_metrics = surface_orientation_payload.get("metrics") if isinstance(surface_orientation_payload, dict) else {}
+    max_collector_surface_from_measurement = None
+    if isinstance(surface_orientation_metrics, dict):
+        raw_max_collector_surface = surface_orientation_metrics.get("max_collector_surface_m2")
+        if isinstance(raw_max_collector_surface, (float, int)) and raw_max_collector_surface > 0:
+            max_collector_surface_from_measurement = float(raw_max_collector_surface)
+
+    # ---------------------------------------------------------------------------
+    # Eau froide et paramètres de prédimensionnement.
+    # ---------------------------------------------------------------------------
+    cold_water_temperatures = dict(sizing_default.cold_water_temperatures_c)
+    with tab_energy:
+        st.subheader("Température d'eau froide")
+        cold_water_mode_default = (
+            sizing_default.cold_water_mode
+            if sizing_default.cold_water_mode in COLD_WATER_MODES
+            else "Température eau froide manuelle"
+        )
+        cold_water_mode = st.radio(
+            "Mode de calcul de la température d'eau froide",
+            options=list(COLD_WATER_MODES),
+            index=list(COLD_WATER_MODES).index(cold_water_mode_default),
+            horizontal=True,
+            key=f"{project_ui_key}_cold_water_mode",
+        )
+        if cold_water_mode == "Température eau froide manuelle":
+            st.caption("Saisir une température moyenne mensuelle d'eau froide.")
+            tef_rows = pd.DataFrame(
+                [
+                    {"Mois": month, "Température eau froide (°C)": float(cold_water_temperatures.get(month, 15.0))}
+                    for month in MONTH_NAMES
+                ]
+            )
+            edited_tef = st.data_editor(
+                tef_rows,
+                hide_index=True,
+                width="stretch",
+                disabled=["Mois"],
+                key=f"{project_ui_key}_cold_water_editor",
+            )
+            cold_water_temperatures = {
+                str(row["Mois"]): float(row["Température eau froide (°C)"]) for _, row in edited_tef.iterrows()
+            }
+        else:
+            station_col, info_col = st.columns(2)
+            with station_col:
+                region_name = weather_region
+                station_label = weather_station
+                st.write(f"**Région météo :** {region_name}")
+                st.write(f"**Station météo :** {station_label}")
+                st.caption("La région et la station météo se règlent dans l'onglet 1. Projet.")
+            monthly_air = _monthly_air_temperatures_from_station(region_name, station_label)
+            cold_water_temperatures = _esm2_cold_water_temperatures(
+                monthly_air,
+                offset_c=3.0 if cold_water_mode == "Méthode ESM2 + 3 °C" else 0.0,
+            )
+            with info_col:
+                st.info(
+                    "La méthode ESM2 estime l'eau froide à partir des températures extérieures mensuelles "
+                    "de la station EPW sélectionnée. La variante + 3 °C ajoute une marge si le réseau ou le "
+                    "local technique est plus tempéré."
+                )
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Mois": month,
+                            "Température extérieure moyenne (°C)": monthly_air[month],
+                            "Température eau froide retenue (°C)": cold_water_temperatures[month],
+                        }
+                        for month in MONTH_NAMES
+                    ]
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+
+    # ---------------------------------------------------------------------------
+    # Besoins ECS.
+    # ---------------------------------------------------------------------------
+    with tab_needs:
+        st.subheader("Estimation des volumes ECS")
         data_source = st.radio(
             "Mode de détermination de la consommation ECS journalière",
             options=list(DATA_SOURCES),
-            index=list(DATA_SOURCES).index(site_default.data_source) if site_default.data_source in DATA_SOURCES else 0,
+            index=list(DATA_SOURCES).index(data_source) if data_source in DATA_SOURCES else 0,
             horizontal=True,
+            key=f"{project_ui_key}_ecs_data_source",
         )
         if typology == "Station de lavage" and data_source != "Mesure de consommation ECS":
             st.info(
                 "Station de lavage : aucun ratio SOCOL standard n'est appliqué. "
-                "Renseigne un profil mesuré ou estimé dans l'onglet Besoins ECS."
+                "Renseigne un profil mesuré ou estimé dans cet onglet."
             )
             data_source = "Mesure de consommation ECS"
-    
+
         if building_state == "Bâtiment existant" and data_source != "Mesure de consommation ECS":
             st.warning(
                 "Bâtiment existant : comptage ECS obligatoire / fortement attendu pour fiabiliser la note d'opportunité. "
                 "Les ratios SOCOL peuvent servir à une première approche mais doivent être confrontés à des mesures."
             )
+
         if data_source == "Mesure de consommation ECS":
             st.markdown("### Unité de référence")
             st.caption(
@@ -1262,106 +1350,6 @@ def render_opportunity_notes_app() -> None:
                     help="Cette valeur sert à exprimer la consommation ECS équivalente en L/véhicule à 60 °C.",
                 )
 
-    site_inputs = SiteInputs(
-        project_name=project_name,
-        airtable_id=airtable_id,
-        client_name=client_name,
-        city=city,
-        address=address,
-        latitude=latitude,
-        longitude=longitude,
-        weather_region=weather_region,
-        weather_station=weather_station,
-        typology=typology,
-        building_state=building_state,
-        data_source=data_source,
-    )
-
-    with tab_surface:
-        render_surface_orientation_measurement(state_prefix="helionop")
-    surface_orientation_payload = current_surface_orientation_payload("helionop")
-    surface_orientation_metrics = surface_orientation_payload.get("metrics") if isinstance(surface_orientation_payload, dict) else {}
-    max_collector_surface_from_measurement = None
-    if isinstance(surface_orientation_metrics, dict):
-        raw_max_collector_surface = surface_orientation_metrics.get("max_collector_surface_m2")
-        if isinstance(raw_max_collector_surface, (float, int)) and raw_max_collector_surface > 0:
-            max_collector_surface_from_measurement = float(raw_max_collector_surface)
-
-    # ---------------------------------------------------------------------------
-    # Eau froide et paramètres de prédimensionnement.
-    # ---------------------------------------------------------------------------
-    cold_water_temperatures = dict(sizing_default.cold_water_temperatures_c)
-    with tab_energy:
-        st.subheader("Température d'eau froide")
-        cold_water_mode_default = (
-            sizing_default.cold_water_mode
-            if sizing_default.cold_water_mode in COLD_WATER_MODES
-            else "Température eau froide manuelle"
-        )
-        cold_water_mode = st.radio(
-            "Mode de calcul de la température d'eau froide",
-            options=list(COLD_WATER_MODES),
-            index=list(COLD_WATER_MODES).index(cold_water_mode_default),
-            horizontal=True,
-            key=f"{project_ui_key}_cold_water_mode",
-        )
-        if cold_water_mode == "Température eau froide manuelle":
-            st.caption("Saisir une température moyenne mensuelle d'eau froide.")
-            tef_rows = pd.DataFrame(
-                [
-                    {"Mois": month, "Température eau froide (°C)": float(cold_water_temperatures.get(month, 15.0))}
-                    for month in MONTH_NAMES
-                ]
-            )
-            edited_tef = st.data_editor(
-                tef_rows,
-                hide_index=True,
-                width="stretch",
-                disabled=["Mois"],
-                key=f"{project_ui_key}_cold_water_editor",
-            )
-            cold_water_temperatures = {
-                str(row["Mois"]): float(row["Température eau froide (°C)"]) for _, row in edited_tef.iterrows()
-            }
-        else:
-            station_col, info_col = st.columns(2)
-            with station_col:
-                region_name = site_inputs.weather_region
-                station_label = site_inputs.weather_station
-                st.write(f"**Région météo :** {region_name}")
-                st.write(f"**Station météo :** {station_label}")
-                st.caption("La région et la station météo se règlent dans l'onglet 1. Projet.")
-            monthly_air = _monthly_air_temperatures_from_station(region_name, station_label)
-            cold_water_temperatures = _esm2_cold_water_temperatures(
-                monthly_air,
-                offset_c=3.0 if cold_water_mode == "Méthode ESM2 + 3 °C" else 0.0,
-            )
-            with info_col:
-                st.info(
-                    "La méthode ESM2 estime l'eau froide à partir des températures extérieures mensuelles "
-                    "de la station EPW sélectionnée. La variante + 3 °C ajoute une marge si le réseau ou le "
-                    "local technique est plus tempéré."
-                )
-            st.dataframe(
-                pd.DataFrame(
-                    [
-                        {
-                            "Mois": month,
-                            "Température extérieure moyenne (°C)": monthly_air[month],
-                            "Température eau froide retenue (°C)": cold_water_temperatures[month],
-                        }
-                        for month in MONTH_NAMES
-                    ]
-                ),
-                hide_index=True,
-                width="stretch",
-            )
-
-    # ---------------------------------------------------------------------------
-    # Besoins ECS.
-    # ---------------------------------------------------------------------------
-    with tab_needs:
-        st.subheader("Estimation des volumes ECS")
         ecs_temperature_c = st.number_input(
             "Température ECS de référence (°C)",
             min_value=30.0,
@@ -1612,6 +1600,21 @@ def render_opportunity_notes_app() -> None:
         car_wash_liters_per_vehicle=float(car_wash_liters_per_vehicle),
         measured_daily_l_60c_by_month=measured_daily,
         monthly_coefficients=monthly_coefficients,
+    )
+
+    site_inputs = SiteInputs(
+        project_name=project_name,
+        airtable_id=airtable_id,
+        client_name=client_name,
+        city=city,
+        address=address,
+        latitude=latitude,
+        longitude=longitude,
+        weather_region=weather_region,
+        weather_station=weather_station,
+        typology=typology,
+        building_state=building_state,
+        data_source=data_source,
     )
     
     # ---------------------------------------------------------------------------
