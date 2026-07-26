@@ -654,7 +654,7 @@
   },
   {
     "slug": "prolavage-poids-lourd-angers_9ad74a96",
-    "saved_at": "2026-07-24T08:45:03",
+    "saved_at": "2026-07-26T20:51:05",
     "owner_email": "loick@atlansun.fr",
     "project_id": "9ad74a96-06f4-4226-9d2c-b6415fc7aad4",
     "name": "Prolavage Poids Lourd Angers",
@@ -666,15 +666,15 @@
       "name": "Prolavage Poids Lourd Angers",
       "owner_email": "loick@atlansun.fr",
       "created_at": "2026-07-22T20:52:51",
-      "updated_at": "2026-07-24T08:45:03",
+      "updated_at": "2026-07-26T20:51:05",
       "site": {
         "project_name": "Prolavage Poids Lourd Angers",
         "airtable_id": "1386",
         "client_name": "Prolavage Poids Lourds",
         "city": "Angers",
         "address": "10 Boulevard Louis Delage 49480 Verrières-en-Anjou",
-        "latitude": 47.51908460362489,
-        "longitude": -0.442650318145752,
+        "latitude": 47.51886723333256,
+        "longitude": -0.4405903816223145,
         "weather_region": "Pays de la Loire",
         "weather_station": "Angers",
         "typology": "Station de lavage",
@@ -856,39 +856,10 @@
       },
       "architectural_constraints": {
         "selected_address": "10 Boulevard Louis Delage 49480 Verrières-en-Anjou",
-        "latitude": 47.51908460362489,
-        "longitude": -0.442650318145752,
+        "latitude": 47.51886723333256,
+        "longitude": -0.4405903816223145,
         "project_type": "Capteurs intégrés ou surimposés sur toiture inclinée",
-        "result": {
-          "latitude": 47.5190846,
-          "longitude": -0.4426503,
-          "counts": {
-            "AC1": 0,
-            "AC2": 0,
-            "AC4": 0
-          },
-          "detected_categories": [],
-          "has_protection": false,
-          "feature_collections": {
-            "AC1": {
-              "type": "FeatureCollection",
-              "features": []
-            },
-            "AC2": {
-              "type": "FeatureCollection",
-              "features": []
-            },
-            "AC4": {
-              "type": "FeatureCollection",
-              "features": []
-            }
-          },
-          "errors": [],
-          "query_scope": {
-            "surface": "intersection avec le point exact",
-            "ac1_point_line": "recherche dans un rayon indicatif d'environ 12 m"
-          }
-        }
+        "result": null
       },
       "surface_orientation": {
         "drawings": [
@@ -969,8 +940,8 @@
           "drawings_count": 2
         },
         "map_center": [
-          47.51908460362489,
-          -0.442650318145752
+          47.51886723333256,
+          -0.4405903816223145
         ],
         "map_zoom": 20
       },
