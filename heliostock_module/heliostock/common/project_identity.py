@@ -15,6 +15,42 @@ from ..geocoding_service import GeocodingServiceError, search_addresses
 
 DEFAULT_PROJECT_LATITUDE = 47.2184
 DEFAULT_PROJECT_LONGITUDE = -1.5536
+DEFAULT_PROJECT_REGIONS: tuple[str, ...] = ("Bretagne", "Pays de la Loire")
+DEFAULT_PROJECT_DEPARTMENTS: tuple[str, ...] = (
+    "22 - Côtes-d'Armor",
+    "29 - Finistère",
+    "35 - Ille-et-Vilaine",
+    "44 - Loire-Atlantique",
+    "49 - Maine-et-Loire",
+    "53 - Mayenne",
+    "56 - Morbihan",
+    "72 - Sarthe",
+    "85 - Vendée",
+)
+DEFAULT_SITE_TYPOLOGIES: tuple[str, ...] = (
+    "Industrie",
+    "Logement collectif",
+    "EHPAD",
+    "Hôpital",
+    "Hôtel",
+    "Camping",
+    "Piscine et centre aquatique",
+    "Bâtiment public",
+    "Bâtiment sportif et loisirs",
+    "Station de lavage",
+    "Réseau de chaleur",
+    "Autre",
+)
+HELIORC_SITE_TYPOLOGIES: tuple[str, ...] = (
+    "Réseau de chaleur",
+    "Logement collectif",
+    "EHPAD",
+    "Hôpital",
+    "Piscine et centre aquatique",
+    "Bâtiment public",
+    "Industrie",
+    "Autre",
+)
 
 
 @dataclass(frozen=True)

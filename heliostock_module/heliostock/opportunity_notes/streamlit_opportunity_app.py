@@ -154,10 +154,17 @@ def _current_helionop_architectural_payload() -> dict[str, Any]:
 
 
 def _restore_helionop_socol_state(payload: dict[str, Any], project_id: str) -> None:
-    if st.session_state.get("helionop_socol_payload_project_id") == project_id:
+    socol_payload = payload.get("socol") if isinstance(payload, dict) else None
+    try:
+        payload_signature = json.dumps(socol_payload, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        payload_signature = str(socol_payload)
+    restore_signature = f"{project_id}:{payload_signature}"
+    if st.session_state.get("helionop_socol_payload_signature") == restore_signature:
         return
     st.session_state["helionop_socol_payload_project_id"] = project_id
-    restore_socol_state(payload.get("socol") if isinstance(payload, dict) else None)
+    st.session_state["helionop_socol_payload_signature"] = restore_signature
+    restore_socol_state(socol_payload)
 
 
 def _on_helionop_location_change(_: ProjectIdentity) -> None:

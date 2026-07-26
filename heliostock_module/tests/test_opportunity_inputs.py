@@ -76,3 +76,18 @@ def test_ecs_and_cold_water_blocks_do_not_use_excel_paste_box():
 
     assert "add_excel_paste_box" not in needs_block
     assert "add_excel_paste_box" not in cold_block
+
+
+def test_socol_restore_uses_payload_signature_not_only_project_id(monkeypatch):
+    restored = []
+
+    monkeypatch.setattr(app, "restore_socol_state", lambda payload: restored.append(payload))
+    app.st.session_state.clear()
+
+    first_payload = {"socol": {"selection": {"circuit": "Circuit sous pression"}}}
+    second_payload = {"socol": {"selection": {"circuit": "Circuit autovidangeable"}}}
+
+    app._restore_helionop_socol_state(first_payload, "same-project")
+    app._restore_helionop_socol_state(second_payload, "same-project")
+
+    assert restored == [first_payload["socol"], second_payload["socol"]]

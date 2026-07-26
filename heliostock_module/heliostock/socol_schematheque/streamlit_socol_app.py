@@ -79,6 +79,7 @@ def current_socol_payload() -> dict[str, object]:
     payload = configuration_payload(result, catalog)
     payload["diagram_png_base64"] = base64.b64encode(png_bytes).decode("ascii")
     payload["diagram_size_px"] = {"width": diagram.width, "height": diagram.height}
+    st.session_state[_key("payload")] = payload
     return payload
 
 
