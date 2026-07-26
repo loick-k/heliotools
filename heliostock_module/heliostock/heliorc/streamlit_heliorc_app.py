@@ -113,6 +113,11 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
     for key in ["project_name", "client", "airtable_id", "analyst", "notes"]:
         if key in project_data:
             st.session_state[key] = project_data[key]
+    st.session_state["heliorc_project_name"] = st.session_state.get("project_name", "")
+    st.session_state["heliorc_client_name"] = st.session_state.get("client", "")
+    st.session_state["heliorc_airtable_id"] = st.session_state.get("airtable_id", "")
+    st.session_state["heliorc_analyst"] = st.session_state.get("analyst", "")
+    st.session_state["heliorc_notes"] = st.session_state.get("notes", "")
     if "city" in project_data:
         st.session_state["heliorc_city"] = project_data["city"]
     if "address" in project_data:
@@ -243,15 +248,6 @@ def _render_project_tab() -> None:
     st.session_state["analyst"] = project_identity.analyst
     st.session_state["project_date"] = project_identity.project_date or date.today()
     st.session_state["notes"] = project_identity.notes
-    st.session_state["heliorc_city"] = project_identity.city
-    st.session_state["heliorc_project_address_label"] = project_identity.address
-    st.session_state["heliorc_project_latitude"] = project_identity.latitude
-    st.session_state["heliorc_project_longitude"] = project_identity.longitude
-    st.session_state["heliorc_typology"] = project_identity.typology
-    st.session_state["heliorc_region"] = project_identity.region
-    st.session_state["heliorc_department"] = project_identity.department
-    st.session_state["heliorc_weather_region"] = project_identity.weather_region
-    st.session_state["heliorc_weather_station"] = project_identity.weather_station
     if project_identity.weather_region:
         st.session_state["weather_region"] = project_identity.weather_region
     if project_identity.weather_station:
@@ -525,6 +521,15 @@ def render_heliorc_app() -> None:
                 "airtable_id": st.session_state.airtable_id,
                 "analyst": st.session_state.analyst,
                 "date": st.session_state.project_date.isoformat(),
+                "typology": st.session_state.get("heliorc_typology", ""),
+                "region": st.session_state.get("heliorc_region", ""),
+                "department": st.session_state.get("heliorc_department", ""),
+                "city": st.session_state.get("heliorc_city", ""),
+                "address": st.session_state.get("heliorc_project_address_label", ""),
+                "latitude": st.session_state.get("heliorc_project_latitude"),
+                "longitude": st.session_state.get("heliorc_project_longitude"),
+                "weather_region": st.session_state.get("heliorc_weather_region", ""),
+                "weather_station": st.session_state.get("heliorc_weather_station", ""),
                 "notes": st.session_state.notes,
                 "needs_mode": st.session_state.needs_mode,
             }
