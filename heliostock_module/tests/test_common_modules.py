@@ -1,7 +1,8 @@
 from datetime import date
 
 from heliostock.common.formatting import format_mwh_from_kwh, owner_slug, safe_slug
-from heliostock.common.project_identity import ProjectIdentity, project_context_to_payload
+from heliostock.common.project_context import project_context_to_payload
+from heliostock.common.project_identity import ProjectIdentity
 from heliostock.common.project_store import JsonProjectStore
 from heliostock.economics_core import compute_heat_costs
 from heliostock.project_store import JsonProjectStore as LegacyJsonProjectStore

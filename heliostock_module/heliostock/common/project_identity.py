@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 import math
-from typing import Any, Callable, Mapping
+from typing import Callable
 
 import folium
 import pandas as pd
@@ -11,46 +11,16 @@ import streamlit as st
 from streamlit_folium import st_folium
 
 from ..geocoding_service import GeocodingServiceError, search_addresses
+from .project_context import (
+    DEFAULT_PROJECT_DEPARTMENTS,
+    DEFAULT_PROJECT_LATITUDE,
+    DEFAULT_PROJECT_LONGITUDE,
+    DEFAULT_PROJECT_REGIONS,
+    DEFAULT_SITE_TYPOLOGIES,
+    HELIORC_SITE_TYPOLOGIES,
+    project_context_to_payload,
+)
 
-
-DEFAULT_PROJECT_LATITUDE = 47.2184
-DEFAULT_PROJECT_LONGITUDE = -1.5536
-DEFAULT_PROJECT_REGIONS: tuple[str, ...] = ("Bretagne", "Pays de la Loire")
-DEFAULT_PROJECT_DEPARTMENTS: tuple[str, ...] = (
-    "22 - Côtes-d'Armor",
-    "29 - Finistère",
-    "35 - Ille-et-Vilaine",
-    "44 - Loire-Atlantique",
-    "49 - Maine-et-Loire",
-    "53 - Mayenne",
-    "56 - Morbihan",
-    "72 - Sarthe",
-    "85 - Vendée",
-)
-DEFAULT_SITE_TYPOLOGIES: tuple[str, ...] = (
-    "Industrie",
-    "Logement collectif",
-    "EHPAD",
-    "Hôpital",
-    "Hôtel",
-    "Camping",
-    "Piscine et centre aquatique",
-    "Bâtiment public",
-    "Bâtiment sportif et loisirs",
-    "Station de lavage",
-    "Réseau de chaleur",
-    "Autre",
-)
-HELIORC_SITE_TYPOLOGIES: tuple[str, ...] = (
-    "Réseau de chaleur",
-    "Logement collectif",
-    "EHPAD",
-    "Hôpital",
-    "Piscine et centre aquatique",
-    "Bâtiment public",
-    "Industrie",
-    "Autre",
-)
 
 
 @dataclass(frozen=True)
@@ -101,81 +71,6 @@ class ProjectIdentityOptions:
     address_help: str = "Recherche une adresse pour alimenter automatiquement les contrôles cartographiques."
     map_caption: str = "Clique sur la carte pour déplacer le point exact du projet."
 
-
-def _project_value(source: ProjectIdentity | Mapping[str, Any] | object, *names: str, default: Any = "") -> Any:
-    if isinstance(source, Mapping):
-        for name in names:
-            if name in source and source[name] is not None:
-                return source[name]
-        return default
-    for name in names:
-        if hasattr(source, name):
-            value = getattr(source, name)
-            if value is not None:
-                return value
-    return default
-
-
-def _project_date_iso(value: Any) -> str:
-    if isinstance(value, date):
-        return value.isoformat()
-    return str(value or "")
-
-
-def _project_float(value: Any, default: float) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def project_context_to_payload(
-    source: ProjectIdentity | Mapping[str, Any] | object,
-    *,
-    app_key: str,
-    app_label: str,
-    geographic_scope: str,
-    weather_source: str,
-    extra: Mapping[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Return the shared project context saved by every HelioTools application.
-
-    The application-specific project JSON keeps its historical keys for backward
-    compatibility. This normalized block is the stable bridge for future shared
-    exports, audits and database migration.
-    """
-
-    payload: dict[str, Any] = {
-        "schema_version": 1,
-        "app_key": str(app_key or ""),
-        "app_label": str(app_label or ""),
-        "geographic_scope": str(geographic_scope or ""),
-        "project_name": str(_project_value(source, "project_name", "name", default="") or ""),
-        "client_name": str(_project_value(source, "client_name", "client", "owner_name", default="") or ""),
-        "airtable_id": str(_project_value(source, "airtable_id", default="") or ""),
-        "analyst": str(_project_value(source, "analyst", default="") or ""),
-        "project_date": _project_date_iso(_project_value(source, "project_date", "date", default="")),
-        "typology": str(_project_value(source, "typology", default="") or ""),
-        "building_state": str(_project_value(source, "building_state", default="") or ""),
-        "region": str(_project_value(source, "region", default="") or ""),
-        "department": str(_project_value(source, "department", default="") or ""),
-        "city": str(_project_value(source, "city", default="") or ""),
-        "address": str(_project_value(source, "address", default="") or ""),
-        "latitude": _project_float(_project_value(source, "latitude", default=DEFAULT_PROJECT_LATITUDE), DEFAULT_PROJECT_LATITUDE),
-        "longitude": _project_float(
-            _project_value(source, "longitude", default=DEFAULT_PROJECT_LONGITUDE),
-            DEFAULT_PROJECT_LONGITUDE,
-        ),
-        "weather": {
-            "source": str(weather_source or ""),
-            "region": str(_project_value(source, "weather_region", default="") or ""),
-            "station": str(_project_value(source, "weather_station", default="") or ""),
-        },
-        "notes": str(_project_value(source, "notes", default="") or ""),
-    }
-    if extra:
-        payload["extra"] = dict(extra)
-    return payload
 
 
 @st.cache_data(ttl=86_400, show_spinner=False)

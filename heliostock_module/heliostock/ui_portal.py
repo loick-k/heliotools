@@ -21,7 +21,7 @@ import streamlit as st
 import pandas as pd
 
 from .common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
-from .common.project_identity import project_context_to_payload
+from .common.project_context import project_context_to_payload
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
