@@ -1406,6 +1406,9 @@ def render_heliorc_app() -> None:
                     inputs=inputs,
                     results=results,
                     monthly=monthly,
+                    sizing_context=sizing_context if isinstance(sizing_context, dict) else {},
+                    surface_orientation=current_surface_orientation_payload("heliorc"),
+                    architectural_constraints=_current_heliorc_architectural_payload(),
                 )
             except Exception as exc:  # noqa: BLE001
                 pdf_bytes = None

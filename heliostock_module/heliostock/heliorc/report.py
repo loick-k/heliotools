@@ -124,12 +124,93 @@ def _chart(monthly: pd.DataFrame) -> Drawing:
     return drawing
 
 
+def _as_float(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _foncier_conclusion(
+    *,
+    results: CalculationResults,
+    sizing_context: dict[str, Any] | None,
+    surface_orientation: dict[str, Any] | None,
+) -> list[list[str]]:
+    metrics = surface_orientation.get("metrics", {}) if isinstance(surface_orientation, dict) else {}
+    surface_m2 = _as_float(metrics.get("surface_m2")) if isinstance(metrics, dict) else None
+    max_collector_m2 = _as_float(metrics.get("max_collector_surface_m2")) if isinstance(metrics, dict) else None
+    available_ground_m2 = surface_m2
+    if available_ground_m2 is None and isinstance(sizing_context, dict):
+        available_ground_m2 = _as_float(sizing_context.get("available_ground_area_m2"))
+    required_ground_m2 = max(0.0, results.land_area_ha * 10_000.0)
+
+    rows: list[list[str]] = []
+    if available_ground_m2 is not None and available_ground_m2 > 0:
+        rows.append(["Surface au sol mesurée", f"{available_ground_m2:.0f} m²"])
+        if max_collector_m2 is not None and max_collector_m2 > 0:
+            rows.append(["Surface capteurs maximale estimée", f"{max_collector_m2:.0f} m²"])
+        rows.append(["Emprise foncière requise par le calcul", f"{required_ground_m2:.0f} m²"])
+        if available_ground_m2 >= required_ground_m2:
+            conclusion = "La surface mesurée semble compatible avec l'emprise foncière estimée à ce stade."
+        else:
+            conclusion = (
+                "La surface mesurée est inférieure à l'emprise foncière estimée. Le dimensionnement devra être "
+                "réduit ou le foncier disponible devra être confirmé."
+            )
+    else:
+        conclusion = "Aucune surface disponible n'a été mesurée dans l'onglet Orientation / surface."
+    rows.append(["Conclusion foncier", conclusion])
+    return rows
+
+
+def _architectural_conclusion(architectural_constraints: dict[str, Any] | None) -> list[list[str]]:
+    if not isinstance(architectural_constraints, dict):
+        return [["Conclusion contraintes architecturales", "L'analyse des servitudes patrimoniales n'a pas été renseignée."]]
+    result = architectural_constraints.get("result")
+    if not isinstance(result, dict):
+        return [["Conclusion contraintes architecturales", "L'analyse des servitudes patrimoniales n'a pas été lancée."]]
+    counts = result.get("counts")
+    if not isinstance(counts, dict):
+        return [["Conclusion contraintes architecturales", "Le résultat patrimonial enregistré n'est pas exploitable."]]
+    total = sum(int(value or 0) for value in counts.values())
+    if total <= 0:
+        conclusion = "Aucune servitude AC1, AC2 ou AC4 n'a été détectée au droit du point dans les données interrogées."
+    else:
+        details = ", ".join(f"{key} : {int(value or 0)}" for key, value in counts.items())
+        conclusion = f"{total} élément(s) patrimonial(aux) détecté(s) dans les données interrogées ({details})."
+    return [["Conclusion contraintes architecturales", conclusion]]
+
+
+def _simple_key_value_table(rows: list[list[str]], styles: dict[str, Any]) -> Table:
+    table_rows = [[Paragraph(str(label), styles["BodyText"]), Paragraph(str(value), styles["BodyText"])] for label, value in rows]
+    table = Table(table_rows, colWidths=[5.4 * cm, 11.1 * cm])
+    table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), LIGHT),
+                ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D7E1E0")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    return table
+
+
 def build_opportunity_note(
     *,
     project: dict[str, Any],
     inputs: CalculationInputs,
     results: CalculationResults,
     monthly: pd.DataFrame,
+    sizing_context: dict[str, Any] | None = None,
+    surface_orientation: dict[str, Any] | None = None,
+    architectural_constraints: dict[str, Any] | None = None,
 ) -> bytes:
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -282,7 +363,12 @@ def build_opportunity_note(
         ["Surface de capteurs", f"{_number(results.collector_area_m2)} m²", "Production solaire", f"{_number(results.annual_solar_production_mwh)} MWh/an"],
         ["Productivité", f"{_number(results.productivity_kwh_m2_year)} kWh/m².an", "Fraction solaire", f"{results.solar_fraction:.1%}"],
         ["Stockage journalier", f"{_number(results.storage_volume_m3)} m³", "Emprise foncière", f"{results.land_area_ha:.2f} ha"],
-        ["Distance maximum de raccordement conseillée", f"{_number(results.recommended_connection_distance_m)} m", "Panneaux de 15 m²", f"{results.panel_count_15m2}"],
+        [
+            Paragraph("Distance maximum<br/>de raccordement conseillée", styles["BodyText"]),
+            f"{_number(results.recommended_connection_distance_m)} m",
+            "Panneaux de 15 m²",
+            f"{results.panel_count_15m2}",
+        ],
     ]
     technical_table = Table(technical, colWidths=[4.2 * cm, 4.0 * cm, 4.2 * cm, 4.1 * cm])
     technical_table.setStyle(
@@ -301,6 +387,18 @@ def build_opportunity_note(
         )
     )
     story.append(technical_table)
+    story.append(Spacer(1, 0.15 * cm))
+    story.append(
+        _simple_key_value_table(
+            _foncier_conclusion(
+                results=results,
+                sizing_context=sizing_context,
+                surface_orientation=surface_orientation,
+            )
+            + _architectural_conclusion(architectural_constraints),
+            styles,
+        )
+    )
     story.append(Spacer(1, 0.15 * cm))
     story.append(_chart(monthly))
 
