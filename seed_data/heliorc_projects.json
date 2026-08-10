@@ -94,5 +94,226 @@
       "updated_at": "2026-08-10T12:58:49",
       "created_at": "2026-08-10T12:58:49"
     }
+  },
+  {
+    "slug": "rcu-ploufragan_2026-08-10-150534-02cf0d3a-3405-4214-807f-d08a69",
+    "saved_at": "2026-08-10T15:05:34",
+    "owner_email": "loick@atlansun.fr",
+    "project_id": "2026-08-10-150534-02cf0d3a-3405-4214-807f-d08a696612f5",
+    "name": "RCU Ploufragan",
+    "payload": {
+      "schema_version": 1,
+      "app_key": "heliorc",
+      "app_label": "HelioRC",
+      "project_id": "2026-08-10-150534-02cf0d3a-3405-4214-807f-d08a696612f5",
+      "name": "RCU Ploufragan",
+      "owner_email": "loick@atlansun.fr",
+      "created_at": "2026-08-10T12:58:49",
+      "updated_at": "2026-08-10T15:05:34",
+      "library_name": "RCU Ploufragan",
+      "library_id": "02cf0d3a-3405-4214-807f-d08a696612f5",
+      "library_reference": "1187",
+      "version_label": "2026-08-10 15:05",
+      "version_id": "2026-08-10-150534",
+      "project_context": {
+        "schema_version": 1,
+        "app_key": "heliorc",
+        "app_label": "HelioRC",
+        "geographic_scope": "France",
+        "project_name": "RCU Ploufragan",
+        "client_name": "SBAA",
+        "airtable_id": "1187",
+        "analyst": "Loick Kalioudjoglou ",
+        "project_date": "2026-08-10",
+        "typology": "Réseau de chaleur",
+        "building_state": "",
+        "region": "France métropolitaine",
+        "department": "22 - Saint-Brieuc",
+        "city": "Ploufragan",
+        "address": "Ploufragan",
+        "latitude": 48.49191637500267,
+        "longitude": -2.803906202316284,
+        "weather": {
+          "source": "PVGIS",
+          "region": "Bretagne",
+          "station": "Saint-Brieuc"
+        },
+        "notes": "",
+        "extra": {
+          "needs_mode": "Besoins mensuels connus"
+        }
+      },
+      "surface_orientation": {
+        "drawings": [
+          {
+            "type": "Feature",
+            "properties": {},
+            "geometry": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [
+                    -2.804382,
+                    48.491823
+                  ],
+                  [
+                    -2.804568,
+                    48.492164
+                  ],
+                  [
+                    -2.804847,
+                    48.492607
+                  ],
+                  [
+                    -2.803999,
+                    48.492925
+                  ],
+                  [
+                    -2.803849,
+                    48.492446
+                  ],
+                  [
+                    -2.804132,
+                    48.492202
+                  ],
+                  [
+                    -2.804024,
+                    48.492158
+                  ],
+                  [
+                    -2.80401,
+                    48.491944
+                  ],
+                  [
+                    -2.804382,
+                    48.491823
+                  ]
+                ]
+              ]
+            },
+            "id": "0"
+          },
+          {
+            "type": "Feature",
+            "properties": {},
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  -2.804139,
+                  48.492681
+                ],
+                [
+                  -2.80413,
+                  48.491915
+                ]
+              ]
+            }
+          }
+        ],
+        "metrics": {
+          "surface_m2": 5074.097407378422,
+          "max_collector_surface_m2": 2029.6389629513687,
+          "ground_area_m2_per_collector_m2": 2.5,
+          "orientation_bearing_deg": 179.55387000299925,
+          "orientation_from_south_deg": -0.44612999700075306,
+          "orientation_label": "Sud",
+          "orientation_source": "ligne tracée",
+          "drawings_count": 2
+        },
+        "map_center": [
+          48.49224436363636,
+          -2.804223818181818
+        ],
+        "map_zoom": 20
+      },
+      "architectural_constraints": {
+        "selected_address": "Ploufragan",
+        "latitude": 48.49191637500267,
+        "longitude": -2.803906202316284,
+        "project_type": "Capteurs au sol",
+        "result": {
+          "latitude": 48.4919164,
+          "longitude": -2.8039062,
+          "counts": {
+            "AC1": 0,
+            "AC2": 0,
+            "AC4": 0
+          },
+          "detected_categories": [],
+          "has_protection": false,
+          "feature_collections": {
+            "AC1": {
+              "type": "FeatureCollection",
+              "features": []
+            },
+            "AC2": {
+              "type": "FeatureCollection",
+              "features": []
+            },
+            "AC4": {
+              "type": "FeatureCollection",
+              "features": []
+            }
+          },
+          "errors": [],
+          "query_scope": {
+            "surface": "intersection avec le point exact",
+            "ac1_point_line": "recherche dans un rayon indicatif d'environ 12 m"
+          }
+        }
+      },
+      "project": {
+        "project_name": "RCU Ploufragan",
+        "client": "SBAA",
+        "airtable_id": "1187",
+        "analyst": "Loick Kalioudjoglou ",
+        "date": "2026-08-10",
+        "typology": "Réseau de chaleur",
+        "region": "France métropolitaine",
+        "department": "22 - Saint-Brieuc",
+        "city": "Ploufragan",
+        "address": "Ploufragan",
+        "latitude": 48.49191637500267,
+        "longitude": -2.803906202316284,
+        "weather_region": "Bretagne",
+        "weather_station": "Saint-Brieuc",
+        "needs_mode": "Besoins mensuels connus"
+      },
+      "inputs": {
+        "location_label": "22 - Saint-Brieuc",
+        "zone": "Nord",
+        "regime_label": "Moyen (75°C/55°C)",
+        "mean_network_temperature_c": 65.0,
+        "base_load_fraction": 0.9,
+        "sizing_strategy": "Dimensionnement max conditionné par la surface du terrain disponible",
+        "monthly_needs_mwh": [
+          884.0,
+          821.0,
+          787.0,
+          660.0,
+          209.0,
+          157.0,
+          109.0,
+          123.0,
+          169.0,
+          474.0,
+          676.0,
+          848.0
+        ],
+        "needs_mode": "Besoins mensuels connus",
+        "annual_heating_mwh": 10000.0,
+        "annual_ecs_mwh": 2000.0,
+        "network_efficiency": 0.85,
+        "calculation_mode": "excel_v5_3",
+        "other_aid_eur": 0.0,
+        "electricity_price_eur_mwh": 245.1,
+        "project_lifetime_years": 30,
+        "discount_rate_override": null,
+        "network_operates_summer": true,
+        "summer_excess_enr": false,
+        "land_identified": true
+      }
+    }
   }
 ]
