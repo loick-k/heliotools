@@ -1,1 +1,98 @@
-[]
+[
+  {
+    "slug": "rcu-ploufragan_02cf0d3a",
+    "saved_at": "2026-08-10T12:46:02",
+    "owner_email": "loick@atlansun.fr",
+    "project_id": "02cf0d3a-3405-4214-807f-d08a696612f5",
+    "name": "RCU Ploufragan",
+    "payload": {
+      "schema_version": 1,
+      "app_key": "heliorc",
+      "app_label": "HelioRC",
+      "project_id": "02cf0d3a-3405-4214-807f-d08a696612f5",
+      "name": "RCU Ploufragan",
+      "owner_email": "loick@atlansun.fr",
+      "project_context": {
+        "schema_version": 1,
+        "app_key": "heliorc",
+        "app_label": "HelioRC",
+        "geographic_scope": "France",
+        "project_name": "RCU Ploufragan",
+        "client_name": "SBAA",
+        "airtable_id": "1187",
+        "analyst": "Loick",
+        "project_date": "2026-08-10",
+        "typology": "Réseau de chaleur",
+        "building_state": "",
+        "region": "Bretagne",
+        "department": "22 - Côtes-d'Armor",
+        "city": "Ploufragan",
+        "address": "Ploufragan",
+        "latitude": 48.490124,
+        "longitude": -2.799188,
+        "weather": {
+          "source": "PVGIS",
+          "region": "Bretagne",
+          "station": "Saint-Brieuc"
+        },
+        "notes": "",
+        "extra": {
+          "needs_mode": "Besoins mensuels connus"
+        }
+      },
+      "project": {
+        "project_name": "RCU Ploufragan",
+        "client": "SBAA",
+        "airtable_id": "1187",
+        "analyst": "Loick",
+        "date": "2026-08-10",
+        "typology": "Réseau de chaleur",
+        "region": "Bretagne",
+        "department": "22 - Côtes-d'Armor",
+        "city": "Ploufragan",
+        "address": "Ploufragan",
+        "latitude": 48.490124,
+        "longitude": -2.799188,
+        "weather_region": "Bretagne",
+        "weather_station": "Saint-Brieuc",
+        "notes": "",
+        "needs_mode": "Besoins mensuels connus"
+      },
+      "inputs": {
+        "location_label": "1 - Bourg-en-Bresse",
+        "zone": "Nord",
+        "regime_label": "Moyen (75°C/55°C)",
+        "mean_network_temperature_c": 65.0,
+        "base_load_fraction": 0.9,
+        "monthly_needs_mwh": [
+          1890.0,
+          1463.0,
+          1495.0,
+          1162.0,
+          758.0,
+          375.0,
+          339.0,
+          339.0,
+          353.0,
+          671.0,
+          1378.0,
+          1790.0
+        ],
+        "needs_mode": "Besoins mensuels connus",
+        "annual_heating_mwh": 10000.0,
+        "annual_ecs_mwh": 2000.0,
+        "network_efficiency": 0.85,
+        "calculation_mode": "excel_v5_3",
+        "other_aid_eur": 0.0,
+        "electricity_price_eur_mwh": 245.1,
+        "project_lifetime_years": 30,
+        "discount_rate_override": null,
+        "network_operates_summer": true,
+        "summer_excess_enr": false,
+        "land_identified": true
+      },
+      "updated_at": "2026-08-10T12:46:02",
+      "created_at": "2026-08-10T12:46:02"
+    }
+  }
+]
