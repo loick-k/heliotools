@@ -25,10 +25,8 @@ from .engine import (
 )
 from .report import build_opportunity_note
 from ..common.project_identity import (
-    DEFAULT_PROJECT_DEPARTMENTS,
     DEFAULT_PROJECT_LATITUDE,
     DEFAULT_PROJECT_LONGITUDE,
-    DEFAULT_PROJECT_REGIONS,
     HELIORC_SITE_TYPOLOGIES,
     ProjectIdentity,
     ProjectIdentityOptions,
@@ -36,13 +34,13 @@ from ..common.project_identity import (
     render_project_identity_form,
 )
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
-from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
 from .. import ui_portal
 
 APP_DIR = Path(__file__).resolve().parent
 PROJECT_STORE = JsonProjectStore("heliorc", app_label="HelioRC")
 DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliorc_projects.json"
 PROJECTS_SESSION_CACHE_KEY = "heliorc_projects_cache"
+HELIORC_PROJECT_REGIONS = ("France métropolitaine",)
 
 
 def _render_styles() -> None:
@@ -89,11 +87,10 @@ def _init_state() -> None:
         "project_latitude": DEFAULT_PROJECT_LATITUDE,
         "project_longitude": DEFAULT_PROJECT_LONGITUDE,
         "project_typology": "Réseau de chaleur",
-        "project_region": "Bretagne",
-        "project_department": "35 - Ille-et-Vilaine",
+        "project_region": "France métropolitaine",
+        "project_department": "01 - Bourg-en-Bresse",
         "weather_region": "Bretagne",
         "weather_station": "Rennes",
-        "notes": "",
         "location_label": "1 - Bourg-en-Bresse",
         "zone": "Nord",
         "regime_label": "Moyen (75°C/55°C)",
@@ -153,7 +150,6 @@ def _project_identity_from_state() -> ProjectIdentity:
         ),
         weather_region=str(st.session_state.get("heliorc_weather_region") or st.session_state.get("weather_region") or "Bretagne"),
         weather_station=str(st.session_state.get("heliorc_weather_station") or st.session_state.get("weather_station") or "Rennes"),
-        notes=str(st.session_state.get("heliorc_notes") or st.session_state.get("notes") or ""),
     )
 
 
@@ -172,7 +168,6 @@ def _sync_project_identity_to_legacy_state(identity: ProjectIdentity) -> None:
     st.session_state["project_department"] = identity.department
     st.session_state["weather_region"] = identity.weather_region
     st.session_state["weather_station"] = identity.weather_station
-    st.session_state["notes"] = identity.notes
 
 
 def _current_project_data() -> dict[str, Any]:
@@ -197,7 +192,6 @@ def _current_project_data() -> dict[str, Any]:
         "longitude": identity.longitude,
         "weather_region": identity.weather_region,
         "weather_station": identity.weather_station,
-        "notes": identity.notes,
         "needs_mode": str(st.session_state.get("needs_mode") or ""),
     }
 
@@ -231,6 +225,58 @@ def _current_inputs_data() -> dict[str, Any]:
         "summer_excess_enr": bool(st.session_state.get("summer_excess_enr", False)),
         "land_identified": bool(st.session_state.get("land_identified", True)),
     }
+
+
+def _normalise_department_code(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    code = text.split("-", 1)[0].strip().split(" ", 1)[0].strip().upper()
+    return code.lstrip("0") if code.isdigit() else code
+
+
+def _heliorc_department_options(locations: pd.DataFrame) -> tuple[str, ...]:
+    rows = locations[["department", "city"]].drop_duplicates("department", keep="first").copy()
+    rows["_sort"] = rows["department"].astype(str).map(lambda value: int(value) if str(value).isdigit() else 999)
+    rows = rows.sort_values(["_sort", "city"], kind="stable")
+    labels: list[str] = []
+    for _, row in rows.iterrows():
+        code = str(row["department"])
+        display_code = code.zfill(2) if code.isdigit() and len(code) < 2 else code
+        labels.append(f"{display_code} - {row['city']}")
+    return tuple(labels)
+
+
+def _department_option_from_code(options: tuple[str, ...], department: object) -> str | None:
+    code = _normalise_department_code(department)
+    if not code:
+        return None
+    for option in options:
+        if _normalise_department_code(option) == code:
+            return option
+    return None
+
+
+def _location_label_from_department(locations: pd.DataFrame, department: object) -> str | None:
+    code = _normalise_department_code(department)
+    if not code:
+        return None
+    normalised = locations["department"].map(_normalise_department_code)
+    selected = locations.loc[normalised == code]
+    if selected.empty:
+        return None
+    return str(selected.iloc[0]["label"])
+
+
+def _sync_location_from_project_department(locations: pd.DataFrame) -> dict[str, object] | None:
+    department = st.session_state.get("heliorc_department") or st.session_state.get("project_department")
+    label = _location_label_from_department(locations, department)
+    if label:
+        st.session_state["location_label"] = label
+    selected = locations.loc[locations["label"] == st.session_state.get("location_label")]
+    if selected.empty:
+        return None
+    return selected.iloc[0].to_dict()
 
 
 def _current_project_payload() -> dict[str, Any]:
@@ -397,6 +443,8 @@ def _reset_heliorc_project_state() -> None:
         "project_address_label": "",
         "project_latitude": DEFAULT_PROJECT_LATITUDE,
         "project_longitude": DEFAULT_PROJECT_LONGITUDE,
+        "project_region": "France métropolitaine",
+        "project_department": "01 - Bourg-en-Bresse",
         "heliorc_project_name": "Étude d'opportunité solaire thermique",
         "heliorc_client_name": "",
         "heliorc_airtable_id": "",
@@ -405,8 +453,9 @@ def _reset_heliorc_project_state() -> None:
         "heliorc_project_address_label": "",
         "heliorc_project_latitude": DEFAULT_PROJECT_LATITUDE,
         "heliorc_project_longitude": DEFAULT_PROJECT_LONGITUDE,
-        "heliorc_notes": "",
-        "notes": "",
+        "heliorc_region": "France métropolitaine",
+        "heliorc_department": "01 - Bourg-en-Bresse",
+        "location_label": "1 - Bourg-en-Bresse",
         "last_results": None,
         "last_monthly": None,
         "last_inputs": None,
@@ -434,6 +483,9 @@ def _render_project_store_controls() -> None:
     }
 
     st.markdown("#### Projets HelioRC")
+    if st.session_state.pop("heliorc_project_saved_message", False):
+        st.success("Projet HelioRC enregistré.")
+
     select_col, load_col, new_col, save_col, delete_col = st.columns([3.2, 0.9, 0.9, 0.9, 0.9])
     with select_col:
         selected_label = st.selectbox(
@@ -477,7 +529,8 @@ def _render_project_store_controls() -> None:
             saved_payload = PROJECT_STORE.load_project(path=path, owner_email=owner_email)
             st.session_state["heliorc_current_project_id"] = str(saved_payload.get("project_id") or "")
             _upsert_project_backup(path=path, payload=saved_payload)
-            st.success("Projet HelioRC enregistré.")
+            st.session_state["heliorc_project_saved_message"] = True
+            st.rerun()
         except Exception as exc:  # noqa: BLE001
             st.error(f"Enregistrement impossible : {exc}")
 
@@ -501,14 +554,13 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
     project_data = payload.get("project", {})
     input_data = payload.get("inputs", {})
     st.session_state["heliorc_current_project_id"] = str(payload.get("project_id") or "")
-    for key in ["project_name", "client", "airtable_id", "analyst", "notes"]:
+    for key in ["project_name", "client", "airtable_id", "analyst"]:
         if key in project_data:
             st.session_state[key] = project_data[key]
     st.session_state["heliorc_project_name"] = st.session_state.get("project_name", "")
     st.session_state["heliorc_client_name"] = st.session_state.get("client", "")
     st.session_state["heliorc_airtable_id"] = st.session_state.get("airtable_id", "")
     st.session_state["heliorc_analyst"] = st.session_state.get("analyst", "")
-    st.session_state["heliorc_notes"] = st.session_state.get("notes", "")
     if "city" in project_data:
         st.session_state["heliorc_city"] = project_data["city"]
     if "address" in project_data:
@@ -560,8 +612,8 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
         st.session_state["discount_rate_percent"] = float(rate) * 100
 
 
-def _render_project_tab() -> None:
-    st.subheader("Projet")
+def _render_project_tab(locations: pd.DataFrame) -> None:
+    st.subheader("Contexte")
     _render_project_store_controls()
     st.divider()
     imported = st.file_uploader(
@@ -580,6 +632,15 @@ def _render_project_tab() -> None:
             except Exception as exc:  # noqa: BLE001
                 st.error(f"Import impossible : {exc}")
 
+    department_options = _heliorc_department_options(locations)
+    normalised_department = _department_option_from_code(
+        department_options,
+        st.session_state.get("heliorc_department") or st.session_state.get("project_department"),
+    )
+    if normalised_department:
+        st.session_state["heliorc_department"] = normalised_department
+        st.session_state["project_department"] = normalised_department
+
     project_identity = render_project_identity_form(
         key_prefix="heliorc",
         defaults=_project_identity_from_state(),
@@ -589,18 +650,37 @@ def _render_project_tab() -> None:
             show_typology=True,
             show_region=True,
             show_department=True,
-            show_weather=True,
-            show_notes=True,
             typology_options=HELIORC_SITE_TYPOLOGIES,
-            region_options=DEFAULT_PROJECT_REGIONS,
-            department_options=DEFAULT_PROJECT_DEPARTMENTS,
-            weather_regions=DEFAULT_EPW_REGIONS,
-            weather_station_aliases=WEATHER_STATION_LABEL_ALIASES,
+            region_options=HELIORC_PROJECT_REGIONS,
+            department_options=department_options,
             client_label="Maître d'ouvrage / territoire",
             airtable_label="Référence / ID Airtable",
         ),
     )
     _sync_project_identity_to_legacy_state(project_identity)
+    selected_location = _sync_location_from_project_department(locations)
+
+    st.markdown("### Cadre d'analyse")
+    if selected_location:
+        st.caption(
+            "Localisation PVGIS utilisée par HelioRC, déduite du département du projet : "
+            f"{selected_location['label']}."
+        )
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.checkbox(
+            "Le réseau fonctionne en été",
+            key="network_operates_summer",
+            help="Condition indispensable du cadre d'application du modèle.",
+        )
+    with col_b:
+        st.checkbox(
+            "Présence d'une EnR&R excédentaire en été",
+            key="summer_excess_enr",
+            help="Une autre production excédentaire en été peut réduire ou annuler le talon disponible pour le solaire.",
+        )
+    with col_c:
+        st.checkbox("Un foncier potentiel est identifié", key="land_identified")
 
 
 
@@ -610,7 +690,6 @@ def render_heliorc_app() -> None:
     _render_styles()
     _init_state()
     locations = load_locations()
-    location_labels = locations["label"].tolist()
 
     st.markdown(
         """
@@ -626,48 +705,12 @@ def render_heliorc_app() -> None:
         "Reprise du moteur NO STH RCU v5.3 : prédimensionnement au talon estival, productivité paramétrique, stockage journalier, CAPEX, aide indicative et LCOH."
     )
 
-    input_tabs = st.tabs(
-        ["1. Projet", "2. Contexte", "3. Besoins du RCU", "4. Hypothèses techniques et économiques"]
-    )
+    input_tabs = st.tabs(["1. Contexte", "2. Besoins du RCU", "3. Hypothèses techniques et économiques"])
 
     with input_tabs[0]:
-        _render_project_tab()
+        _render_project_tab(locations)
 
     with input_tabs[1]:
-        col_a, col_b = st.columns([1.15, 0.85])
-        with col_a:
-            st.selectbox("Localisation", location_labels, key="location_label")
-            st.checkbox(
-                "Le réseau fonctionne en été",
-                key="network_operates_summer",
-                help="Condition indispensable du cadre d'application du modèle.",
-            )
-            st.checkbox(
-                "Présence d'une EnR&R excédentaire en été",
-                key="summer_excess_enr",
-                help="Une autre production excédentaire en été peut réduire ou annuler le talon disponible pour le solaire.",
-            )
-            st.checkbox("Un foncier potentiel est identifié", key="land_identified")
-        with col_b:
-            selected_location = locations.loc[
-                locations["label"] == st.session_state.location_label
-            ].iloc[0]
-            st.map(
-                pd.DataFrame(
-                    {
-                        "lat": [float(selected_location["latitude"])],
-                        "lon": [float(selected_location["longitude"])],
-                    }
-                ),
-                zoom=8,
-                width="stretch",
-            )
-            st.markdown(
-                f"<div class='small-muted'>Point de référence météorologique : <b>{selected_location['city']}</b> ({selected_location['department']}).</div>",
-                unsafe_allow_html=True,
-            )
-
-    with input_tabs[2]:
         st.radio(
             "Mode de saisie",
             ["Besoins mensuels connus", "Estimation depuis les besoins annuels"],
@@ -744,7 +787,7 @@ def render_heliorc_app() -> None:
                 needs_preview = pd.DataFrame()
                 st.error(str(exc))
 
-    with input_tabs[3]:
+    with input_tabs[2]:
         tech_col, eco_col = st.columns(2)
         with tech_col:
             selected_regime = st.selectbox(

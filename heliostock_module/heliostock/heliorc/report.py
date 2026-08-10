@@ -351,11 +351,6 @@ def build_opportunity_note(
     )
     story.append(KeepTogether(warning_flowables))
 
-    notes = str(project.get("notes", "")).strip()
-    if notes:
-        story.append(Paragraph("6. Commentaires du chargé d'étude", styles["SectionHelio"]))
-        story.append(Paragraph(notes.replace("\n", "<br/>"), styles["BodyText"]))
-
     story.append(Spacer(1, 0.35 * cm))
     story.append(
         Paragraph(
