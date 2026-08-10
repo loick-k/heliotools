@@ -33,7 +33,13 @@ from ..common.project_identity import (
     project_context_to_payload,
     render_project_identity_form,
 )
-from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
+from ..common.project_store import (
+    JsonProjectStore,
+    normalize_email,
+    now_iso,
+    project_library_metadata,
+    safe_slug,
+)
 from .. import ui_portal
 
 APP_DIR = Path(__file__).resolve().parent
@@ -53,6 +59,15 @@ def _render_styles() -> None:
             border: 1px solid #dce8e6;
             border-radius: 0.65rem;
             padding: 0.8rem 0.9rem;
+          }
+          [data-testid="stMetricValue"] {
+            font-size: clamp(1.55rem, 2.3vw, 2.2rem);
+            white-space: normal;
+            overflow-wrap: anywhere;
+            line-height: 1.15;
+          }
+          [data-testid="stMetricLabel"] {
+            min-height: 2.2rem;
           }
           .heliorc-banner {
             border-left: 6px solid #0b6f70;
@@ -324,14 +339,26 @@ def _sync_location_from_project_department(locations: pd.DataFrame) -> dict[str,
 
 def _current_project_payload() -> dict[str, Any]:
     project = _current_project_data()
-    project_id = str(st.session_state.get("heliorc_current_project_id") or "")
+    saved_at = now_iso()
+    previous_project_id = str(st.session_state.get("heliorc_current_project_id") or "")
+    library_id = str(st.session_state.get("heliorc_project_library_id") or previous_project_id or uuid.uuid4())
+    metadata = project_library_metadata(
+        project_name=project["project_name"],
+        project_reference=project.get("airtable_id"),
+        saved_at=saved_at,
+        library_id=library_id,
+    )
+    versioned_project_id = f"{metadata['version_id']}-{safe_slug(metadata['library_id'], fallback='heliorc')}"
     return {
         "schema_version": 1,
         "app_key": PROJECT_STORE.app_key,
         "app_label": PROJECT_STORE.app_label,
-        "project_id": project_id,
+        "project_id": versioned_project_id,
         "name": project["project_name"],
         "owner_email": _current_owner_email(),
+        "created_at": str(st.session_state.get("heliorc_project_created_at") or saved_at),
+        "updated_at": saved_at,
+        **metadata,
         "project_context": project_context_to_payload(
             _project_identity_from_state(),
             app_key=PROJECT_STORE.app_key,
@@ -348,14 +375,17 @@ def _current_project_payload() -> dict[str, Any]:
 def _project_file_label(project_file) -> str:
     payload = project_file.payload
     project = payload.get("project", {}) if isinstance(payload.get("project"), dict) else {}
-    name = str(project.get("project_name") or payload.get("name") or project_file.name)
-    airtable_id = str(project.get("airtable_id") or "")
-    updated = str(payload.get("updated_at") or project_file.updated_at or "")
+    name = str(payload.get("library_name") or project.get("project_name") or payload.get("name") or project_file.name)
+    library_ref = str(payload.get("library_reference") or project.get("airtable_id") or "").strip()
+    library_id = str(payload.get("library_id") or payload.get("project_id") or "").strip()
+    version = str(payload.get("version_label") or payload.get("updated_at") or project_file.updated_at or "").strip()
     parts = [name]
-    if airtable_id:
-        parts.append(f"Airtable {airtable_id}")
-    if updated:
-        parts.append(updated)
+    if library_ref:
+        parts.append(f"ID {library_ref}")
+    elif library_id:
+        parts.append(f"ID {library_id[:8]}")
+    if version:
+        parts.append(f"v{version}")
     return " | ".join(parts)
 
 
@@ -473,6 +503,10 @@ def _list_project_files():
 def _load_heliorc_project_payload(payload: dict[str, Any]) -> None:
     _load_imported_project(payload)
     st.session_state["heliorc_current_project_id"] = str(payload.get("project_id") or "")
+    st.session_state["heliorc_project_library_id"] = str(
+        payload.get("library_id") or payload.get("project_id") or ""
+    )
+    st.session_state["heliorc_project_created_at"] = str(payload.get("created_at") or "")
 
 
 def _reset_heliorc_project_state() -> None:
@@ -504,6 +538,8 @@ def _reset_heliorc_project_state() -> None:
         "last_inputs": None,
         "last_project": None,
         "heliorc_current_project_id": "",
+        "heliorc_project_library_id": "",
+        "heliorc_project_created_at": "",
     }
     for key, value in defaults.items():
         st.session_state[key] = value
@@ -571,6 +607,10 @@ def _render_project_store_controls() -> None:
             )
             saved_payload = PROJECT_STORE.load_project(path=path, owner_email=owner_email)
             st.session_state["heliorc_current_project_id"] = str(saved_payload.get("project_id") or "")
+            st.session_state["heliorc_project_library_id"] = str(
+                saved_payload.get("library_id") or saved_payload.get("project_id") or ""
+            )
+            st.session_state["heliorc_project_created_at"] = str(saved_payload.get("created_at") or "")
             _upsert_project_backup(path=path, payload=saved_payload)
             st.session_state["heliorc_project_saved_message"] = True
             st.rerun()
@@ -597,6 +637,10 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
     project_data = payload.get("project", {})
     input_data = payload.get("inputs", {})
     st.session_state["heliorc_current_project_id"] = str(payload.get("project_id") or "")
+    st.session_state["heliorc_project_library_id"] = str(
+        payload.get("library_id") or payload.get("project_id") or ""
+    )
+    st.session_state["heliorc_project_created_at"] = str(payload.get("created_at") or "")
     for key in ["project_name", "client", "airtable_id", "analyst"]:
         if key in project_data:
             st.session_state[key] = project_data[key]
@@ -657,8 +701,6 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
 
 def _render_project_tab(locations: pd.DataFrame) -> None:
     st.subheader("Contexte")
-    _render_project_store_controls()
-    st.divider()
     imported = st.file_uploader(
         "Importer un projet HelioRC (JSON)",
         type=["json"],
@@ -747,6 +789,9 @@ def render_heliorc_app() -> None:
     st.caption(
         "Reprise du moteur NO STH RCU v5.3 : prédimensionnement au talon estival, productivité paramétrique, stockage journalier, CAPEX, aide indicative et LCOH."
     )
+
+    _render_project_store_controls()
+    st.divider()
 
     input_tabs = st.tabs(
         [
@@ -1000,11 +1045,14 @@ def render_heliorc_app() -> None:
             m1.metric("Surface de capteurs", f"{results.collector_area_m2:,.0f} m²".replace(",", " "))
             m2.metric("Production solaire", f"{results.annual_solar_production_mwh:,.0f} MWh/an".replace(",", " "))
             m3.metric("Fraction solaire", f"{results.solar_fraction:.1%}")
-            m4.metric("Productivité", f"{results.productivity_kwh_m2_year:,.0f} kWh/m².an".replace(",", " "))
+            m4.metric("Productivité", f"{results.productivity_kwh_m2_year:,.0f} kWh/m²/an".replace(",", " "))
             m5, m6, m7, m8 = st.columns(4)
             m5.metric("Stockage journalier", f"{results.storage_volume_m3:,.0f} m³".replace(",", " "))
             m6.metric("Emprise foncière", f"{results.land_area_ha:.2f} ha")
-            m7.metric("Distance conseillée", f"{results.recommended_connection_distance_m:,.0f} m".replace(",", " "))
+            m7.metric(
+                "Distance maximum de raccordement conseillée",
+                f"{results.recommended_connection_distance_m:,.0f} m".replace(",", " "),
+            )
             m8.metric("Panneaux de 15 m²", f"{results.panel_count_15m2}")
 
             st.markdown("### Première analyse économique")
@@ -1019,32 +1067,34 @@ def render_heliorc_app() -> None:
                     st.write(f"- {warning}")
 
         with result_tabs[1]:
+            needs_mwh = monthly["Besoins RCU (MWh)"].astype(float)
+            solar_mwh = monthly["Production solaire (MWh)"].astype(float).clip(lower=0)
+            solar_covered_mwh = solar_mwh.clip(upper=needs_mwh)
+            backup_mwh = (needs_mwh - solar_covered_mwh).clip(lower=0)
             figure = go.Figure()
             figure.add_trace(
-                go.Scatter(
+                go.Bar(
                     x=monthly["Mois"],
-                    y=monthly["Besoins RCU (MWh)"],
-                    mode="lines",
-                    name="Besoins RCU",
-                    line={"color": "#98A2B3", "width": 2},
-                    fill="tozeroy",
-                    fillcolor="rgba(152,162,179,0.28)",
+                    y=solar_covered_mwh,
+                    name="Couverture solaire thermique",
+                    marker_color="#E58A2A",
+                    hovertemplate="%{x}<br>Solaire thermique : %{y:.1f} MWh<extra></extra>",
                 )
             )
             figure.add_trace(
-                go.Scatter(
+                go.Bar(
                     x=monthly["Mois"],
-                    y=monthly["Production solaire (MWh)"],
-                    mode="lines+markers",
-                    name="Production solaire",
-                    line={"color": "#E58A2A", "width": 3},
-                    marker={"size": 7},
+                    y=backup_mwh,
+                    name="Appoint / réseau existant",
+                    marker_color="#98A2B3",
+                    hovertemplate="%{x}<br>Appoint : %{y:.1f} MWh<extra></extra>",
                 )
             )
             figure.update_layout(
-                title="Profil de solarisation du réseau",
+                title="Couverture mensuelle des besoins RCU",
                 xaxis_title="Mois",
                 yaxis_title="Énergie (MWh/mois)",
+                barmode="stack",
                 hovermode="x unified",
                 legend={"orientation": "h", "y": 1.12, "x": 0},
                 margin={"l": 30, "r": 20, "t": 80, "b": 35},

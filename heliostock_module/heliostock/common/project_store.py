@@ -17,6 +17,49 @@ def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def project_version_label(saved_at: str | None = None) -> str:
+    """Human readable project version label used in project libraries."""
+
+    raw_value = str(saved_at or now_iso()).strip()
+    if not raw_value:
+        return now_iso().replace("T", " ")[:16]
+    return raw_value.replace("T", " ")[:16]
+
+
+def project_version_id(saved_at: str | None = None) -> str:
+    """Filename-safe version id derived from a save timestamp."""
+
+    raw_value = str(saved_at or now_iso()).strip()
+    return safe_slug(raw_value.replace("T", "-").replace(":", "").replace(" ", "-"), fallback="version")
+
+
+def project_library_metadata(
+    *,
+    project_name: str,
+    project_reference: str | None = None,
+    saved_at: str | None = None,
+    library_id: str | None = None,
+) -> dict[str, str]:
+    """Build common library metadata for versioned project records.
+
+    The application payload remains free, but these fields give every app the
+    same vocabulary: a display name, a stable library id/reference and a dated
+    version label.
+    """
+
+    version_at = saved_at or now_iso()
+    clean_name = str(project_name or "Nouveau projet").strip() or "Nouveau projet"
+    clean_reference = str(project_reference or "").strip()
+    clean_library_id = str(library_id or clean_reference or uuid.uuid4()).strip()
+    return {
+        "library_name": clean_name,
+        "library_id": clean_library_id,
+        "library_reference": clean_reference,
+        "version_label": project_version_label(version_at),
+        "version_id": project_version_id(version_at),
+    }
+
+
 @dataclass(frozen=True)
 class ProjectFile:
     path: Path
@@ -67,7 +110,8 @@ class JsonProjectStore:
 
     def project_path(self, *, owner_email: str, project_id: str, project_name: str) -> Path:
         project_slug = safe_slug(project_name)
-        return self.owner_dir(owner_email) / f"{project_slug}_{str(project_id)[:8]}.json"
+        project_id_slug = safe_slug(str(project_id), fallback="project", max_length=48)
+        return self.owner_dir(owner_email) / f"{project_slug}_{project_id_slug}.json"
 
     def project_artifact_dir(self, path: Path) -> Path:
         """Directory used for application-specific files linked to a project."""
@@ -151,7 +195,8 @@ class JsonProjectStore:
         )
         clean_payload.setdefault("created_at", clean_payload["updated_at"])
 
-        for old_file in self.owner_dir(owner_email).glob(f"*_{project_id[:8]}.json"):
+        project_id_slug = safe_slug(str(project_id), fallback="project", max_length=48)
+        for old_file in self.owner_dir(owner_email).glob(f"*_{project_id_slug}.json"):
             old_file.unlink(missing_ok=True)
 
         path = self.project_path(owner_email=owner_email, project_id=project_id, project_name=project_name)

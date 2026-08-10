@@ -5,8 +5,7 @@ from typing import Any
 
 import pandas as pd
 from reportlab.graphics.charts.legends import Legend
-from reportlab.graphics.charts.lineplots import LinePlot
-from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.shapes import Drawing, Line, Rect, String
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -57,40 +56,68 @@ def _header_footer(canvas: Any, doc: Any) -> None:
 
 def _chart(monthly: pd.DataFrame) -> Drawing:
     drawing = Drawing(500, 220)
-    plot = LinePlot()
-    plot.x = 45
-    plot.y = 35
-    plot.height = 145
-    plot.width = 410
+    x0 = 45
+    y0 = 35
+    height = 145
+    width = 410
     needs = monthly["Besoins RCU (MWh)"].astype(float).tolist()
     solar = monthly["Production solaire (MWh)"].astype(float).tolist()
-    plot.data = [
-        [(index + 1, value) for index, value in enumerate(needs)],
-        [(index + 1, value) for index, value in enumerate(solar)],
-    ]
-    plot.lines[0].strokeColor = GREY
-    plot.lines[0].strokeWidth = 2
-    plot.lines[1].strokeColor = ORANGE
-    plot.lines[1].strokeWidth = 2.5
-    plot.xValueAxis.valueMin = 1
-    plot.xValueAxis.valueMax = 12
-    plot.xValueAxis.valueSteps = list(range(1, 13))
-    plot.xValueAxis.labelTextFormat = lambda value: str(int(value))
-    plot.yValueAxis.valueMin = 0
-    plot.yValueAxis.valueMax = max(needs) * 1.10 if max(needs) > 0 else 1
-    plot.yValueAxis.labelTextFormat = lambda value: f"{value:.0f}"
-    drawing.add(plot)
+    solar_covered = [min(max(solar_value, 0.0), max(need, 0.0)) for need, solar_value in zip(needs, solar)]
+    backup = [max(need - solar_value, 0.0) for need, solar_value in zip(needs, solar_covered)]
+    y_max = max(needs) * 1.12 if max(needs) > 0 else 1.0
+
+    drawing.add(String(x0, 205, "Couverture mensuelle des besoins RCU", fontName="Helvetica-Bold", fontSize=10))
+    drawing.add(String(x0, 187, "MWh/mois", fontName="Helvetica", fontSize=7, fillColor=GREY))
+    drawing.add(Line(x0, y0, x0 + width, y0, strokeColor=colors.black, strokeWidth=0.8))
+    drawing.add(Line(x0, y0, x0, y0 + height, strokeColor=colors.black, strokeWidth=0.8))
+
+    for index in range(5):
+        value = y_max * index / 4
+        y = y0 + height * index / 4
+        drawing.add(Line(x0, y, x0 + width, y, strokeColor=colors.HexColor("#D9E1EF"), strokeWidth=0.4))
+        drawing.add(String(x0 - 24, y - 2, f"{value:.0f}", fontName="Helvetica", fontSize=7, fillColor=GREY))
+
+    bar_gap = 5
+    bar_width = (width - bar_gap * 13) / 12
+    month_labels = [str(month)[:3] for month in monthly["Mois"].tolist()]
+    for index, (solar_value, backup_value, label) in enumerate(zip(solar_covered, backup, month_labels)):
+        x = x0 + bar_gap + index * (bar_width + bar_gap)
+        solar_height = height * solar_value / y_max
+        backup_height = height * backup_value / y_max
+        drawing.add(
+            Rect(
+                x,
+                y0,
+                bar_width,
+                solar_height,
+                fillColor=ORANGE,
+                strokeColor=colors.HexColor("#334155"),
+                strokeWidth=0.25,
+            )
+        )
+        drawing.add(
+            Rect(
+                x,
+                y0 + solar_height,
+                bar_width,
+                backup_height,
+                fillColor=colors.HexColor("#98A2B3"),
+                strokeColor=colors.HexColor("#334155"),
+                strokeWidth=0.25,
+            )
+        )
+        drawing.add(String(x - 1, y0 - 13, label, fontName="Helvetica", fontSize=6.5, fillColor=GREY))
 
     legend = Legend()
-    legend.x = 65
+    legend.x = 305
     legend.y = 205
     legend.dx = 8
     legend.dy = 8
     legend.fontName = "Helvetica"
     legend.fontSize = 8
     legend.colorNamePairs = [
-        (GREY, "Besoins RCU"),
-        (ORANGE, "Production solaire"),
+        (ORANGE, "Couverture solaire thermique"),
+        (colors.HexColor("#98A2B3"), "Appoint / réseau existant"),
     ]
     drawing.add(legend)
     return drawing
