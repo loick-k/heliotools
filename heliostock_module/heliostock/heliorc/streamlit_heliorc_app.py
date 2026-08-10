@@ -75,6 +75,49 @@ def _initial_monthly_dataframe(values: list[float] | None = None) -> pd.DataFram
     return pd.DataFrame({"Mois": MONTHS_FR, "Besoins RCU (MWh)": data})
 
 
+def _normalise_manual_needs_dataframe(value: object, fallback: pd.DataFrame | None = None) -> pd.DataFrame:
+    if isinstance(value, pd.DataFrame):
+        frame = value.copy()
+    else:
+        frame = fallback.copy() if isinstance(fallback, pd.DataFrame) else _initial_monthly_dataframe()
+
+    if "Besoins RCU (MWh)" not in frame.columns:
+        values = [0.0] * 12
+    else:
+        values = pd.to_numeric(frame["Besoins RCU (MWh)"], errors="coerce").fillna(0.0).astype(float).tolist()
+    values = (values + [0.0] * 12)[:12]
+    return _initial_monthly_dataframe(values)
+
+
+def _manual_needs_from_editor_state(editor_state: object, fallback: pd.DataFrame) -> pd.DataFrame:
+    frame = _normalise_manual_needs_dataframe(fallback)
+    if isinstance(editor_state, pd.DataFrame):
+        return _normalise_manual_needs_dataframe(editor_state, frame)
+    if isinstance(editor_state, dict):
+        edited_rows = editor_state.get("edited_rows", {})
+        if isinstance(edited_rows, dict):
+            for row_index, changes in edited_rows.items():
+                if not isinstance(changes, dict):
+                    continue
+                try:
+                    index = int(row_index)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= index < len(frame) and "Besoins RCU (MWh)" in changes:
+                    frame.loc[index, "Besoins RCU (MWh)"] = changes["Besoins RCU (MWh)"]
+    return _normalise_manual_needs_dataframe(frame)
+
+
+def _sync_manual_needs_editor() -> None:
+    fallback = st.session_state.get("manual_needs_df")
+    if not isinstance(fallback, pd.DataFrame):
+        fallback = _initial_monthly_dataframe()
+    st.session_state["manual_needs_df"] = _manual_needs_from_editor_state(
+        st.session_state.get("manual_needs_editor"),
+        fallback,
+    )
+
+
 def _init_state() -> None:
     defaults: dict[str, Any] = {
         "project_name": "Étude d'opportunité solaire thermique",
@@ -722,11 +765,12 @@ def render_heliorc_app() -> None:
                 "Saisir les besoins mensuels **au niveau du réseau**, pertes comprises, comme dans l'onglet principal du classeur."
             )
             edited = st.data_editor(
-                st.session_state.manual_needs_df,
+                _normalise_manual_needs_dataframe(st.session_state.manual_needs_df),
                 key="manual_needs_editor",
                 hide_index=True,
                 width="stretch",
                 disabled=["Mois"],
+                on_change=_sync_manual_needs_editor,
                 column_config={
                     "Mois": st.column_config.TextColumn("Mois"),
                     "Besoins RCU (MWh)": st.column_config.NumberColumn(
@@ -734,8 +778,8 @@ def render_heliorc_app() -> None:
                     ),
                 },
             )
-            st.session_state.manual_needs_df = edited
-            needs_preview = edited.copy()
+            st.session_state.manual_needs_df = _normalise_manual_needs_dataframe(edited, st.session_state.manual_needs_df)
+            needs_preview = st.session_state.manual_needs_df.copy()
         else:
             col_1, col_2, col_3 = st.columns(3)
             with col_1:
