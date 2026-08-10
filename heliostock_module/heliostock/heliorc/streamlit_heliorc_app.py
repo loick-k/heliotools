@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import uuid
 from dataclasses import asdict
@@ -358,6 +359,16 @@ def _heliorc_max_collector_area_from_ground(available_ground_m2: float | None) -
     if available_ground_m2 is None or available_ground_m2 <= 0:
         return None
     return available_ground_m2 / HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2
+
+
+def _render_heliorc_surface_orientation_measurement() -> dict[str, Any]:
+    signature = inspect.signature(render_surface_orientation_measurement)
+    if "ground_area_m2_per_collector_m2" in signature.parameters:
+        return render_surface_orientation_measurement(
+            state_prefix="heliorc",
+            ground_area_m2_per_collector_m2=HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2,
+        )
+    return render_surface_orientation_measurement(state_prefix="heliorc")
 
 
 def _build_calculation_inputs(monthly_needs: list[float], *, base_load_fraction: float) -> CalculationInputs:
@@ -1082,10 +1093,7 @@ def render_heliorc_app() -> None:
                 st.error(str(exc))
 
     with input_tabs[2]:
-        orientation_payload = render_surface_orientation_measurement(
-            state_prefix="heliorc",
-            ground_area_m2_per_collector_m2=HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2,
-        )
+        orientation_payload = _render_heliorc_surface_orientation_measurement()
         metrics = orientation_payload.get("metrics") if isinstance(orientation_payload, dict) else {}
         available_ground_m2 = None
         if isinstance(metrics, dict) and isinstance(metrics.get("surface_m2"), (float, int)):
