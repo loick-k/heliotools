@@ -1150,17 +1150,6 @@ def render_heliorc_app() -> None:
                     "Le calcul vise 95 % du talon si le terrain disponible le permet. Sinon, il réduit automatiquement le talon "
                     "pour respecter l'emprise disponible avec 2,5 m² au sol par m² de capteur."
                 )
-            st.selectbox(
-                "Mode de calcul",
-                ["Excel v5.3 - reproduction stricte"],
-                index=0,
-                disabled=True,
-                help=(
-                    "HelioRC conserve uniquement la reproduction stricte du classeur pour éviter de mélanger "
-                    "pertes du réseau de chaleur, distance de raccordement solaire et longueur de RCU."
-                ),
-            )
-
     with input_tabs[5]:
         eco_col, _ = st.columns(2)
         with eco_col:
@@ -1313,37 +1302,6 @@ def render_heliorc_app() -> None:
             solar_mwh = monthly["Production solaire (MWh)"].astype(float).clip(lower=0)
             solar_covered_mwh = solar_mwh.clip(upper=needs_mwh)
             backup_mwh = (needs_mwh - solar_covered_mwh).clip(lower=0)
-            figure = go.Figure()
-            figure.add_trace(
-                go.Bar(
-                    x=monthly["Mois"],
-                    y=solar_covered_mwh,
-                    name="Couverture solaire thermique",
-                    marker_color="#E58A2A",
-                    hovertemplate="%{x}<br>Solaire thermique : %{y:.1f} MWh<extra></extra>",
-                )
-            )
-            figure.add_trace(
-                go.Bar(
-                    x=monthly["Mois"],
-                    y=backup_mwh,
-                    name="Appoint / réseau existant",
-                    marker_color="#98A2B3",
-                    hovertemplate="%{x}<br>Appoint : %{y:.1f} MWh<extra></extra>",
-                )
-            )
-            figure.update_layout(
-                title="Couverture mensuelle des besoins RCU",
-                xaxis_title="Mois",
-                yaxis_title="Énergie (MWh/mois)",
-                barmode="stack",
-                hovermode="x unified",
-                legend={"orientation": "h", "y": 1.12, "x": 0},
-                margin={"l": 30, "r": 20, "t": 80, "b": 35},
-                height=480,
-            )
-            st.plotly_chart(figure, width="stretch")
-
             display_monthly = monthly[
                 [
                     "Mois",
@@ -1352,17 +1310,52 @@ def render_heliorc_app() -> None:
                     "Taux de couverture mensuel",
                 ]
             ].copy()
-            st.dataframe(
-                display_monthly.style.format(
-                    {
-                        "Besoins RCU (MWh)": "{:.1f}",
-                        "Production solaire (MWh)": "{:.1f}",
-                        "Taux de couverture mensuel": "{:.1%}",
-                    }
-                ),
-                hide_index=True,
-                width="stretch",
-            )
+            graph_col, table_col = st.columns(2)
+            with graph_col:
+                figure = go.Figure()
+                figure.add_trace(
+                    go.Bar(
+                        x=monthly["Mois"],
+                        y=solar_covered_mwh,
+                        name="Couverture solaire thermique",
+                        marker_color="#FCBF24",
+                        hovertemplate="%{x}<br>Solaire thermique : %{y:.1f} MWh<extra></extra>",
+                    )
+                )
+                figure.add_trace(
+                    go.Bar(
+                        x=monthly["Mois"],
+                        y=backup_mwh,
+                        name="Appoint / réseau existant",
+                        marker_color="#98A2B3",
+                        hovertemplate="%{x}<br>Appoint : %{y:.1f} MWh<extra></extra>",
+                    )
+                )
+                figure.update_layout(
+                    title="Couverture mensuelle des besoins RCU",
+                    xaxis_title="Mois",
+                    yaxis_title="Énergie (MWh/mois)",
+                    barmode="stack",
+                    hovermode="x unified",
+                    legend={"orientation": "h", "y": 1.14, "x": 0},
+                    margin={"l": 30, "r": 20, "t": 85, "b": 35},
+                    height=520,
+                )
+                st.plotly_chart(figure, width="stretch")
+
+            with table_col:
+                st.dataframe(
+                    display_monthly.style.format(
+                        {
+                            "Besoins RCU (MWh)": "{:.1f}",
+                            "Production solaire (MWh)": "{:.1f}",
+                            "Taux de couverture mensuel": "{:.1%}",
+                        }
+                    ),
+                    hide_index=True,
+                    width="stretch",
+                    height=520,
+                )
 
         with result_tabs[2]:
             technical_rows = {

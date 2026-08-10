@@ -28,6 +28,7 @@ from .engine import CALCULATION_MODES, CalculationInputs, CalculationResults
 TEAL = colors.HexColor("#0B6F70")
 DARK = colors.HexColor("#17324D")
 ORANGE = colors.HexColor("#E58A2A")
+SOLAR_YELLOW = colors.HexColor("#FCBF24")
 LIGHT = colors.HexColor("#EEF5F4")
 GREY = colors.HexColor("#667085")
 
@@ -90,7 +91,7 @@ def _chart(monthly: pd.DataFrame) -> Drawing:
                 y0,
                 bar_width,
                 solar_height,
-                fillColor=ORANGE,
+                fillColor=SOLAR_YELLOW,
                 strokeColor=colors.HexColor("#334155"),
                 strokeWidth=0.25,
             )
@@ -116,7 +117,7 @@ def _chart(monthly: pd.DataFrame) -> Drawing:
     legend.fontName = "Helvetica"
     legend.fontSize = 8
     legend.colorNamePairs = [
-        (ORANGE, "Couverture solaire thermique"),
+        (SOLAR_YELLOW, "Couverture solaire thermique"),
         (colors.HexColor("#98A2B3"), "Appoint / réseau existant"),
     ]
     drawing.add(legend)
