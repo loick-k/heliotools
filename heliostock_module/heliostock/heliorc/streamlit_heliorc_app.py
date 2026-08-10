@@ -45,6 +45,7 @@ from ..ui_surface_orientation import (
     render_surface_orientation_measurement,
     restore_surface_orientation_state,
 )
+from ..ui_architectural_constraints import PROJECT_TYPES, render_architectural_constraints_test
 from .. import ui_portal
 
 APP_DIR = Path(__file__).resolve().parent
@@ -238,6 +239,50 @@ def _sync_project_identity_to_legacy_state(identity: ProjectIdentity) -> None:
     st.session_state["project_department"] = identity.department
     st.session_state["weather_region"] = identity.weather_region
     st.session_state["weather_station"] = identity.weather_station
+
+
+def _propagate_heliorc_project_location() -> None:
+    identity = _project_identity_from_state()
+    st.session_state["heliorc_architectural_selected_address"] = identity.address
+    st.session_state["heliorc_architectural_latitude"] = float(identity.latitude)
+    st.session_state["heliorc_architectural_longitude"] = float(identity.longitude)
+
+
+def _on_heliorc_location_change(identity: ProjectIdentity) -> None:
+    _sync_project_identity_to_legacy_state(identity)
+    _propagate_heliorc_project_location()
+    st.session_state.pop("heliorc_architectural_result", None)
+
+
+def _current_heliorc_architectural_payload() -> dict[str, Any]:
+    return {
+        "selected_address": str(st.session_state.get("heliorc_architectural_selected_address") or ""),
+        "latitude": float(st.session_state.get("heliorc_architectural_latitude", DEFAULT_PROJECT_LATITUDE)),
+        "longitude": float(st.session_state.get("heliorc_architectural_longitude", DEFAULT_PROJECT_LONGITUDE)),
+        "project_type": str(st.session_state.get("heliorc_architectural_project_type") or PROJECT_TYPES[0]),
+        "result": st.session_state.get("heliorc_architectural_result"),
+    }
+
+
+def _restore_heliorc_architectural_state(payload: dict[str, Any], project_id: str) -> None:
+    if st.session_state.get("heliorc_architectural_payload_project_id") == project_id:
+        return
+    st.session_state["heliorc_architectural_payload_project_id"] = project_id
+    saved = payload.get("architectural_constraints") if isinstance(payload, dict) else None
+    if not isinstance(saved, dict):
+        _propagate_heliorc_project_location()
+        st.session_state["heliorc_architectural_result"] = None
+        return
+    if saved.get("selected_address") is not None:
+        st.session_state["heliorc_architectural_selected_address"] = str(saved.get("selected_address") or "")
+    if saved.get("latitude") is not None:
+        st.session_state["heliorc_architectural_latitude"] = float(saved.get("latitude") or DEFAULT_PROJECT_LATITUDE)
+    if saved.get("longitude") is not None:
+        st.session_state["heliorc_architectural_longitude"] = float(saved.get("longitude") or DEFAULT_PROJECT_LONGITUDE)
+    if saved.get("project_type") in PROJECT_TYPES:
+        st.session_state["heliorc_architectural_project_type"] = str(saved.get("project_type"))
+    result = saved.get("result")
+    st.session_state["heliorc_architectural_result"] = result if isinstance(result, dict) else None
 
 
 def _current_project_data() -> dict[str, Any]:
@@ -496,6 +541,7 @@ def _current_project_payload() -> dict[str, Any]:
             extra={"needs_mode": project.get("needs_mode", "")},
         ),
         "surface_orientation": current_surface_orientation_payload("heliorc"),
+        "architectural_constraints": _current_heliorc_architectural_payload(),
         "project": project,
         "inputs": _current_inputs_data(),
     }
@@ -637,6 +683,7 @@ def _load_heliorc_project_payload(payload: dict[str, Any]) -> None:
     )
     st.session_state["heliorc_project_created_at"] = str(payload.get("created_at") or "")
     restore_surface_orientation_state(payload, project_id=str(payload.get("project_id", "projet")), state_prefix="heliorc")
+    _restore_heliorc_architectural_state(payload, str(payload.get("project_id", "projet")))
 
 
 def _reset_heliorc_project_state() -> None:
@@ -672,6 +719,11 @@ def _reset_heliorc_project_state() -> None:
         "heliorc_project_library_id": "",
         "heliorc_project_created_at": "",
         "sizing_strategy": SIZING_STRATEGIES[0],
+        "heliorc_architectural_selected_address": "",
+        "heliorc_architectural_latitude": DEFAULT_PROJECT_LATITUDE,
+        "heliorc_architectural_longitude": DEFAULT_PROJECT_LONGITUDE,
+        "heliorc_architectural_project_type": PROJECT_TYPES[0],
+        "heliorc_architectural_result": None,
     }
     for key, value in defaults.items():
         st.session_state[key] = value
@@ -823,6 +875,7 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
     if input_data.get("sizing_strategy") in SIZING_STRATEGIES:
         st.session_state["sizing_strategy"] = input_data["sizing_strategy"]
     restore_surface_orientation_state(payload, project_id=str(payload.get("project_id", "projet")), state_prefix="heliorc")
+    _restore_heliorc_architectural_state(payload, str(payload.get("project_id", "projet")))
     monthly_values = input_data.get("monthly_needs_mwh")
     if isinstance(monthly_values, list) and len(monthly_values) == 12:
         st.session_state["manual_needs_df"] = _initial_monthly_dataframe([float(value) for value in monthly_values])
@@ -875,8 +928,10 @@ def _render_project_tab(locations: pd.DataFrame) -> None:
             client_label="Maître d'ouvrage / territoire",
             airtable_label="Référence / ID Airtable",
         ),
+        on_location_change=_on_heliorc_location_change,
     )
     _sync_project_identity_to_legacy_state(project_identity)
+    _propagate_heliorc_project_location()
     selected_location = _sync_location_from_project_department(locations)
 
     st.markdown("### Cadre d'analyse")
@@ -932,9 +987,10 @@ def render_heliorc_app() -> None:
         "1. Contexte",
         "2. Besoins du RCU",
         "3. Orientation / surface",
-        "4. Hypothèses techniques",
-        "5. Hypothèses économiques",
-        "6. Calcul et résultats",
+        "4. Contraintes architecturales",
+        "5. Hypothèses techniques",
+        "6. Hypothèses économiques",
+        "7. Calcul et résultats",
     ]
     default_tab = st.session_state.get("heliorc_default_tab")
     if default_tab not in tab_labels:
@@ -1042,6 +1098,9 @@ def render_heliorc_app() -> None:
             )
 
     with input_tabs[3]:
+        render_architectural_constraints_test(state_prefix="heliorc", show_address_inputs=False, show_map=True)
+
+    with input_tabs[4]:
         tech_col, _ = st.columns(2)
         with tech_col:
             selected_regime = st.selectbox(
@@ -1094,7 +1153,7 @@ def render_heliorc_app() -> None:
                 ),
             )
 
-    with input_tabs[4]:
+    with input_tabs[5]:
         eco_col, _ = st.columns(2)
         with eco_col:
             st.selectbox("Zone géographique de l'aide", list(AID_FORFAITS), key="zone")
@@ -1129,7 +1188,7 @@ def render_heliorc_app() -> None:
             else:
                 st.caption("Taux automatique du classeur : 5 % sous 500 m², 6 % au-delà.")
 
-    with input_tabs[5]:
+    with input_tabs[6]:
         calculate_clicked = st.button(
             "Lancer le calcul HelioRC",
             type="primary",
@@ -1335,6 +1394,7 @@ def render_heliorc_app() -> None:
                 "project": project,
                 "inputs": asdict(inputs),
                 "sizing_context": sizing_context if isinstance(sizing_context, dict) else {},
+                "architectural_constraints": _current_heliorc_architectural_payload(),
                 "results": results.to_dict(),
             }
             json_bytes = json.dumps(export_payload, ensure_ascii=False, indent=2).encode("utf-8")
