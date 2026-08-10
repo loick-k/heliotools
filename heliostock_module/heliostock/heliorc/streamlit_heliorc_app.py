@@ -15,11 +15,11 @@ import streamlit as st
 from .data import load_locations
 from .engine import (
     AID_FORFAITS,
-    CALCULATION_MODES,
     DEFAULT_MONTHLY_NEEDS_MWH,
     MONTHS_FR,
     REGIMES,
     CalculationInputs,
+    CalculationResults,
     calculate_opportunity,
     estimate_monthly_needs,
 )
@@ -40,6 +40,11 @@ from ..common.project_store import (
     project_library_metadata,
     safe_slug,
 )
+from ..ui_surface_orientation import (
+    current_surface_orientation_payload,
+    render_surface_orientation_measurement,
+    restore_surface_orientation_state,
+)
 from .. import ui_portal
 
 APP_DIR = Path(__file__).resolve().parent
@@ -47,6 +52,11 @@ PROJECT_STORE = JsonProjectStore("heliorc", app_label="HelioRC")
 DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliorc_projects.json"
 PROJECTS_SESSION_CACHE_KEY = "heliorc_projects_cache"
 HELIORC_PROJECT_REGIONS = ("France métropolitaine",)
+HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2 = 2.5
+SIZING_STRATEGIES = (
+    "Talon de dimensionnement réglable",
+    "Dimensionnement max conditionné par la surface du terrain disponible",
+)
 
 
 def _render_styles() -> None:
@@ -155,6 +165,7 @@ def _init_state() -> None:
         "mean_temp": 65.0,
         "calculation_mode": "excel_v5_3",
         "base_load_percent": 90,
+        "sizing_strategy": SIZING_STRATEGIES[0],
         "needs_mode": "Besoins mensuels connus",
         "annual_heating": 10000.0,
         "annual_ecs": 2000.0,
@@ -172,6 +183,7 @@ def _init_state() -> None:
         "last_monthly": None,
         "last_inputs": None,
         "last_project": None,
+        "last_sizing_context": None,
         "heliorc_current_project_id": "",
     }
     for key, value in defaults.items():
@@ -265,12 +277,13 @@ def _current_inputs_data() -> dict[str, Any]:
         "regime_label": st.session_state.get("regime_label"),
         "mean_network_temperature_c": float(st.session_state.get("mean_temp", 65.0)),
         "base_load_fraction": float(st.session_state.get("base_load_percent", 90)) / 100,
+        "sizing_strategy": st.session_state.get("sizing_strategy", SIZING_STRATEGIES[0]),
         "monthly_needs_mwh": monthly_needs,
         "needs_mode": st.session_state.get("needs_mode"),
         "annual_heating_mwh": float(st.session_state.get("annual_heating", 0.0)),
         "annual_ecs_mwh": float(st.session_state.get("annual_ecs", 0.0)),
         "network_efficiency": float(st.session_state.get("network_efficiency_percent", 85)) / 100,
-        "calculation_mode": st.session_state.get("calculation_mode"),
+        "calculation_mode": "excel_v5_3",
         "other_aid_eur": float(st.session_state.get("other_aid", 0.0)),
         "electricity_price_eur_mwh": float(st.session_state.get("electricity_price", 0.0)),
         "project_lifetime_years": int(st.session_state.get("project_lifetime", 30)),
@@ -282,6 +295,121 @@ def _current_inputs_data() -> dict[str, Any]:
         "network_operates_summer": bool(st.session_state.get("network_operates_summer", True)),
         "summer_excess_enr": bool(st.session_state.get("summer_excess_enr", False)),
         "land_identified": bool(st.session_state.get("land_identified", True)),
+    }
+
+
+def _available_ground_area_m2_from_orientation() -> float | None:
+    payload = current_surface_orientation_payload("heliorc")
+    metrics = payload.get("metrics") if isinstance(payload, dict) else {}
+    if not isinstance(metrics, dict):
+        return None
+    surface_m2 = metrics.get("surface_m2")
+    if isinstance(surface_m2, (int, float)) and float(surface_m2) > 0:
+        return float(surface_m2)
+    return None
+
+
+def _heliorc_max_collector_area_from_ground(available_ground_m2: float | None) -> float | None:
+    if available_ground_m2 is None or available_ground_m2 <= 0:
+        return None
+    return available_ground_m2 / HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2
+
+
+def _build_calculation_inputs(monthly_needs: list[float], *, base_load_fraction: float) -> CalculationInputs:
+    return CalculationInputs(
+        location_label=st.session_state.location_label,
+        zone=st.session_state.zone,
+        regime_label=st.session_state.regime_label,
+        mean_network_temperature_c=float(st.session_state.mean_temp),
+        base_load_fraction=base_load_fraction,
+        monthly_needs_mwh=monthly_needs,
+        other_aid_eur=float(st.session_state.other_aid),
+        electricity_price_eur_mwh=float(st.session_state.electricity_price),
+        project_lifetime_years=int(st.session_state.project_lifetime),
+        discount_rate_override=(
+            float(st.session_state.discount_rate_percent) / 100
+            if st.session_state.override_discount_rate
+            else None
+        ),
+        calculation_mode="excel_v5_3",
+        network_operates_summer=bool(st.session_state.network_operates_summer),
+        summer_excess_enr=bool(st.session_state.summer_excess_enr),
+        land_identified=bool(st.session_state.land_identified),
+    )
+
+
+def _calculate_with_sizing_strategy(monthly_needs: list[float]) -> tuple[CalculationInputs, CalculationResults, pd.DataFrame, dict[str, Any]]:
+    strategy = str(st.session_state.get("sizing_strategy") or SIZING_STRATEGIES[0])
+    requested_fraction = float(st.session_state.base_load_percent) / 100
+    if strategy == SIZING_STRATEGIES[0]:
+        inputs = _build_calculation_inputs(monthly_needs, base_load_fraction=requested_fraction)
+        results, monthly = calculate_opportunity(inputs)
+        return inputs, results, monthly, {
+            "strategy": strategy,
+            "requested_base_load_fraction": requested_fraction,
+            "effective_base_load_fraction": requested_fraction,
+            "available_ground_area_m2": None,
+            "max_collector_area_m2": None,
+            "constrained_by_ground": False,
+        }
+
+    available_ground_m2 = _available_ground_area_m2_from_orientation()
+    max_collector_area_m2 = _heliorc_max_collector_area_from_ground(available_ground_m2)
+    if available_ground_m2 is None or max_collector_area_m2 is None:
+        raise ValueError(
+            "Le dimensionnement conditionné par la surface disponible nécessite de dessiner une emprise dans l'onglet Orientation / surface."
+        )
+
+    target_fraction = 0.95
+    target_inputs = _build_calculation_inputs(monthly_needs, base_load_fraction=target_fraction)
+    target_results, target_monthly = calculate_opportunity(target_inputs)
+    target_ground_m2 = target_results.land_area_ha * 10000.0
+    if available_ground_m2 >= target_ground_m2:
+        return target_inputs, target_results, target_monthly, {
+            "strategy": strategy,
+            "requested_base_load_fraction": target_fraction,
+            "effective_base_load_fraction": target_fraction,
+            "available_ground_area_m2": available_ground_m2,
+            "max_collector_area_m2": max_collector_area_m2,
+            "constrained_by_ground": False,
+            "target_ground_area_m2": target_ground_m2,
+        }
+
+    low = 0.01
+    high = target_fraction
+    best_inputs: CalculationInputs | None = None
+    best_results: CalculationResults | None = None
+    best_monthly: pd.DataFrame | None = None
+    for _ in range(28):
+        mid = (low + high) / 2.0
+        trial_inputs = _build_calculation_inputs(monthly_needs, base_load_fraction=mid)
+        trial_results, trial_monthly = calculate_opportunity(trial_inputs)
+        trial_ground_m2 = trial_results.land_area_ha * 10000.0
+        if trial_ground_m2 <= available_ground_m2:
+            low = mid
+            best_inputs = trial_inputs
+            best_results = trial_results
+            best_monthly = trial_monthly
+        else:
+            high = mid
+        if abs(trial_ground_m2 - available_ground_m2) <= 2.0:
+            break
+
+    if best_inputs is None or best_results is None or best_monthly is None:
+        best_inputs = _build_calculation_inputs(monthly_needs, base_load_fraction=low)
+        best_results, best_monthly = calculate_opportunity(best_inputs)
+
+    best_results.warnings.append(
+        "Surface de capteurs limitée par l'emprise disponible mesurée : le talon de dimensionnement a été réduit automatiquement."
+    )
+    return best_inputs, best_results, best_monthly, {
+        "strategy": strategy,
+        "requested_base_load_fraction": target_fraction,
+        "effective_base_load_fraction": best_inputs.base_load_fraction,
+        "available_ground_area_m2": available_ground_m2,
+        "max_collector_area_m2": max_collector_area_m2,
+        "constrained_by_ground": True,
+        "target_ground_area_m2": target_ground_m2,
     }
 
 
@@ -367,6 +495,7 @@ def _current_project_payload() -> dict[str, Any]:
             weather_source="PVGIS",
             extra={"needs_mode": project.get("needs_mode", "")},
         ),
+        "surface_orientation": current_surface_orientation_payload("heliorc"),
         "project": project,
         "inputs": _current_inputs_data(),
     }
@@ -507,6 +636,7 @@ def _load_heliorc_project_payload(payload: dict[str, Any]) -> None:
         payload.get("library_id") or payload.get("project_id") or ""
     )
     st.session_state["heliorc_project_created_at"] = str(payload.get("created_at") or "")
+    restore_surface_orientation_state(payload, project_id=str(payload.get("project_id", "projet")), state_prefix="heliorc")
 
 
 def _reset_heliorc_project_state() -> None:
@@ -537,9 +667,11 @@ def _reset_heliorc_project_state() -> None:
         "last_monthly": None,
         "last_inputs": None,
         "last_project": None,
+        "last_sizing_context": None,
         "heliorc_current_project_id": "",
         "heliorc_project_library_id": "",
         "heliorc_project_created_at": "",
+        "sizing_strategy": SIZING_STRATEGIES[0],
     }
     for key, value in defaults.items():
         st.session_state[key] = value
@@ -676,7 +808,6 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
         "zone": "zone",
         "regime_label": "regime_label",
         "mean_network_temperature_c": "mean_temp",
-        "calculation_mode": "calculation_mode",
         "other_aid_eur": "other_aid",
         "electricity_price_eur_mwh": "electricity_price",
         "project_lifetime_years": "project_lifetime",
@@ -689,6 +820,9 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
             st.session_state[state_key] = input_data[source_key]
     if "base_load_fraction" in input_data:
         st.session_state["base_load_percent"] = round(float(input_data["base_load_fraction"]) * 100)
+    if input_data.get("sizing_strategy") in SIZING_STRATEGIES:
+        st.session_state["sizing_strategy"] = input_data["sizing_strategy"]
+    restore_surface_orientation_state(payload, project_id=str(payload.get("project_id", "projet")), state_prefix="heliorc")
     monthly_values = input_data.get("monthly_needs_mwh")
     if isinstance(monthly_values, list) and len(monthly_values) == 12:
         st.session_state["manual_needs_df"] = _initial_monthly_dataframe([float(value) for value in monthly_values])
@@ -793,14 +927,21 @@ def render_heliorc_app() -> None:
     _render_project_store_controls()
     st.divider()
 
+    st.session_state["heliorc_surface_orientation_tab_label"] = "3. Orientation / surface"
+    tab_labels = [
+        "1. Contexte",
+        "2. Besoins du RCU",
+        "3. Orientation / surface",
+        "4. Hypothèses techniques",
+        "5. Hypothèses économiques",
+        "6. Calcul et résultats",
+    ]
+    default_tab = st.session_state.get("heliorc_default_tab")
+    if default_tab not in tab_labels:
+        default_tab = tab_labels[0]
     input_tabs = st.tabs(
-        [
-            "1. Contexte",
-            "2. Besoins du RCU",
-            "3. Hypothèses techniques",
-            "4. Hypothèses économiques",
-            "5. Calcul et résultats",
-        ]
+        tab_labels,
+        default=default_tab,
     )
 
     with input_tabs[0]:
@@ -864,7 +1005,7 @@ def render_heliorc_app() -> None:
                     annual_heating_mwh=float(st.session_state.annual_heating),
                     annual_ecs_mwh=float(st.session_state.annual_ecs),
                     network_efficiency=float(st.session_state.network_efficiency_percent) / 100,
-                    calculation_mode=st.session_state.calculation_mode,
+                    calculation_mode="excel_v5_3",
                 )
                 needs_preview = estimated
                 st.dataframe(
@@ -885,6 +1026,22 @@ def render_heliorc_app() -> None:
                 st.error(str(exc))
 
     with input_tabs[2]:
+        orientation_payload = render_surface_orientation_measurement(
+            state_prefix="heliorc",
+            ground_area_m2_per_collector_m2=HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2,
+        )
+        metrics = orientation_payload.get("metrics") if isinstance(orientation_payload, dict) else {}
+        available_ground_m2 = None
+        if isinstance(metrics, dict) and isinstance(metrics.get("surface_m2"), (float, int)):
+            available_ground_m2 = float(metrics["surface_m2"])
+        max_collector_area_m2 = _heliorc_max_collector_area_from_ground(available_ground_m2)
+        if max_collector_area_m2 is not None:
+            st.info(
+                f"Pour HelioRC, l'emprise retenue est de {HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2:.1f} m² au sol "
+                f"par m² de capteur, soit environ {max_collector_area_m2:.1f} m² de capteurs maximum sur la surface dessinée."
+            )
+
+    with input_tabs[3]:
         tech_col, _ = st.columns(2)
         with tech_col:
             selected_regime = st.selectbox(
@@ -903,26 +1060,41 @@ def render_heliorc_app() -> None:
                 step=1.0,
                 key="mean_temp",
             )
-            st.slider(
-                "Talon de dimensionnement",
-                min_value=50,
-                max_value=100,
-                step=1,
-                key="base_load_percent",
-                format="%d %%",
-            )
-            st.selectbox(
-                "Référentiel de calcul",
-                list(CALCULATION_MODES),
-                key="calculation_mode",
-                format_func=lambda code: CALCULATION_MODES[code],
+            st.radio(
+                "Mode de dimensionnement",
+                list(SIZING_STRATEGIES),
+                key="sizing_strategy",
                 help=(
-                    "Le mode strict reproduit les formules du classeur. Le mode présentation corrige "
-                    "la conversion du rendement en pertes et applique la recommandation 200 m/MW."
+                    "Le mode réglable applique le talon choisi ci-dessous. Le mode surface disponible recherche "
+                    "automatiquement le plus grand talon compatible avec l'emprise dessinée dans Orientation / surface."
+                ),
+            )
+            if st.session_state.sizing_strategy == SIZING_STRATEGIES[0]:
+                st.slider(
+                    "Talon de dimensionnement",
+                    min_value=50,
+                    max_value=100,
+                    step=1,
+                    key="base_load_percent",
+                    format="%d %%",
+                )
+            else:
+                st.caption(
+                    "Le calcul vise 95 % du talon si le terrain disponible le permet. Sinon, il réduit automatiquement le talon "
+                    "pour respecter l'emprise disponible avec 2,5 m² au sol par m² de capteur."
+                )
+            st.selectbox(
+                "Mode de calcul",
+                ["Excel v5.3 - reproduction stricte"],
+                index=0,
+                disabled=True,
+                help=(
+                    "HelioRC conserve uniquement la reproduction stricte du classeur pour éviter de mélanger "
+                    "pertes du réseau de chaleur, distance de raccordement solaire et longueur de RCU."
                 ),
             )
 
-    with input_tabs[3]:
+    with input_tabs[4]:
         eco_col, _ = st.columns(2)
         with eco_col:
             st.selectbox("Zone géographique de l'aide", list(AID_FORFAITS), key="zone")
@@ -957,7 +1129,7 @@ def render_heliorc_app() -> None:
             else:
                 st.caption("Taux automatique du classeur : 5 % sous 500 m², 6 % au-delà.")
 
-    with input_tabs[4]:
+    with input_tabs[5]:
         calculate_clicked = st.button(
             "Lancer le calcul HelioRC",
             type="primary",
@@ -980,38 +1152,19 @@ def render_heliorc_app() -> None:
                         annual_heating_mwh=float(st.session_state.annual_heating),
                         annual_ecs_mwh=float(st.session_state.annual_ecs),
                         network_efficiency=float(st.session_state.network_efficiency_percent) / 100,
-                        calculation_mode=st.session_state.calculation_mode,
+                        calculation_mode="excel_v5_3",
                     )
                     monthly_needs = estimated["Besoins RCU (MWh)"].astype(float).tolist()
 
-                inputs = CalculationInputs(
-                    location_label=st.session_state.location_label,
-                    zone=st.session_state.zone,
-                    regime_label=st.session_state.regime_label,
-                    mean_network_temperature_c=float(st.session_state.mean_temp),
-                    base_load_fraction=float(st.session_state.base_load_percent) / 100,
-                    monthly_needs_mwh=monthly_needs,
-                    other_aid_eur=float(st.session_state.other_aid),
-                    electricity_price_eur_mwh=float(st.session_state.electricity_price),
-                    project_lifetime_years=int(st.session_state.project_lifetime),
-                    discount_rate_override=(
-                        float(st.session_state.discount_rate_percent) / 100
-                        if st.session_state.override_discount_rate
-                        else None
-                    ),
-                    calculation_mode=st.session_state.calculation_mode,
-                    network_operates_summer=bool(st.session_state.network_operates_summer),
-                    summer_excess_enr=bool(st.session_state.summer_excess_enr),
-                    land_identified=bool(st.session_state.land_identified),
-                )
                 progress.progress(60, text="Prédimensionnement technique...")
-                results, monthly = calculate_opportunity(inputs)
+                inputs, results, monthly, sizing_context = _calculate_with_sizing_strategy(monthly_needs)
                 progress.progress(85, text="Analyse économique et interprétation...")
                 project = _current_project_data()
                 st.session_state.last_results = results
                 st.session_state.last_monthly = monthly
                 st.session_state.last_inputs = inputs
                 st.session_state.last_project = project
+                st.session_state.last_sizing_context = sizing_context
                 progress.progress(100, text="Calcul terminé.")
                 progress.empty()
                 st.success("Calcul terminé. Les résultats ci-dessous correspondent au dernier lancement.")
@@ -1023,6 +1176,7 @@ def render_heliorc_app() -> None:
         monthly = st.session_state.last_monthly
         inputs = st.session_state.last_inputs
         project = st.session_state.last_project
+        sizing_context = st.session_state.get("last_sizing_context")
 
         if results is None or monthly is None or inputs is None or project is None:
             st.info("Renseignez les hypothèses puis lancez le calcul pour afficher la note d'opportunité.")
@@ -1041,6 +1195,27 @@ def render_heliorc_app() -> None:
 
         with result_tabs[0]:
             st.markdown("### Analyse technique")
+            if isinstance(sizing_context, dict):
+                strategy = str(sizing_context.get("strategy") or "")
+                effective_fraction = sizing_context.get("effective_base_load_fraction")
+                available_ground = sizing_context.get("available_ground_area_m2")
+                max_collector = sizing_context.get("max_collector_area_m2")
+                if strategy:
+                    st.caption(
+                        "Dimensionnement appliqué : "
+                        + strategy
+                        + (
+                            f" ; talon effectif {float(effective_fraction) * 100:.1f} %."
+                            if isinstance(effective_fraction, (float, int))
+                            else "."
+                        )
+                    )
+                if isinstance(available_ground, (float, int)) and isinstance(max_collector, (float, int)):
+                    st.caption(
+                        f"Surface terrain mesurée : {float(available_ground):.1f} m² ; "
+                        f"surface capteurs compatible HelioRC : {float(max_collector):.1f} m² "
+                        f"avec {HELIORC_GROUND_AREA_M2_PER_COLLECTOR_M2:.1f} m² au sol par m² de capteur."
+                    )
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Surface de capteurs", f"{results.collector_area_m2:,.0f} m²".replace(",", " "))
             m2.metric("Production solaire", f"{results.annual_solar_production_mwh:,.0f} MWh/an".replace(",", " "))
@@ -1127,6 +1302,7 @@ def render_heliorc_app() -> None:
                 "Besoin annuel du RCU (MWh/an)": results.annual_need_mwh,
                 "Part des besoins estivaux mai-septembre": results.summer_need_share,
                 "Talon mensuel minimal (MWh)": results.minimum_monthly_need_mwh,
+                "Talon de dimensionnement appliqué": inputs.base_load_fraction,
                 "Gisement horizontal (kWh/m².an)": results.annual_horizontal_irradiation_kwh_m2,
                 "Production solaire (MWh/an)": results.annual_solar_production_mwh,
                 "Productivité (kWh/m².an)": results.productivity_kwh_m2_year,
@@ -1158,6 +1334,7 @@ def render_heliorc_app() -> None:
                 "format": "HelioRC-project-v1",
                 "project": project,
                 "inputs": asdict(inputs),
+                "sizing_context": sizing_context if isinstance(sizing_context, dict) else {},
                 "results": results.to_dict(),
             }
             json_bytes = json.dumps(export_payload, ensure_ascii=False, indent=2).encode("utf-8")
@@ -1227,10 +1404,12 @@ def render_heliorc_app() -> None:
         - Hors cadre : stockage intersaisonnier, tracker, capteurs sous vide, recharge géothermique, raccordement complexe ou foncier atypique.
         - L'objectif est un ordre de grandeur technique ; l'économie reste particulièrement sensible aux hypothèses de CAPEX, d'aides, de financement et de raccordement.
 
-        ### Deux référentiels disponibles
+        ### Référentiel de calcul
 
-        - **Excel v5.3 - reproduction stricte** : conserve la formule de pertes constante du classeur et sa formule de distance.
-        - **Méthode présentation** : transforme correctement le rendement en pertes par `besoin / rendement` et applique l'ordre de grandeur de 200 m/MW.
+        HelioRC utilise uniquement le mode **Excel v5.3 - reproduction stricte**. Les pertes du réseau de chaleur,
+        la distance maximum de raccordement conseillée et les ratios de longueur de RCU ne sont pas mélangés.
+        Le ratio de 200 m/MW correspond à une recommandation de distance par MW solaire thermique installé,
+        pas à une formule de longueur de réseau par énergie fournie.
         """
             )
             st.info(

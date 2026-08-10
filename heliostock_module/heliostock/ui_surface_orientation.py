@@ -280,11 +280,16 @@ def _feature_coordinates(feature: dict[str, Any]) -> list[list[float]]:
     return []
 
 
-def compute_surface_orientation_metrics(drawings: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_surface_orientation_metrics(
+    drawings: list[dict[str, Any]],
+    *,
+    ground_area_m2_per_collector_m2: float = GROUND_AREA_M2_PER_COLLECTOR_M2,
+) -> dict[str, Any]:
     """Compute planimetric area and orientation from drawn GeoJSON features."""
     surface_m2 = 0.0
     orientation_points: tuple[list[float], list[float]] | None = None
     orientation_source = ""
+    ground_ratio = max(0.01, float(ground_area_m2_per_collector_m2))
 
     polygons = [feature for feature in drawings if (feature.get("geometry") or {}).get("type") in {"Polygon", "Rectangle"}]
     lines = [feature for feature in drawings if (feature.get("geometry") or {}).get("type") == "LineString"]
@@ -303,8 +308,8 @@ def compute_surface_orientation_metrics(drawings: list[dict[str, Any]]) -> dict[
 
     metrics: dict[str, Any] = {
         "surface_m2": surface_m2,
-        "max_collector_surface_m2": surface_m2 / GROUND_AREA_M2_PER_COLLECTOR_M2 if surface_m2 > 0 else 0.0,
-        "ground_area_m2_per_collector_m2": GROUND_AREA_M2_PER_COLLECTOR_M2,
+        "max_collector_surface_m2": surface_m2 / ground_ratio if surface_m2 > 0 else 0.0,
+        "ground_area_m2_per_collector_m2": ground_ratio,
         "orientation_bearing_deg": None,
         "orientation_from_south_deg": None,
         "orientation_label": "non déterminée",
@@ -486,7 +491,11 @@ def restore_surface_orientation_state(payload: dict[str, Any], *, project_id: st
         st.session_state[_key(state_prefix, "map_zoom")] = max(1, min(22, map_zoom))
 
 
-def render_surface_orientation_measurement(state_prefix: str = "helionop") -> dict[str, Any]:
+def render_surface_orientation_measurement(
+    state_prefix: str = "helionop",
+    *,
+    ground_area_m2_per_collector_m2: float = GROUND_AREA_M2_PER_COLLECTOR_M2,
+) -> dict[str, Any]:
     if st is None:
         return {"drawings": [], "metrics": {}}
     st.subheader("Mesure de surface et d'orientation")
@@ -526,6 +535,8 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     saved_zoom = st.session_state.get(zoom_key, 20)
     if not isinstance(saved_zoom, int):
         saved_zoom = 20
+    default_tab_key = f"{state_prefix}_default_tab"
+    default_tab_label = str(st.session_state.get(f"{state_prefix}_surface_orientation_tab_label") or "2. Orientation / surface")
 
     map_state = st_folium(
         _measurement_map(
@@ -547,14 +558,17 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
     if raw_new_drawings and new_drawings != drawings:
         drawings = new_drawings
         st.session_state[drawings_key] = drawings
-        st.session_state[metrics_key] = compute_surface_orientation_metrics(drawings)
+        st.session_state[metrics_key] = compute_surface_orientation_metrics(
+            drawings,
+            ground_area_m2_per_collector_m2=ground_area_m2_per_collector_m2,
+        )
         measured_center = _drawings_center_lat_lon(drawings)
         if measured_center is not None:
             st.session_state[center_key] = measured_center
         drawings_signature = json.dumps(drawings, sort_keys=True, ensure_ascii=False)
         if st.session_state.get(signature_key) != drawings_signature:
             st.session_state[signature_key] = drawings_signature
-            st.session_state["helionop_default_tab"] = "2. Orientation / surface"
+            st.session_state[default_tab_key] = default_tab_label
             st.rerun()
 
     if st.button("Effacer les mesures", key=_key(state_prefix, "clear"), width="content"):
@@ -563,12 +577,15 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         st.session_state.pop(center_key, None)
         st.session_state.pop(zoom_key, None)
         st.session_state.pop(signature_key, None)
-        st.session_state["helionop_default_tab"] = "2. Orientation / surface"
+        st.session_state[default_tab_key] = default_tab_label
         st.rerun()
 
     metrics = st.session_state.get(metrics_key)
     if not isinstance(metrics, dict) or (drawings and not metrics):
-        metrics = compute_surface_orientation_metrics(drawings)
+        metrics = compute_surface_orientation_metrics(
+            drawings,
+            ground_area_m2_per_collector_m2=ground_area_m2_per_collector_m2,
+        )
         st.session_state[metrics_key] = metrics
 
     surface_m2 = metrics.get("surface_m2")
@@ -587,7 +604,11 @@ def render_surface_orientation_measurement(state_prefix: str = "helionop") -> di
         f"{max_collector_surface_m2:.1f} m²"
         if isinstance(max_collector_surface_m2, (float, int)) and max_collector_surface_m2 > 0
         else "n.d.",
-        "1 m² capteur pour 2 m² au sol" if isinstance(max_collector_surface_m2, (float, int)) and max_collector_surface_m2 > 0 else None,
+        (
+            f"1 m² capteur pour {float(ground_area_m2_per_collector_m2):.1f} m² au sol"
+            if isinstance(max_collector_surface_m2, (float, int)) and max_collector_surface_m2 > 0
+            else None
+        ),
     )
     col3.metric("Orientation solaire", label)
     col4.metric("Écart au sud", f"{delta_south:+.0f}°" if isinstance(delta_south, (float, int)) else "n.d.")

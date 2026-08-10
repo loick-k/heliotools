@@ -23,7 +23,11 @@ La répartition du chauffage est proportionnelle à un proxy de degrés-jours co
 
 `1,10 ; 1,10 ; 1,10 ; 1,10 ; 1,10 ; 0,85 ; 0,75 ; 0,75 ; 0,90 ; 1,05 ; 1,10 ; 1,10`.
 
-Le mode **Excel v5.3** utilise des pertes annuelles égales à `(chauffage + ECS) × (1 - rendement)`. Le mode **présentation** calcule les pertes par `(chauffage + ECS) / rendement - (chauffage + ECS)`.
+HelioRC conserve uniquement le mode **Excel v5.3 - reproduction stricte**. Les pertes annuelles du réseau de chaleur sont calculées comme dans le classeur :
+
+`pertes = (chauffage + ECS) × (1 - rendement)`.
+
+Les pertes du réseau de chaleur ne doivent pas être confondues avec la distance de raccordement entre la centrale solaire thermique et le réseau.
 
 ## Profil de production solaire
 
@@ -52,7 +56,9 @@ La surface est la production solaire annuelle divisée par la productivité annu
 - stockage : `0,2 m³/m²`, arrondi par défaut à la dizaine inférieure comme dans le classeur ;
 - emprise : `2,5 m² de terrain / m² de capteur` ;
 - nombre de panneaux indicatif : surface divisée par 15 m² ;
-- distance : formule du classeur en mode strict, ou 200 m/MW avec 1 kW/m² en mode présentation.
+- distance maximum de raccordement conseillée : formule du classeur v5.3 reproduite strictement.
+
+Le ratio de 200 m/MW, lorsqu'il est cité dans les recommandations, correspond à une distance admissible par MW solaire thermique installé. Il n'est pas utilisé ici comme formule de longueur du RCU ou comme ratio entre longueur de réseau et énergie fournie.
 
 ## Économie
 

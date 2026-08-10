@@ -41,7 +41,6 @@ AID_FORFAITS = {
 
 CALCULATION_MODES = {
     "excel_v5_3": "Excel v5.3 - reproduction stricte",
-    "presentation": "Méthode présentation - rendement réseau et 200 m/MW",
 }
 
 DEFAULT_MONTHLY_NEEDS_MWH = [
@@ -167,9 +166,6 @@ def estimate_monthly_needs(
 
     ``excel_v5_3`` reproduces the workbook formula for constant losses:
     losses = (heating + ECS) * (1 - efficiency).
-
-    ``presentation`` follows the interpretation used in the ADEME example:
-    network input = subscriber needs / efficiency.
     """
     if annual_heating_mwh < 0 or annual_ecs_mwh < 0:
         raise ValueError("Les besoins annuels ne peuvent pas être négatifs.")
@@ -193,10 +189,7 @@ def estimate_monthly_needs(
     heating = annual_heating_mwh * heating_profile
     ecs = annual_ecs_mwh / 12.0 * ECS_SEASONAL_COEFFICIENTS
     subscriber_total = annual_heating_mwh + annual_ecs_mwh
-    if calculation_mode == "excel_v5_3":
-        annual_losses = subscriber_total * (1.0 - network_efficiency)
-    else:
-        annual_losses = subscriber_total / network_efficiency - subscriber_total
+    annual_losses = subscriber_total * (1.0 - network_efficiency)
     losses = np.full(12, annual_losses / 12.0, dtype=float)
     total = heating + ecs + losses
 
@@ -308,11 +301,7 @@ def calculate_opportunity(inputs: CalculationInputs) -> tuple[CalculationResults
     unit_capex = _unit_capex(collector_area)
     capex = collector_area * unit_capex
 
-    if inputs.calculation_mode == "excel_v5_3":
-        connection_distance = math.floor(0.3 * capex / 10000.0) * 10.0
-    else:
-        # Presentation: 200 m/MW and an order-of-magnitude peak power of 1 kW/m².
-        connection_distance = math.floor((0.2 * collector_area) / 10.0) * 10.0
+    connection_distance = math.floor(0.3 * capex / 10000.0) * 10.0
 
     ademe_aid = _ademe_aid(
         surface_m2=collector_area,
@@ -359,8 +348,10 @@ def calculate_opportunity(inputs: CalculationInputs) -> tuple[CalculationResults
         warnings.append("Surface inférieure au premier seuil d'opportunité de 150 à 250 m².")
     if collector_area > 1500:
         warnings.append("Au-delà de 1 500 m², l'aide ADEME affichée est seulement indicative.")
-    if inputs.calculation_mode == "excel_v5_3":
-        warnings.append("Mode compatibilité Excel v5.3 : pertes réseau et distance de raccordement reproduisent les formules du classeur.")
+    warnings.append(
+        "Mode strict classeur : les pertes du réseau de chaleur et la distance maximum de raccordement conseillée "
+        "reproduisent les formules du classeur. Le ratio 200 m/MW n'est pas utilisé comme longueur de RCU."
+    )
 
     scope_ok = 100 <= collector_area and 0.10 <= solar_fraction <= 0.30
     if scope_ok:

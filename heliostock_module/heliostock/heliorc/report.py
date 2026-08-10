@@ -281,7 +281,7 @@ def build_opportunity_note(
         ["Surface de capteurs", f"{_number(results.collector_area_m2)} m²", "Production solaire", f"{_number(results.annual_solar_production_mwh)} MWh/an"],
         ["Productivité", f"{_number(results.productivity_kwh_m2_year)} kWh/m².an", "Fraction solaire", f"{results.solar_fraction:.1%}"],
         ["Stockage journalier", f"{_number(results.storage_volume_m3)} m³", "Emprise foncière", f"{results.land_area_ha:.2f} ha"],
-        ["Distance conseillée", f"{_number(results.recommended_connection_distance_m)} m", "Panneaux de 15 m²", f"{results.panel_count_15m2}"],
+        ["Distance maximum de raccordement conseillée", f"{_number(results.recommended_connection_distance_m)} m", "Panneaux de 15 m²", f"{results.panel_count_15m2}"],
     ]
     technical_table = Table(technical, colWidths=[4.2 * cm, 4.0 * cm, 4.2 * cm, 4.1 * cm])
     technical_table.setStyle(
