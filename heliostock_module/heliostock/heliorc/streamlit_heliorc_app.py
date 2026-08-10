@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import json
 import uuid
@@ -28,7 +27,6 @@ from .report import build_opportunity_note
 from ..common.project_identity import (
     DEFAULT_PROJECT_LATITUDE,
     DEFAULT_PROJECT_LONGITUDE,
-    HELIORC_SITE_TYPOLOGIES,
     ProjectIdentity,
     ProjectIdentityOptions,
     project_context_to_payload,
@@ -207,7 +205,7 @@ def _project_identity_from_state() -> ProjectIdentity:
         airtable_id=str(st.session_state.get("heliorc_airtable_id") or st.session_state.get("airtable_id") or ""),
         analyst=str(st.session_state.get("heliorc_analyst") or st.session_state.get("analyst") or ""),
         project_date=st.session_state.get("heliorc_project_date") or st.session_state.get("project_date"),
-        typology=str(st.session_state.get("heliorc_typology") or st.session_state.get("project_typology") or ""),
+        typology="Réseau de chaleur",
         region=str(st.session_state.get("heliorc_region") or st.session_state.get("project_region") or ""),
         department=str(st.session_state.get("heliorc_department") or st.session_state.get("project_department") or ""),
         city=str(st.session_state.get("heliorc_city") or st.session_state.get("project_city") or ""),
@@ -235,7 +233,7 @@ def _sync_project_identity_to_legacy_state(identity: ProjectIdentity) -> None:
     st.session_state["project_address_label"] = identity.address
     st.session_state["project_latitude"] = identity.latitude
     st.session_state["project_longitude"] = identity.longitude
-    st.session_state["project_typology"] = identity.typology
+    st.session_state["project_typology"] = "Réseau de chaleur"
     st.session_state["project_region"] = identity.region
     st.session_state["project_department"] = identity.department
     st.session_state["weather_region"] = identity.weather_region
@@ -299,7 +297,7 @@ def _current_project_data() -> dict[str, Any]:
         "airtable_id": identity.airtable_id,
         "analyst": identity.analyst,
         "date": project_date_value,
-        "typology": identity.typology,
+        "typology": "Réseau de chaleur",
         "region": identity.region,
         "department": identity.department,
         "city": identity.city,
@@ -851,8 +849,7 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
         st.session_state["heliorc_project_latitude"] = float(project_data["latitude"])
     if "longitude" in project_data:
         st.session_state["heliorc_project_longitude"] = float(project_data["longitude"])
-    if "typology" in project_data:
-        st.session_state["heliorc_typology"] = project_data["typology"]
+    st.session_state["heliorc_typology"] = "Réseau de chaleur"
     if "region" in project_data:
         st.session_state["heliorc_region"] = project_data["region"]
     if "department" in project_data:
@@ -899,22 +896,6 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
 
 def _render_project_tab(locations: pd.DataFrame) -> None:
     st.subheader("Contexte")
-    imported = st.file_uploader(
-        "Importer un projet HelioRC (JSON)",
-        type=["json"],
-        help="Recharge les métadonnées, hypothèses et besoins mensuels exportés par l'application.",
-    )
-    if imported is not None:
-        payload_bytes = imported.getvalue()
-        payload_hash = hashlib.sha256(payload_bytes).hexdigest()
-        if payload_hash != st.session_state.get("_last_import_hash"):
-            try:
-                _load_imported_project(json.loads(payload_bytes.decode("utf-8")))
-                st.session_state["_last_import_hash"] = payload_hash
-                st.success("Projet importé.")
-            except Exception as exc:  # noqa: BLE001
-                st.error(f"Import impossible : {exc}")
-
     department_options = _heliorc_department_options(locations)
     normalised_department = _department_option_from_code(
         department_options,
@@ -930,10 +911,9 @@ def _render_project_tab(locations: pd.DataFrame) -> None:
         options=ProjectIdentityOptions(
             show_analyst=True,
             show_project_date=True,
-            show_typology=True,
+            show_typology=False,
             show_region=True,
             show_department=True,
-            typology_options=HELIORC_SITE_TYPOLOGIES,
             region_options=HELIORC_PROJECT_REGIONS,
             department_options=department_options,
             client_label="Maître d'ouvrage / territoire",
@@ -943,14 +923,7 @@ def _render_project_tab(locations: pd.DataFrame) -> None:
     )
     _sync_project_identity_to_legacy_state(project_identity)
     _propagate_heliorc_project_location()
-    selected_location = _sync_location_from_project_department(locations)
-
-    st.markdown("### Cadre d'analyse")
-    if selected_location:
-        st.caption(
-            "Localisation PVGIS utilisée par HelioRC, déduite du département du projet : "
-            f"{selected_location['label']}."
-        )
+    _sync_location_from_project_department(locations)
     col_a, col_b, col_c = st.columns(3)
     with col_a:
         st.checkbox(
@@ -1441,7 +1414,7 @@ def render_heliorc_app() -> None:
                     width="stretch",
                 )
             st.caption(
-                "Le JSON peut être réimporté dans l'application. Le PDF est une note de premier niveau et doit rester accompagné des limites du modèle."
+                "Le JSON est un export technique du projet. Le PDF est une note de premier niveau et doit rester accompagné des limites du modèle."
             )
 
         with result_tabs[4]:

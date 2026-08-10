@@ -1556,6 +1556,10 @@ def render_admin_dashboard_page() -> None:
 def render_portal_sidebar() -> str:
     """Render left navigation and project loading controls."""
 
+    if not st.session_state.get("portal_navigation_initialized"):
+        st.session_state["portal_page"] = APP_HOME_LABEL
+        st.session_state["portal_navigation_initialized"] = True
+
     with st.sidebar:
         if HELIOPILOT_LOGO.exists():
             st.image(str(HELIOPILOT_LOGO), width="stretch")
