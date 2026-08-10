@@ -748,7 +748,15 @@ def render_heliorc_app() -> None:
         "Reprise du moteur NO STH RCU v5.3 : prédimensionnement au talon estival, productivité paramétrique, stockage journalier, CAPEX, aide indicative et LCOH."
     )
 
-    input_tabs = st.tabs(["1. Contexte", "2. Besoins du RCU", "3. Hypothèses techniques et économiques"])
+    input_tabs = st.tabs(
+        [
+            "1. Contexte",
+            "2. Besoins du RCU",
+            "3. Hypothèses techniques",
+            "4. Hypothèses économiques",
+            "5. Calcul et résultats",
+        ]
+    )
 
     with input_tabs[0]:
         _render_project_tab(locations)
@@ -832,7 +840,7 @@ def render_heliorc_app() -> None:
                 st.error(str(exc))
 
     with input_tabs[2]:
-        tech_col, eco_col = st.columns(2)
+        tech_col, _ = st.columns(2)
         with tech_col:
             selected_regime = st.selectbox(
                 "Régime moyen du réseau",
@@ -868,6 +876,9 @@ def render_heliorc_app() -> None:
                     "la conversion du rendement en pertes et applique la recommandation 200 m/MW."
                 ),
             )
+
+    with input_tabs[3]:
+        eco_col, _ = st.columns(2)
         with eco_col:
             st.selectbox("Zone géographique de l'aide", list(AID_FORFAITS), key="zone")
             st.number_input(
@@ -901,277 +912,277 @@ def render_heliorc_app() -> None:
             else:
                 st.caption("Taux automatique du classeur : 5 % sous 500 m², 6 % au-delà.")
 
-    st.divider()
-    calculate_clicked = st.button(
-        "Lancer le calcul HelioRC",
-        type="primary",
-        width="stretch",
-    )
-
-    if calculate_clicked:
-        progress = st.progress(0, text="Contrôle des données...")
-        try:
-            progress.progress(25, text="Construction du profil mensuel...")
-            if st.session_state.needs_mode == "Besoins mensuels connus":
-                monthly_needs = (
-                    st.session_state.manual_needs_df["Besoins RCU (MWh)"]
-                    .astype(float)
-                    .tolist()
-                )
-            else:
-                estimated = estimate_monthly_needs(
-                    location_label=st.session_state.location_label,
-                    annual_heating_mwh=float(st.session_state.annual_heating),
-                    annual_ecs_mwh=float(st.session_state.annual_ecs),
-                    network_efficiency=float(st.session_state.network_efficiency_percent) / 100,
-                    calculation_mode=st.session_state.calculation_mode,
-                )
-                monthly_needs = estimated["Besoins RCU (MWh)"].astype(float).tolist()
-
-            inputs = CalculationInputs(
-                location_label=st.session_state.location_label,
-                zone=st.session_state.zone,
-                regime_label=st.session_state.regime_label,
-                mean_network_temperature_c=float(st.session_state.mean_temp),
-                base_load_fraction=float(st.session_state.base_load_percent) / 100,
-                monthly_needs_mwh=monthly_needs,
-                other_aid_eur=float(st.session_state.other_aid),
-                electricity_price_eur_mwh=float(st.session_state.electricity_price),
-                project_lifetime_years=int(st.session_state.project_lifetime),
-                discount_rate_override=(
-                    float(st.session_state.discount_rate_percent) / 100
-                    if st.session_state.override_discount_rate
-                    else None
-                ),
-                calculation_mode=st.session_state.calculation_mode,
-                network_operates_summer=bool(st.session_state.network_operates_summer),
-                summer_excess_enr=bool(st.session_state.summer_excess_enr),
-                land_identified=bool(st.session_state.land_identified),
-            )
-            progress.progress(60, text="Prédimensionnement technique...")
-            results, monthly = calculate_opportunity(inputs)
-            progress.progress(85, text="Analyse économique et interprétation...")
-            project = _current_project_data()
-            st.session_state.last_results = results
-            st.session_state.last_monthly = monthly
-            st.session_state.last_inputs = inputs
-            st.session_state.last_project = project
-            progress.progress(100, text="Calcul terminé.")
-            progress.empty()
-            st.success("Calcul terminé. Les résultats ci-dessous correspondent au dernier lancement.")
-        except Exception as exc:  # noqa: BLE001
-            progress.empty()
-            st.error(f"Calcul impossible : {exc}")
-
-    results = st.session_state.last_results
-    monthly = st.session_state.last_monthly
-    inputs = st.session_state.last_inputs
-    project = st.session_state.last_project
-
-    if results is None or monthly is None or inputs is None or project is None:
-        st.info("Renseignez les hypothèses puis lancez le calcul pour afficher la note d'opportunité.")
-        st.stop()
-
-    st.markdown("## Résultats du dernier calcul")
-    status_lower = results.opportunity_status.lower()
-    if "favorable" in status_lower:
-        st.success(f"**{results.opportunity_status}** - {results.scope_status}")
-    elif "intermédiaire" in status_lower:
-        st.warning(f"**{results.opportunity_status}** - {results.scope_status}")
-    else:
-        st.error(f"**{results.opportunity_status}** - {results.scope_status}")
-
-    result_tabs = st.tabs(["Synthèse", "Profil mensuel", "Détail des calculs", "Exports", "Méthode et limites"])
-
-    with result_tabs[0]:
-        st.markdown("### Analyse technique")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Surface de capteurs", f"{results.collector_area_m2:,.0f} m²".replace(",", " "))
-        m2.metric("Production solaire", f"{results.annual_solar_production_mwh:,.0f} MWh/an".replace(",", " "))
-        m3.metric("Fraction solaire", f"{results.solar_fraction:.1%}")
-        m4.metric("Productivité", f"{results.productivity_kwh_m2_year:,.0f} kWh/m².an".replace(",", " "))
-        m5, m6, m7, m8 = st.columns(4)
-        m5.metric("Stockage journalier", f"{results.storage_volume_m3:,.0f} m³".replace(",", " "))
-        m6.metric("Emprise foncière", f"{results.land_area_ha:.2f} ha")
-        m7.metric("Distance conseillée", f"{results.recommended_connection_distance_m:,.0f} m".replace(",", " "))
-        m8.metric("Panneaux de 15 m²", f"{results.panel_count_15m2}")
-
-        st.markdown("### Première analyse économique")
-        e1, e2, e3, e4 = st.columns(4)
-        e1.metric("CAPEX indicatif", f"{results.capex_eur / 1_000_000:.2f} M€ HT")
-        e2.metric("Aide ADEME indicative", f"{results.ademe_aid_eur / 1_000_000:.2f} M€")
-        e3.metric("Reste à charge", f"{results.remaining_cost_eur / 1_000_000:.2f} M€ HT")
-        e4.metric("LCOH aidé", f"{results.lcoh_aided_eur_mwh:.1f} € HT/MWh")
-
-        with st.expander("Vigilances identifiées", expanded=True):
-            for warning in results.warnings:
-                st.write(f"- {warning}")
-
-    with result_tabs[1]:
-        figure = go.Figure()
-        figure.add_trace(
-            go.Scatter(
-                x=monthly["Mois"],
-                y=monthly["Besoins RCU (MWh)"],
-                mode="lines",
-                name="Besoins RCU",
-                line={"color": "#98A2B3", "width": 2},
-                fill="tozeroy",
-                fillcolor="rgba(152,162,179,0.28)",
-            )
-        )
-        figure.add_trace(
-            go.Scatter(
-                x=monthly["Mois"],
-                y=monthly["Production solaire (MWh)"],
-                mode="lines+markers",
-                name="Production solaire",
-                line={"color": "#E58A2A", "width": 3},
-                marker={"size": 7},
-            )
-        )
-        figure.update_layout(
-            title="Profil de solarisation du réseau",
-            xaxis_title="Mois",
-            yaxis_title="Énergie (MWh/mois)",
-            hovermode="x unified",
-            legend={"orientation": "h", "y": 1.12, "x": 0},
-            margin={"l": 30, "r": 20, "t": 80, "b": 35},
-            height=480,
-        )
-        st.plotly_chart(figure, width="stretch")
-
-        display_monthly = monthly[
-            [
-                "Mois",
-                "Besoins RCU (MWh)",
-                "Production solaire (MWh)",
-                "Taux de couverture mensuel",
-            ]
-        ].copy()
-        st.dataframe(
-            display_monthly.style.format(
-                {
-                    "Besoins RCU (MWh)": "{:.1f}",
-                    "Production solaire (MWh)": "{:.1f}",
-                    "Taux de couverture mensuel": "{:.1%}",
-                }
-            ),
-            hide_index=True,
+    with input_tabs[4]:
+        calculate_clicked = st.button(
+            "Lancer le calcul HelioRC",
+            type="primary",
             width="stretch",
         )
 
-    with result_tabs[2]:
-        technical_rows = {
-            "Besoin annuel du RCU (MWh/an)": results.annual_need_mwh,
-            "Part des besoins estivaux mai-septembre": results.summer_need_share,
-            "Talon mensuel minimal (MWh)": results.minimum_monthly_need_mwh,
-            "Gisement horizontal (kWh/m².an)": results.annual_horizontal_irradiation_kwh_m2,
-            "Production solaire (MWh/an)": results.annual_solar_production_mwh,
-            "Productivité (kWh/m².an)": results.productivity_kwh_m2_year,
-            "Surface de capteurs (m²)": results.collector_area_m2,
-            "Stockage (m³)": results.storage_volume_m3,
-            "Emprise (ha)": results.land_area_ha,
-            "Distance de raccordement (m)": results.recommended_connection_distance_m,
-            "Coût surfacique (€ HT/m²)": results.unit_capex_eur_m2,
-            "CAPEX (€ HT)": results.capex_eur,
-            "Aide ADEME (€)": results.ademe_aid_eur,
-            "Autres aides (€)": results.other_aid_eur,
-            "Taux d'aide total": results.aid_rate,
-            "Reste à charge (€ HT)": results.remaining_cost_eur,
-            "P1' (€ HT/MWh)": results.p1_eur_mwh,
-            "P2/P3 (€ HT/MWh)": results.opex_eur_mwh,
-            "P4 (€ HT/MWh)": results.capital_recovery_eur_mwh,
-            "LCOH aidé (€ HT/MWh)": results.lcoh_aided_eur_mwh,
-            "Taux d'actualisation": results.discount_rate,
-        }
-        details_df = pd.DataFrame(
-            [{"Indicateur": key, "Valeur": value} for key, value in technical_rows.items()]
-        )
-        st.dataframe(details_df, hide_index=True, width="stretch")
-        st.markdown("#### Table mensuelle complète")
-        st.dataframe(monthly, hide_index=True, width="stretch")
+        if calculate_clicked:
+            progress = st.progress(0, text="Contrôle des données...")
+            try:
+                progress.progress(25, text="Construction du profil mensuel...")
+                if st.session_state.needs_mode == "Besoins mensuels connus":
+                    monthly_needs = (
+                        st.session_state.manual_needs_df["Besoins RCU (MWh)"]
+                        .astype(float)
+                        .tolist()
+                    )
+                else:
+                    estimated = estimate_monthly_needs(
+                        location_label=st.session_state.location_label,
+                        annual_heating_mwh=float(st.session_state.annual_heating),
+                        annual_ecs_mwh=float(st.session_state.annual_ecs),
+                        network_efficiency=float(st.session_state.network_efficiency_percent) / 100,
+                        calculation_mode=st.session_state.calculation_mode,
+                    )
+                    monthly_needs = estimated["Besoins RCU (MWh)"].astype(float).tolist()
 
-    with result_tabs[3]:
-        export_payload = {
-            "format": "HelioRC-project-v1",
-            "project": project,
-            "inputs": asdict(inputs),
-            "results": results.to_dict(),
-        }
-        json_bytes = json.dumps(export_payload, ensure_ascii=False, indent=2).encode("utf-8")
-        csv_bytes = monthly.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
-        try:
-            pdf_bytes = build_opportunity_note(
-                project=project,
-                inputs=inputs,
-                results=results,
-                monthly=monthly,
+                inputs = CalculationInputs(
+                    location_label=st.session_state.location_label,
+                    zone=st.session_state.zone,
+                    regime_label=st.session_state.regime_label,
+                    mean_network_temperature_c=float(st.session_state.mean_temp),
+                    base_load_fraction=float(st.session_state.base_load_percent) / 100,
+                    monthly_needs_mwh=monthly_needs,
+                    other_aid_eur=float(st.session_state.other_aid),
+                    electricity_price_eur_mwh=float(st.session_state.electricity_price),
+                    project_lifetime_years=int(st.session_state.project_lifetime),
+                    discount_rate_override=(
+                        float(st.session_state.discount_rate_percent) / 100
+                        if st.session_state.override_discount_rate
+                        else None
+                    ),
+                    calculation_mode=st.session_state.calculation_mode,
+                    network_operates_summer=bool(st.session_state.network_operates_summer),
+                    summer_excess_enr=bool(st.session_state.summer_excess_enr),
+                    land_identified=bool(st.session_state.land_identified),
+                )
+                progress.progress(60, text="Prédimensionnement technique...")
+                results, monthly = calculate_opportunity(inputs)
+                progress.progress(85, text="Analyse économique et interprétation...")
+                project = _current_project_data()
+                st.session_state.last_results = results
+                st.session_state.last_monthly = monthly
+                st.session_state.last_inputs = inputs
+                st.session_state.last_project = project
+                progress.progress(100, text="Calcul terminé.")
+                progress.empty()
+                st.success("Calcul terminé. Les résultats ci-dessous correspondent au dernier lancement.")
+            except Exception as exc:  # noqa: BLE001
+                progress.empty()
+                st.error(f"Calcul impossible : {exc}")
+
+        results = st.session_state.last_results
+        monthly = st.session_state.last_monthly
+        inputs = st.session_state.last_inputs
+        project = st.session_state.last_project
+
+        if results is None or monthly is None or inputs is None or project is None:
+            st.info("Renseignez les hypothèses puis lancez le calcul pour afficher la note d'opportunité.")
+            return
+
+        st.markdown("## Résultats du dernier calcul")
+        status_lower = results.opportunity_status.lower()
+        if "favorable" in status_lower:
+            st.success(f"**{results.opportunity_status}** - {results.scope_status}")
+        elif "intermédiaire" in status_lower:
+            st.warning(f"**{results.opportunity_status}** - {results.scope_status}")
+        else:
+            st.error(f"**{results.opportunity_status}** - {results.scope_status}")
+
+        result_tabs = st.tabs(["Synthèse", "Profil mensuel", "Détail des calculs", "Exports", "Méthode et limites"])
+
+        with result_tabs[0]:
+            st.markdown("### Analyse technique")
+            m1, m2, m3, m4 = st.columns(4)
+            m1.metric("Surface de capteurs", f"{results.collector_area_m2:,.0f} m²".replace(",", " "))
+            m2.metric("Production solaire", f"{results.annual_solar_production_mwh:,.0f} MWh/an".replace(",", " "))
+            m3.metric("Fraction solaire", f"{results.solar_fraction:.1%}")
+            m4.metric("Productivité", f"{results.productivity_kwh_m2_year:,.0f} kWh/m².an".replace(",", " "))
+            m5, m6, m7, m8 = st.columns(4)
+            m5.metric("Stockage journalier", f"{results.storage_volume_m3:,.0f} m³".replace(",", " "))
+            m6.metric("Emprise foncière", f"{results.land_area_ha:.2f} ha")
+            m7.metric("Distance conseillée", f"{results.recommended_connection_distance_m:,.0f} m".replace(",", " "))
+            m8.metric("Panneaux de 15 m²", f"{results.panel_count_15m2}")
+
+            st.markdown("### Première analyse économique")
+            e1, e2, e3, e4 = st.columns(4)
+            e1.metric("CAPEX indicatif", f"{results.capex_eur / 1_000_000:.2f} M€ HT")
+            e2.metric("Aide ADEME indicative", f"{results.ademe_aid_eur / 1_000_000:.2f} M€")
+            e3.metric("Reste à charge", f"{results.remaining_cost_eur / 1_000_000:.2f} M€ HT")
+            e4.metric("LCOH aidé", f"{results.lcoh_aided_eur_mwh:.1f} € HT/MWh")
+
+            with st.expander("Vigilances identifiées", expanded=True):
+                for warning in results.warnings:
+                    st.write(f"- {warning}")
+
+        with result_tabs[1]:
+            figure = go.Figure()
+            figure.add_trace(
+                go.Scatter(
+                    x=monthly["Mois"],
+                    y=monthly["Besoins RCU (MWh)"],
+                    mode="lines",
+                    name="Besoins RCU",
+                    line={"color": "#98A2B3", "width": 2},
+                    fill="tozeroy",
+                    fillcolor="rgba(152,162,179,0.28)",
+                )
             )
-        except Exception as exc:  # noqa: BLE001
-            pdf_bytes = None
-            st.error(f"La note PDF n'a pas pu être générée : {exc}")
+            figure.add_trace(
+                go.Scatter(
+                    x=monthly["Mois"],
+                    y=monthly["Production solaire (MWh)"],
+                    mode="lines+markers",
+                    name="Production solaire",
+                    line={"color": "#E58A2A", "width": 3},
+                    marker={"size": 7},
+                )
+            )
+            figure.update_layout(
+                title="Profil de solarisation du réseau",
+                xaxis_title="Mois",
+                yaxis_title="Énergie (MWh/mois)",
+                hovermode="x unified",
+                legend={"orientation": "h", "y": 1.12, "x": 0},
+                margin={"l": 30, "r": 20, "t": 80, "b": 35},
+                height=480,
+            )
+            st.plotly_chart(figure, width="stretch")
 
-        export_col_1, export_col_2, export_col_3 = st.columns(3)
-        with export_col_1:
-            if pdf_bytes is not None:
+            display_monthly = monthly[
+                [
+                    "Mois",
+                    "Besoins RCU (MWh)",
+                    "Production solaire (MWh)",
+                    "Taux de couverture mensuel",
+                ]
+            ].copy()
+            st.dataframe(
+                display_monthly.style.format(
+                    {
+                        "Besoins RCU (MWh)": "{:.1f}",
+                        "Production solaire (MWh)": "{:.1f}",
+                        "Taux de couverture mensuel": "{:.1%}",
+                    }
+                ),
+                hide_index=True,
+                width="stretch",
+            )
+
+        with result_tabs[2]:
+            technical_rows = {
+                "Besoin annuel du RCU (MWh/an)": results.annual_need_mwh,
+                "Part des besoins estivaux mai-septembre": results.summer_need_share,
+                "Talon mensuel minimal (MWh)": results.minimum_monthly_need_mwh,
+                "Gisement horizontal (kWh/m².an)": results.annual_horizontal_irradiation_kwh_m2,
+                "Production solaire (MWh/an)": results.annual_solar_production_mwh,
+                "Productivité (kWh/m².an)": results.productivity_kwh_m2_year,
+                "Surface de capteurs (m²)": results.collector_area_m2,
+                "Stockage (m³)": results.storage_volume_m3,
+                "Emprise (ha)": results.land_area_ha,
+                "Distance de raccordement (m)": results.recommended_connection_distance_m,
+                "Coût surfacique (€ HT/m²)": results.unit_capex_eur_m2,
+                "CAPEX (€ HT)": results.capex_eur,
+                "Aide ADEME (€)": results.ademe_aid_eur,
+                "Autres aides (€)": results.other_aid_eur,
+                "Taux d'aide total": results.aid_rate,
+                "Reste à charge (€ HT)": results.remaining_cost_eur,
+                "P1' (€ HT/MWh)": results.p1_eur_mwh,
+                "P2/P3 (€ HT/MWh)": results.opex_eur_mwh,
+                "P4 (€ HT/MWh)": results.capital_recovery_eur_mwh,
+                "LCOH aidé (€ HT/MWh)": results.lcoh_aided_eur_mwh,
+                "Taux d'actualisation": results.discount_rate,
+            }
+            details_df = pd.DataFrame(
+                [{"Indicateur": key, "Valeur": value} for key, value in technical_rows.items()]
+            )
+            st.dataframe(details_df, hide_index=True, width="stretch")
+            st.markdown("#### Table mensuelle complète")
+            st.dataframe(monthly, hide_index=True, width="stretch")
+
+        with result_tabs[3]:
+            export_payload = {
+                "format": "HelioRC-project-v1",
+                "project": project,
+                "inputs": asdict(inputs),
+                "results": results.to_dict(),
+            }
+            json_bytes = json.dumps(export_payload, ensure_ascii=False, indent=2).encode("utf-8")
+            csv_bytes = monthly.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
+            try:
+                pdf_bytes = build_opportunity_note(
+                    project=project,
+                    inputs=inputs,
+                    results=results,
+                    monthly=monthly,
+                )
+            except Exception as exc:  # noqa: BLE001
+                pdf_bytes = None
+                st.error(f"La note PDF n'a pas pu être générée : {exc}")
+
+            export_col_1, export_col_2, export_col_3 = st.columns(3)
+            with export_col_1:
+                if pdf_bytes is not None:
+                    st.download_button(
+                        "Télécharger la note PDF",
+                        data=pdf_bytes,
+                        file_name="HelioRC_note_opportunite.pdf",
+                        mime="application/pdf",
+                        width="stretch",
+                    )
+            with export_col_2:
                 st.download_button(
-                    "Télécharger la note PDF",
-                    data=pdf_bytes,
-                    file_name="HelioRC_note_opportunite.pdf",
-                    mime="application/pdf",
+                    "Télécharger le projet JSON",
+                    data=json_bytes,
+                    file_name="HelioRC_projet.json",
+                    mime="application/json",
                     width="stretch",
                 )
-        with export_col_2:
-            st.download_button(
-                "Télécharger le projet JSON",
-                data=json_bytes,
-                file_name="HelioRC_projet.json",
-                mime="application/json",
-                width="stretch",
+            with export_col_3:
+                st.download_button(
+                    "Télécharger le détail CSV",
+                    data=csv_bytes,
+                    file_name="HelioRC_resultats_mensuels.csv",
+                    mime="text/csv",
+                    width="stretch",
+                )
+            st.caption(
+                "Le JSON peut être réimporté dans l'application. Le PDF est une note de premier niveau et doit rester accompagné des limites du modèle."
             )
-        with export_col_3:
-            st.download_button(
-                "Télécharger le détail CSV",
-                data=csv_bytes,
-                file_name="HelioRC_resultats_mensuels.csv",
-                mime="text/csv",
-                width="stretch",
+
+        with result_tabs[4]:
+            st.markdown(
+                r"""
+        ### Logique reprise du classeur v5.3
+
+        1. Le profil de production mensuel est obtenu à partir de l'irradiation sur le plan optimal, corrigée par les 12 coefficients saisonniers du classeur, puis normalisée sur son maximum.
+        2. La production mensuelle vaut : **taux de talon × minimum mensuel des besoins × profil solaire normalisé**.
+        3. La productivité annuelle est calculée par l'équation paramétrique :
+
+        $$P = (0{,}4818G - 503{,}1B_e + 1{,}1244B_eG - 199{,}6)\,[1 + 0{,}014(55-T_m)]$$
+
+        avec $G$ le gisement horizontal annuel, $B_e$ la part des besoins de mai à septembre et $T_m$ la température moyenne du réseau.
+
+        4. La surface est déduite de la production annuelle et de la productivité. Le stockage vaut environ **0,2 m³/m²**, l'emprise **2,5 m² de terrain par m² de capteur**.
+        5. Le CAPEX surfacique suit la courbe par morceaux du classeur. L'aide est forfaitaire sous 1 500 m² puis devient indicative. Le LCOH additionne P1', P2/P3 et le facteur de récupération du capital P4.
+
+        ### Cadre d'utilisation
+
+        - Centrale avec stockage journalier et capteurs plans vitrés haute performance.
+        - Champ supérieur à 100 m² et fraction solaire indicative de 10 à 30 %.
+        - Outil de priorisation et de discussion en amont d'une étude de faisabilité.
+        - Hors cadre : stockage intersaisonnier, tracker, capteurs sous vide, recharge géothermique, raccordement complexe ou foncier atypique.
+        - L'objectif est un ordre de grandeur technique ; l'économie reste particulièrement sensible aux hypothèses de CAPEX, d'aides, de financement et de raccordement.
+
+        ### Deux référentiels disponibles
+
+        - **Excel v5.3 - reproduction stricte** : conserve la formule de pertes constante du classeur et sa formule de distance.
+        - **Méthode présentation** : transforme correctement le rendement en pertes par `besoin / rendement` et applique l'ordre de grandeur de 200 m/MW.
+        """
             )
-        st.caption(
-            "Le JSON peut être réimporté dans l'application. Le PDF est une note de premier niveau et doit rester accompagné des limites du modèle."
-        )
-
-    with result_tabs[4]:
-        st.markdown(
-            r"""
-    ### Logique reprise du classeur v5.3
-
-    1. Le profil de production mensuel est obtenu à partir de l'irradiation sur le plan optimal, corrigée par les 12 coefficients saisonniers du classeur, puis normalisée sur son maximum.
-    2. La production mensuelle vaut : **taux de talon × minimum mensuel des besoins × profil solaire normalisé**.
-    3. La productivité annuelle est calculée par l'équation paramétrique :
-
-    $$P = (0{,}4818G - 503{,}1B_e + 1{,}1244B_eG - 199{,}6)\,[1 + 0{,}014(55-T_m)]$$
-
-    avec $G$ le gisement horizontal annuel, $B_e$ la part des besoins de mai à septembre et $T_m$ la température moyenne du réseau.
-
-    4. La surface est déduite de la production annuelle et de la productivité. Le stockage vaut environ **0,2 m³/m²**, l'emprise **2,5 m² de terrain par m² de capteur**.
-    5. Le CAPEX surfacique suit la courbe par morceaux du classeur. L'aide est forfaitaire sous 1 500 m² puis devient indicative. Le LCOH additionne P1', P2/P3 et le facteur de récupération du capital P4.
-
-    ### Cadre d'utilisation
-
-    - Centrale avec stockage journalier et capteurs plans vitrés haute performance.
-    - Champ supérieur à 100 m² et fraction solaire indicative de 10 à 30 %.
-    - Outil de priorisation et de discussion en amont d'une étude de faisabilité.
-    - Hors cadre : stockage intersaisonnier, tracker, capteurs sous vide, recharge géothermique, raccordement complexe ou foncier atypique.
-    - L'objectif est un ordre de grandeur technique ; l'économie reste particulièrement sensible aux hypothèses de CAPEX, d'aides, de financement et de raccordement.
-
-    ### Deux référentiels disponibles
-
-    - **Excel v5.3 - reproduction stricte** : conserve la formule de pertes constante du classeur et sa formule de distance.
-    - **Méthode présentation** : transforme correctement le rendement en pertes par `besoin / rendement` et applique l'ordre de grandeur de 200 m/MW.
-    """
-        )
-        st.info(
-            "Étape suivante recommandée lorsque l'opportunité est confirmée : étude de faisabilité avec modélisation dynamique et analyse du réseau, du foncier, de l'hydraulique et du montage économique."
-        )
+            st.info(
+                "Étape suivante recommandée lorsque l'opportunité est confirmée : étude de faisabilité avec modélisation dynamique et analyse du réseau, du foncier, de l'hydraulique et du montage économique."
+            )
