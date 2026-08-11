@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 import math
 from typing import Callable
 
@@ -81,6 +81,26 @@ def _cached_project_address_search(query: str) -> list[dict[str, object]]:
 
 def _key(prefix: str, name: str) -> str:
     return f"{prefix}_{name}" if prefix else name
+
+
+def _coerce_project_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned:
+            for parser in (
+                lambda text: datetime.fromisoformat(text.replace("Z", "+00:00")).date(),
+                lambda text: datetime.strptime(text, "%Y/%m/%d").date(),
+                lambda text: datetime.strptime(text, "%d/%m/%Y").date(),
+            ):
+                try:
+                    return parser(cleaned)
+                except ValueError:
+                    continue
+    return date.today()
 
 
 def _candidate_label(candidate: dict[str, object]) -> str:
@@ -228,7 +248,7 @@ def _init_identity_state(prefix: str, defaults: ProjectIdentity, project_id: str
         "client_name": defaults.client_name,
         "airtable_id": defaults.airtable_id,
         "analyst": defaults.analyst,
-        "project_date": defaults.project_date or date.today(),
+        "project_date": _coerce_project_date(defaults.project_date),
         "typology": defaults.typology,
         "building_state": defaults.building_state,
         "region": defaults.region,
@@ -371,7 +391,11 @@ def render_project_identity_form(
             if options.show_client_name:
                 st.text_input(options.client_label, key=_key(key_prefix, "client_name"))
             if options.show_project_date:
-                st.date_input("Date de l'étude", key=_key(key_prefix, "project_date"))
+                project_date_key = _key(key_prefix, "project_date")
+                st.session_state[project_date_key] = _coerce_project_date(
+                    st.session_state.get(project_date_key)
+                )
+                st.date_input("Date de l'étude", key=project_date_key)
 
     visible_location_fields = []
     if options.show_typology:
@@ -478,7 +502,7 @@ def _current_identity(prefix: str) -> ProjectIdentity:
         client_name=str(st.session_state.get(_key(prefix, "client_name")) or ""),
         airtable_id=str(st.session_state.get(_key(prefix, "airtable_id")) or ""),
         analyst=str(st.session_state.get(_key(prefix, "analyst")) or ""),
-        project_date=st.session_state.get(_key(prefix, "project_date")),
+        project_date=_coerce_project_date(st.session_state.get(_key(prefix, "project_date"))),
         typology=str(st.session_state.get(_key(prefix, "typology")) or ""),
         building_state=str(st.session_state.get(_key(prefix, "building_state")) or ""),
         region=str(st.session_state.get(_key(prefix, "region")) or ""),
