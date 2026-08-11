@@ -6,7 +6,7 @@ import uuid
 from dataclasses import asdict
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -134,6 +134,34 @@ def _editor_monthly_dataframe(frame: pd.DataFrame, value_col: str) -> pd.DataFra
     return display
 
 
+def _apply_monthly_editor_changes(
+    *,
+    editor_key: str,
+    target_state_key: str,
+    value_col: str,
+    normalise: Callable[[object, pd.DataFrame | None], pd.DataFrame],
+) -> None:
+    editor_state = st.session_state.get(editor_key)
+    if not isinstance(editor_state, dict):
+        return
+    edited_rows = editor_state.get("edited_rows")
+    if not isinstance(edited_rows, dict) or not edited_rows:
+        return
+
+    base = normalise(st.session_state.get(target_state_key), None)
+    display = _editor_monthly_dataframe(base, value_col)
+    for row_index, changes in edited_rows.items():
+        if not isinstance(changes, dict) or value_col not in changes:
+            continue
+        try:
+            index = int(row_index)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= index < len(display):
+            display.at[index, value_col] = changes[value_col]
+    st.session_state[target_state_key] = normalise(display, base)
+
+
 def _normalise_manual_needs_dataframe(value: object, fallback: pd.DataFrame | None = None) -> pd.DataFrame:
     if isinstance(value, pd.DataFrame):
         frame = value.copy()
@@ -188,6 +216,7 @@ def _sync_branch_defaults_from_total_if_needed() -> None:
         # cette valeur trompeuse dans le tableau de saisie.
         st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe()
         st.session_state.pop("branch_needs_editor_form_v3", None)
+        st.session_state.pop("branch_needs_editor_v4", None)
         return
     # Migration douce des anciens projets : si l'ancien champ branche était vide ou absent,
     # on démarre sur zéro pour éviter de reprendre silencieusement le besoin du RCU complet.
@@ -197,7 +226,7 @@ def _sync_branch_defaults_from_total_if_needed() -> None:
 
 
 def _ensure_branch_editor_schema() -> None:
-    if st.session_state.get("_heliorc_branch_editor_schema") == 3:
+    if st.session_state.get("_heliorc_branch_editor_schema") == 4:
         return
     branch_df = st.session_state.get("branch_needs_df")
     manual_values = _monthly_values_from_frame(st.session_state.get("manual_needs_df"))
@@ -211,7 +240,9 @@ def _ensure_branch_editor_schema() -> None:
     st.session_state.pop("manual_needs_editor_form", None)
     st.session_state.pop("manual_needs_editor_form_v3", None)
     st.session_state.pop("branch_needs_editor_form_v3", None)
-    st.session_state["_heliorc_branch_editor_schema"] = 3
+    st.session_state.pop("manual_needs_editor_v4", None)
+    st.session_state.pop("branch_needs_editor_v4", None)
+    st.session_state["_heliorc_branch_editor_schema"] = 4
 
 
 
@@ -1003,12 +1034,14 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
         st.session_state.pop("manual_needs_editor", None)
         st.session_state.pop("manual_needs_editor_form", None)
         st.session_state.pop("manual_needs_editor_form_v3", None)
+        st.session_state.pop("manual_needs_editor_v4", None)
     branch_monthly_values = input_data.get("branch_monthly_needs_mwh")
     if isinstance(branch_monthly_values, list) and len(branch_monthly_values) == 12:
         st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe([float(value) for value in branch_monthly_values])
         st.session_state.pop("branch_needs_editor", None)
         st.session_state.pop("branch_needs_editor_form", None)
         st.session_state.pop("branch_needs_editor_form_v3", None)
+        st.session_state.pop("branch_needs_editor_v4", None)
     rate = input_data.get("discount_rate_override")
     st.session_state["override_discount_rate"] = rate is not None
     if rate is not None:
@@ -1124,7 +1157,14 @@ def render_heliorc_app() -> None:
                         _normalise_manual_needs_dataframe(st.session_state.manual_needs_df),
                         TOTAL_NEEDS_COL,
                     ),
-                    key="manual_needs_editor_form_v3",
+                key="manual_needs_editor_v4",
+                on_change=_apply_monthly_editor_changes,
+                kwargs={
+                    "editor_key": "manual_needs_editor_v4",
+                    "target_state_key": "manual_needs_df",
+                    "value_col": TOTAL_NEEDS_COL,
+                    "normalise": _normalise_manual_needs_dataframe,
+                },
                     hide_index=True,
                     width="stretch",
                     disabled=["Mois"],
@@ -1204,7 +1244,14 @@ def render_heliorc_app() -> None:
                         _normalise_branch_needs_dataframe(st.session_state.branch_needs_df),
                         BRANCH_NEEDS_COL,
                     ),
-                    key="branch_needs_editor_form_v3",
+                key="branch_needs_editor_v4",
+                on_change=_apply_monthly_editor_changes,
+                kwargs={
+                    "editor_key": "branch_needs_editor_v4",
+                    "target_state_key": "branch_needs_df",
+                    "value_col": BRANCH_NEEDS_COL,
+                    "normalise": _normalise_branch_needs_dataframe,
+                },
                     hide_index=True,
                     width="stretch",
                     disabled=["Mois"],

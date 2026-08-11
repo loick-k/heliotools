@@ -346,33 +346,26 @@ def render_project_identity_form(
             if options.show_project_date:
                 st.date_input("Date de l'étude", key=_key(key_prefix, "project_date"))
 
-    if options.show_typology or options.show_building_state or options.show_region or options.show_department or options.show_city:
-        col_a, col_b, col_c = st.columns(3)
-        with col_a:
-            if options.show_typology:
-                _render_select_or_text(
-                    "Typologie d'établissement",
-                    key=_key(key_prefix, "typology"),
-                    options=options.typology_options,
-                )
-            if options.show_region:
-                _render_select_or_text("Région", key=_key(key_prefix, "region"), options=options.region_options)
-        with col_b:
-            if options.show_building_state:
-                _render_select_or_text(
-                    "Nature du bâtiment",
-                    key=_key(key_prefix, "building_state"),
-                    options=options.building_state_options,
-                )
-            if options.show_department:
-                _render_select_or_text(
-                    "Département",
-                    key=_key(key_prefix, "department"),
-                    options=options.department_options,
-                )
-        with col_c:
-            if options.show_city:
-                st.text_input(options.city_label, key=_key(key_prefix, "city"))
+    visible_location_fields = []
+    if options.show_typology:
+        visible_location_fields.append(("select", "Typologie d'établissement", "typology", options.typology_options))
+    if options.show_building_state:
+        visible_location_fields.append(("select", "Nature du bâtiment", "building_state", options.building_state_options))
+    if options.show_region:
+        visible_location_fields.append(("select", "Région", "region", options.region_options))
+    if options.show_department:
+        visible_location_fields.append(("select", "Département", "department", options.department_options))
+    if options.show_city:
+        visible_location_fields.append(("text", options.city_label, "city", ()))
+
+    if visible_location_fields:
+        columns = st.columns(min(3, len(visible_location_fields)))
+        for index, (field_type, label, name, field_options) in enumerate(visible_location_fields):
+            with columns[index % len(columns)]:
+                if field_type == "select":
+                    _render_select_or_text(label, key=_key(key_prefix, name), options=field_options)
+                else:
+                    st.text_input(label, key=_key(key_prefix, name))
 
     if options.show_address_search:
         with st.form(_key(key_prefix, "project_address_form"), clear_on_submit=False):
