@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from .profile_generator import (
@@ -21,6 +22,136 @@ APP_DIR = Path(__file__).resolve().parent
 PROFILE_LIBRARY = {
     "Station de lavage poids lourds": APP_DIR / "profiles" / "station_lavage_poids_lourds.csv",
 }
+
+SIMSOL_BLUE = "#7fb2f0"
+SIMSOL_BLUE_LINE = "#2f5597"
+SIMSOL_GREEN_GRID = "#16a34a"
+SIMSOL_YELLOW = "#fff200"
+
+
+def _simsol_bar_layout(fig: go.Figure, *, title: str, x_title: str, y_title: str, height: int = 440) -> go.Figure:
+    fig.update_layout(
+        title={"text": title, "x": 0.5, "xanchor": "center"},
+        height=height,
+        margin={"l": 56, "r": 24, "t": 72, "b": 78},
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+        showlegend=False,
+        font={"family": "Arial", "size": 13, "color": "#111827"},
+    )
+    fig.update_xaxes(
+        title=x_title,
+        tickmode="linear",
+        showline=True,
+        linecolor="#111827",
+        gridcolor=SIMSOL_GREEN_GRID,
+        gridwidth=0.7,
+        griddash="dash",
+    )
+    fig.update_yaxes(
+        title=y_title,
+        rangemode="tozero",
+        showline=True,
+        linecolor="#111827",
+        gridcolor=SIMSOL_GREEN_GRID,
+        gridwidth=0.7,
+        griddash="dash",
+    )
+    return fig
+
+
+def _add_yellow_value_labels(fig: go.Figure, rows: pd.DataFrame, *, x_col: str, y_col: str, text_col: str | None = None) -> None:
+    ymax = max(float(rows[y_col].max() or 0.0), 1.0)
+    for _, row in rows.iterrows():
+        value = float(row[y_col])
+        if value <= 0:
+            continue
+        label_value = row[text_col] if text_col else value
+        fig.add_annotation(
+            x=row[x_col],
+            y=max(value * 0.52, ymax * 0.035),
+            text=f"{float(label_value):.2g}",
+            showarrow=False,
+            textangle=-90 if len(str(row[x_col])) <= 2 else 0,
+            font={"size": 11, "color": "#111827"},
+            bgcolor=SIMSOL_YELLOW,
+            bordercolor="#d4b106",
+            borderwidth=0.5,
+            borderpad=2,
+        )
+
+
+def _daily_profile_simsol_chart(hourly_norm: pd.DataFrame, *, profile_name: str) -> go.Figure:
+    rows = hourly_norm.copy()
+    rows["hour_label"] = rows["hour"].astype(int).astype(str)
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=rows["hour_label"],
+                y=rows["part_journaliere_pct"],
+                marker={"color": SIMSOL_BLUE, "line": {"color": SIMSOL_BLUE_LINE, "width": 1}},
+                hovertemplate="Heure %{x} h<br>Coefficient horaire %{y:.2f}<extra></extra>",
+            )
+        ]
+    )
+    _add_yellow_value_labels(fig, rows, x_col="hour_label", y_col="part_journaliere_pct")
+    fig = _simsol_bar_layout(
+        fig,
+        title=f"Profil journalier : {profile_name}",
+        x_title="Heures de la journée",
+        y_title="Coefficient horaire",
+        height=460,
+    )
+    fig.update_xaxes(type="category", categoryorder="array", categoryarray=[str(i) for i in range(24)])
+    return fig
+
+
+def _monthly_profile_simsol_chart(monthly_df: pd.DataFrame) -> go.Figure:
+    rows = monthly_df.copy()
+    rows["MWh"] = rows["E_total_generee_kWh"] / 1000.0
+    mean_mwh = max(float(rows["MWh"].mean()), 1e-9)
+    rows["coef_multiplicateur"] = rows["MWh"] / mean_mwh
+    fig = go.Figure(
+        data=[
+            go.Bar(
+                x=rows["mois"],
+                y=rows["coef_multiplicateur"],
+                marker={"color": SIMSOL_BLUE, "line": {"color": SIMSOL_BLUE_LINE, "width": 1}},
+                hovertemplate="%{x}<br>Coefficient %{y:.2f}<br>%{customdata:.1f} MWh<extra></extra>",
+                customdata=rows["MWh"],
+            )
+        ]
+    )
+    _add_yellow_value_labels(fig, rows, x_col="mois", y_col="coef_multiplicateur")
+    fig = _simsol_bar_layout(
+        fig,
+        title="Profil annuel : répartition mensuelle",
+        x_title="Mois de l'année",
+        y_title="Coefficient multiplicateur",
+        height=460,
+    )
+    fig.update_xaxes(type="category", tickangle=-90)
+    return fig
+
+
+def _weekly_profile_table(profile_df: pd.DataFrame) -> pd.DataFrame:
+    daily = daily_summary(profile_df).copy()
+    daily["date"] = pd.to_datetime(daily["date"])
+    daily["semaine"] = daily["date"].dt.isocalendar().week.astype(int)
+    rows = []
+    for week, chunk in daily.groupby("semaine", sort=True):
+        if int(week) > 52:
+            continue
+        month_number = int(chunk["month"].mode().iloc[0])
+        dominant_type = str(chunk["jour_type"].mode().iloc[0])
+        rows.append(
+            {
+                "Semaine": int(week),
+                "Profil": dominant_type,
+                "Mois": MONTHS_FR[month_number - 1],
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def _default_input_table() -> pd.DataFrame:
@@ -226,57 +357,70 @@ def render_helioprofil_app() -> None:
 
         if selected_section == "Profil type journalier":
             hourly_norm = normalized_hourly_profile(profile_type)
-            fig = px.line(
-                hourly_norm,
-                x="hour",
-                y="part_journaliere_pct",
-                markers=True,
-                title="Profil type normalisé journalier par heure",
-                labels={"hour": "Heure", "part_journaliere_pct": "Part du besoin journalier (%)"},
-            )
-            fig.update_xaxes(dtick=1)
-            st.plotly_chart(fig, width="stretch")
-            st.caption("Profil type issu de la station de lavage poids lourds d'Angers, normalisé en répartition horaire.")
+            chart_col, table_col = st.columns([2.6, 0.9], gap="large")
+            with chart_col:
+                fig = _daily_profile_simsol_chart(hourly_norm, profile_name=profile_name)
+                st.plotly_chart(fig, width="stretch")
+            with table_col:
+                st.markdown("#### Coefficients horaires")
+                table = hourly_norm.copy()
+                table["Heure"] = table["hour"].astype(int).map(lambda value: f"{value} h")
+                table["Répartition"] = table["part_journaliere_pct"].round(2)
+                st.dataframe(table[["Heure", "Répartition"]], width="stretch", hide_index=True, height=420)
+            st.caption("Profil type normalisé en répartition horaire. Les coefficients décrivent la forme d'une journée type avant recalage sur les besoins mensuels.")
 
         elif selected_section == "Répartition mensuelle":
             bm = bilan_mensuel.copy()
             bm["MWh"] = bm["E_total_generee_kWh"] / 1000
-            fig = px.bar(
-                bm,
-                x="mois",
-                y="MWh",
-                title="Répartition annuelle du besoin énergétique par mois",
-                labels={"mois": "Mois", "MWh": "Besoin utile (MWh/mois)"},
-            )
-            st.plotly_chart(fig, width="stretch")
-            st.dataframe(
-                bm[
-                    [
-                        "mois",
-                        "cible_besoin_utile_kWh",
-                        "E_total_generee_kWh",
-                        "ecart_cible_kWh",
-                        "jours_ouverts",
-                        "jours_fermes",
-                        "pic_horaire_kW",
-                    ]
-                ],
-                width="stretch",
-                hide_index=True,
-            )
+            mean_mwh = max(float(bm["MWh"].mean()), 1e-9)
+            bm["coef_multiplicateur"] = bm["MWh"] / mean_mwh
+            chart_col, table_col = st.columns([2.2, 0.9], gap="large")
+            with chart_col:
+                fig = _monthly_profile_simsol_chart(bm)
+                st.plotly_chart(fig, width="stretch")
+            with table_col:
+                st.markdown("#### Coefficients mensuels")
+                table = bm.copy()
+                table["Coef. multiplicateur"] = table["coef_multiplicateur"].round(2)
+                table["Besoin"] = table["MWh"].round(1).map(lambda value: f"{value:.1f} MWh")
+                st.dataframe(table[["mois", "Coef. multiplicateur", "Besoin"]], width="stretch", hide_index=True, height=420)
+            with st.expander("Détail mensuel de recalage", expanded=False):
+                st.dataframe(
+                    bm[
+                        [
+                            "mois",
+                            "cible_besoin_utile_kWh",
+                            "E_total_generee_kWh",
+                            "ecart_cible_kWh",
+                            "jours_ouverts",
+                            "jours_fermes",
+                            "pic_horaire_kW",
+                        ]
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
 
         elif selected_section == "Répartition semaine":
             week = weekly_distribution(profile_df)
             week["MWh"] = week["E_total_kWh"] / 1000
-            fig = px.bar(
-                week,
-                x="weekday_name",
-                y="MWh",
-                title="Répartition annuelle du besoin énergétique dans la semaine",
-                labels={"weekday_name": "Jour", "MWh": "Besoin utile annuel (MWh)"},
-            )
-            st.plotly_chart(fig, width="stretch")
-            st.dataframe(week, width="stretch", hide_index=True)
+            chart_col, table_col = st.columns([1.2, 1], gap="large")
+            with chart_col:
+                fig = px.bar(
+                    week,
+                    x="weekday_name",
+                    y="MWh",
+                    title="Répartition annuelle dans la semaine",
+                    labels={"weekday_name": "Jour", "MWh": "Besoin utile annuel (MWh)"},
+                    color_discrete_sequence=[SIMSOL_BLUE],
+                )
+                fig.update_layout(height=430, showlegend=False, plot_bgcolor="white")
+                fig.update_yaxes(gridcolor=SIMSOL_GREEN_GRID, griddash="dash")
+                st.plotly_chart(fig, width="stretch")
+            with table_col:
+                st.markdown("#### Profil hebdomadaire : année type")
+                weekly_table = _weekly_profile_table(profile_df)
+                st.dataframe(weekly_table, width="stretch", hide_index=True, height=430)
 
         else:
             daily = daily_summary(profile_df)
