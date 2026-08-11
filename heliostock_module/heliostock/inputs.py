@@ -34,6 +34,16 @@ class SolarInputs:
     daily_buffer_tank_count: int = 1
     daily_buffer_insulation_thickness_cm: float = 10.0
     daily_buffer_insulation_lambda_w_m_k: float = 0.035
+    daily_buffer_model: str = "mixed"
+    daily_buffer_stratified_fraction_bottom: float = 0.35
+    daily_buffer_stratified_fraction_middle: float = 0.30
+    daily_buffer_stratified_fraction_top: float = 0.35
+    daily_buffer_ua_total_w_per_k: float = 0.0
+    daily_buffer_interlayer_w_per_k: float = 2.0
+    daily_buffer_internal_timestep_s: float = 300.0
+    daily_buffer_charge_mode: str = "bottom"
+    daily_buffer_min_useful_temp_c: float = 25.0
+    daily_buffer_solar_loop_flow_l_h_m2: float = 50.0
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
@@ -51,6 +61,12 @@ class SolarInputs:
             warnings.append("L'epaisseur d'isolant du ballon doit etre strictement positive.")
         if self.daily_buffer_insulation_lambda_w_m_k <= 0.0:
             warnings.append("Le lambda de l'isolant du ballon doit etre strictement positif.")
+        if self.daily_buffer_model not in {"mixed", "stratified_3_nodes"}:
+            warnings.append("Le modèle de ballon solaire n'est pas reconnu.")
+        if self.daily_buffer_internal_timestep_s <= 0.0:
+            warnings.append("Le pas interne du ballon stratifié doit etre strictement positif.")
+        if self.daily_buffer_solar_loop_flow_l_h_m2 <= 0.0:
+            warnings.append("Le débit solaire spécifique du ballon stratifié doit etre strictement positif.")
         return warnings
 
     def to_collector_config(self) -> CollectorConfig:
@@ -75,6 +91,16 @@ class SolarInputs:
             daily_buffer_tank_count=self.daily_buffer_tank_count,
             daily_buffer_insulation_thickness_cm=self.daily_buffer_insulation_thickness_cm,
             daily_buffer_insulation_lambda_w_m_k=self.daily_buffer_insulation_lambda_w_m_k,
+            daily_buffer_model=self.daily_buffer_model,
+            daily_buffer_stratified_fraction_bottom=self.daily_buffer_stratified_fraction_bottom,
+            daily_buffer_stratified_fraction_middle=self.daily_buffer_stratified_fraction_middle,
+            daily_buffer_stratified_fraction_top=self.daily_buffer_stratified_fraction_top,
+            daily_buffer_ua_total_w_per_k=self.daily_buffer_ua_total_w_per_k,
+            daily_buffer_interlayer_w_per_k=self.daily_buffer_interlayer_w_per_k,
+            daily_buffer_internal_timestep_s=self.daily_buffer_internal_timestep_s,
+            daily_buffer_charge_mode=self.daily_buffer_charge_mode,
+            daily_buffer_min_useful_temp_c=self.daily_buffer_min_useful_temp_c,
+            daily_buffer_solar_loop_flow_l_h_m2=self.daily_buffer_solar_loop_flow_l_h_m2,
         )
 
 

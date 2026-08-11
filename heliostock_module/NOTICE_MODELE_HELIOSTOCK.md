@@ -1619,3 +1619,10 @@ L'outil conserve ses specificites : process HT/BT, solaire thermique via ballon 
 apres saturation du ballon, comparaison gaz / geothermie / geothermie + solaire. Il reste un outil d'opportunite et ne
 remplace pas une etude avec TRT, plan de champ reel, hydraulique et ingenierie dediee.
 
+# Ballon solaire journalier stratifié
+
+Le stockage solaire journalier peut être calculé avec un modèle stratifié 3 nœuds : bas, milieu et haut de ballon. Chaque nœud est un volume parfaitement mélangé avec son propre bilan d'énergie. Les inversions de température sont corrigées par mélange conservatif afin de garantir l'ordre physique haut >= milieu >= bas. Les échanges inter-couches sont plafonnés à l'énergie d'égalisation entre deux couches afin d'éviter un sur-mélange numérique lorsque la conductance ou le pas de temps interne sont élevés.
+
+Ce modèle est inspiré de l'approche multinœuds décrite par Kleinbach, Beckman et Klein (1993). Il reste une approximation 1D robuste pour simulation horaire : il ne décrit pas finement les diffuseurs, les vitesses internes, ni la géométrie hydraulique réelle du ballon. Dans ce mode, la température d'entrée capteur est assimilée à la température du bas de ballon. Le rendement capteur est calculé avec la température moyenne dans le capteur, `(T_entrée + T_sortie) / 2`, la sortie étant estimée par le débit spécifique solaire.
+
+Le soutirage HT est représenté par un déplacement simplifié : eau chaude prélevée en haut, entrée d'eau froide en bas et déplacement progressif des trois couches. Le ballon est uniquement solaire ; l'appoint reste un générateur séparé en aval.

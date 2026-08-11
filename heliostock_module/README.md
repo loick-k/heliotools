@@ -589,3 +589,14 @@ Limites d'usage :
 - la geometrie automatique du champ influence fortement les interactions et reste un predimensionnement ;
 - HelioStock ne remplace pas une etude geothermique detaillee avec TRT, geometrie reelle, hydraulique, pertes reseau et ingenierie dediee.
 
+# Ballon solaire stratifié 3 nœuds
+
+HelioDyn conserve le modèle historique de ballon solaire parfaitement mélangé et ajoute un modèle optionnel de ballon stratifié à trois nœuds : bas, milieu et haut. Cette approche s'inspire des modèles multinœuds de Kleinbach, Beckman et Klein (Solar Energy, 1993), sans chercher à reproduire intégralement TRNSYS.
+
+Dans ce modèle simplifié, chaque nœud est supposé parfaitement mélangé. Un bilan d'énergie est résolu sur chaque couche avec pertes vers l'ambiance, échanges thermiques inter-couches et correction conservative des inversions de température. L'échange thermique entre deux couches est plafonné à l'énergie d'égalisation pour éviter les sur-oscillations numériques.
+
+Le capteur solaire utilise la température du bas de ballon comme température d'entrée. Sa performance est ensuite calculée avec la température moyenne dans le capteur, c'est-à-dire `(T_entrée + T_sortie) / 2`. La température de sortie est estimée à partir de la production solaire horaire et d'un débit spécifique solaire. Cette logique représente mieux l'intérêt de la stratification : un bas plus froid améliore le rendement capteur, tandis que le haut du ballon porte l'énergie immédiatement utile pour le besoin haute température.
+
+Le soutirage du besoin HT est représenté par un déplacement simplifié : l'eau chaude sort par le haut, l'eau froide entre par le bas et les couches se déplacent comme trois volumes mélangés en série. Le ballon reste uniquement solaire ; l'appoint est modélisé séparément en aval, comme dans le modèle historique.
+
+Le modèle fonctionne avec des sous-pas internes au sein du pas horaire. Il reste destiné au pré-dimensionnement dynamique et ne remplace pas une modélisation hydraulique détaillée du ballon.

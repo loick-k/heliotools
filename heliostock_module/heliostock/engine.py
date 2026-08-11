@@ -54,6 +54,16 @@ class CollectorConfig:
     daily_buffer_tank_count: int = 1
     daily_buffer_insulation_thickness_cm: float = 10.0
     daily_buffer_insulation_lambda_w_m_k: float = 0.035
+    daily_buffer_model: str = "mixed"
+    daily_buffer_stratified_fraction_bottom: float = 0.35
+    daily_buffer_stratified_fraction_middle: float = 0.30
+    daily_buffer_stratified_fraction_top: float = 0.35
+    daily_buffer_ua_total_w_per_k: float = 0.0
+    daily_buffer_interlayer_w_per_k: float = 2.0
+    daily_buffer_internal_timestep_s: float = 300.0
+    daily_buffer_charge_mode: str = "bottom"
+    daily_buffer_min_useful_temp_c: float = 25.0
+    daily_buffer_solar_loop_flow_l_h_m2: float = 50.0
 
 
 @dataclass(frozen=True)

@@ -117,6 +117,11 @@ class FixedSolarAssumptions:
     daily_buffer_tank_count: int = 1
     daily_buffer_insulation_thickness_cm: float = 10.0
     daily_buffer_insulation_lambda_w_m_k: float = 0.035
+    daily_buffer_ua_total_w_per_k: float = 0.0
+    daily_buffer_interlayer_w_per_k: float = 2.0
+    daily_buffer_internal_timestep_s: float = 300.0
+    daily_buffer_min_useful_temp_c: float = 25.0
+    daily_buffer_solar_loop_flow_l_h_m2: float = 50.0
     solar_buffer_hx_approach_k: float = 5.0
     solar_buffer_collector_approach_k: float = 10.0
 
@@ -129,6 +134,10 @@ class FixedSolarAssumptions:
                 ("Nombre de ballons", self.daily_buffer_tank_count, "-"),
                 ("Épaisseur isolant ballon", self.daily_buffer_insulation_thickness_cm, "cm"),
                 ("Lambda isolant ballon", self.daily_buffer_insulation_lambda_w_m_k, "W/m/K"),
+                ("UA ballon stratifié", "auto SOLO2018 si 0", "W/K"),
+                ("Conductance inter-couches", self.daily_buffer_interlayer_w_per_k, "W/K"),
+                ("Pas interne ballon stratifié", self.daily_buffer_internal_timestep_s, "s"),
+                ("Débit solaire ballon stratifié", self.daily_buffer_solar_loop_flow_l_h_m2, "L/h/m²"),
                 ("Approche echangeur ballon-process", self.solar_buffer_hx_approach_k, "K"),
                 ("Approche capteur sur ballon", self.solar_buffer_collector_approach_k, "K"),
             ],

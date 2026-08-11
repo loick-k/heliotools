@@ -58,6 +58,7 @@ class ProjectIdentityOptions:
     show_address_search: bool = True
     show_map: bool = True
     show_weather: bool = False
+    auto_select_nearest_weather: bool = True
     show_notes: bool = False
     typology_options: tuple[str, ...] = ()
     building_state_options: tuple[str, ...] = ()
@@ -142,6 +143,21 @@ def _nearest_weather_station(
             if best is None or distance < best[2]:
                 best = (str(region_name), label, distance)
     return best
+
+
+def nearest_weather_station(
+    *,
+    latitude: float,
+    longitude: float,
+    weather_regions: dict[str, dict[str, object]] | None,
+) -> tuple[str, str, float] | None:
+    """Return the closest configured weather station to a project point."""
+
+    return _nearest_weather_station(
+        latitude=latitude,
+        longitude=longitude,
+        weather_regions=weather_regions,
+    )
 
 
 def _weather_station_map(

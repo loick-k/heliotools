@@ -489,6 +489,100 @@ def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt"
         )
         solar_preheat_target_ht_c = float(process_ht_target_c)
         st.caption("Ratio stockage solaire V/S : par défaut 60 L/m².")
+        storage_model_label = st.selectbox(
+            "Modèle ballon solaire",
+            options=["Ballon mélangé actuel", "Ballon stratifié 3 nœuds"],
+            index=0,
+            key="solar_daily_buffer_model_label",
+            help=(
+                "Le modèle mélangé conserve le comportement historique. "
+                "Le modèle stratifié représente le bas, le milieu et le haut du ballon."
+            ),
+        )
+        daily_buffer_model = "stratified_3_nodes" if storage_model_label == "Ballon stratifié 3 nœuds" else "mixed"
+        with st.expander("Hypothèses avancées ballon stratifié", expanded=daily_buffer_model == "stratified_3_nodes"):
+            st.caption(
+                "Modèle 1D simplifié : chaque nœud est parfaitement mélangé, les inversions de température "
+                "sont corrigées par mélange conservatif. UA = 0 utilise l'estimation SOLO2018 des pertes."
+            )
+            sf1, sf2, sf3 = st.columns(3)
+            daily_buffer_stratified_fraction_bottom = sf1.number_input(
+                "Fraction volume bas",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.35,
+                step=0.05,
+                key="solar_stratified_fraction_bottom",
+            )
+            daily_buffer_stratified_fraction_middle = sf2.number_input(
+                "Fraction volume milieu",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.30,
+                step=0.05,
+                key="solar_stratified_fraction_middle",
+            )
+            daily_buffer_stratified_fraction_top = sf3.number_input(
+                "Fraction volume haut",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.35,
+                step=0.05,
+                key="solar_stratified_fraction_top",
+            )
+            sa1, sa2, sa3 = st.columns(3)
+            daily_buffer_ua_total_w_per_k = sa1.number_input(
+                "UA total ballon (W/K)",
+                min_value=0.0,
+                value=float(solar_fixed.daily_buffer_ua_total_w_per_k),
+                step=5.0,
+                key="solar_stratified_ua_total_w_per_k",
+                help="Laisser 0 pour calculer automatiquement UA depuis le modèle de pertes SOLO2018.",
+            )
+            daily_buffer_interlayer_w_per_k = sa2.number_input(
+                "Conductance inter-couches (W/K)",
+                min_value=0.0,
+                value=float(solar_fixed.daily_buffer_interlayer_w_per_k),
+                step=0.5,
+                key="solar_stratified_interlayer_w_per_k",
+            )
+            daily_buffer_internal_timestep_s = sa3.number_input(
+                "Pas interne (s)",
+                min_value=60.0,
+                max_value=3600.0,
+                value=float(solar_fixed.daily_buffer_internal_timestep_s),
+                step=60.0,
+                key="solar_stratified_internal_timestep_s",
+            )
+            sb1, sb2, sb3 = st.columns(3)
+            daily_buffer_charge_mode_label = sb1.selectbox(
+                "Charge solaire",
+                options=["bottom", "variable_inlet"],
+                index=0,
+                key="solar_stratified_charge_mode",
+                help="bottom injecte dans le bas. variable_inlet choisit le nœud selon la température d'entrée capteur.",
+            )
+            daily_buffer_min_useful_temp_c = sb2.number_input(
+                "T utile minimale (°C)",
+                min_value=0.0,
+                max_value=120.0,
+                value=float(solar_fixed.daily_buffer_min_useful_temp_c),
+                step=1.0,
+                key="solar_stratified_min_useful_temp_c",
+            )
+            daily_buffer_solar_loop_flow_l_h_m2 = sb3.number_input(
+                "Débit solaire spécifique (L/h/m²)",
+                min_value=1.0,
+                max_value=200.0,
+                value=float(solar_fixed.daily_buffer_solar_loop_flow_l_h_m2),
+                step=5.0,
+                key="solar_stratified_solar_loop_flow_l_h_m2",
+                help=(
+                    "Utilisé pour estimer la température de sortie capteur. "
+                    "Le rendement capteur est calculé sur (entrée + sortie) / 2."
+                ),
+            )
+            st.caption("Le ballon stratifié est modélisé comme un ballon solaire seul. L'appoint reste séparé en aval du ballon.")
 
         with st.expander("Hypothèses solaires fixées", expanded=False):
             st.dataframe(display_dataframe(solar_fixed.to_table()), width="stretch", hide_index=True)
@@ -513,6 +607,16 @@ def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt"
             daily_buffer_tank_count=solar_fixed.daily_buffer_tank_count,
             daily_buffer_insulation_thickness_cm=solar_fixed.daily_buffer_insulation_thickness_cm,
             daily_buffer_insulation_lambda_w_m_k=solar_fixed.daily_buffer_insulation_lambda_w_m_k,
+            daily_buffer_model=daily_buffer_model,
+            daily_buffer_stratified_fraction_bottom=daily_buffer_stratified_fraction_bottom,
+            daily_buffer_stratified_fraction_middle=daily_buffer_stratified_fraction_middle,
+            daily_buffer_stratified_fraction_top=daily_buffer_stratified_fraction_top,
+            daily_buffer_ua_total_w_per_k=daily_buffer_ua_total_w_per_k,
+            daily_buffer_interlayer_w_per_k=daily_buffer_interlayer_w_per_k,
+            daily_buffer_internal_timestep_s=daily_buffer_internal_timestep_s,
+            daily_buffer_charge_mode=daily_buffer_charge_mode_label,
+            daily_buffer_min_useful_temp_c=daily_buffer_min_useful_temp_c,
+            daily_buffer_solar_loop_flow_l_h_m2=daily_buffer_solar_loop_flow_l_h_m2,
             solar_preheat_target_ht_c=solar_preheat_target_ht_c,
             solar_buffer_hx_approach_k=solar_fixed.solar_buffer_hx_approach_k,
             solar_buffer_collector_approach_k=solar_fixed.solar_buffer_collector_approach_k,
@@ -527,6 +631,7 @@ def render_geothermal_form(
     hourly_demand_override: dict[int, tuple[float, float]] | None,
     process_bt_target_c: float,
     enabled: bool = True,
+    show_disabled_message: bool = True,
 ) -> GeothermalFormResult:
     pre_peak_bt_power_kw = _peak_bt_power_kw(hourly_weather, demands, hourly_demand_override)
     if not enabled:
@@ -540,11 +645,12 @@ def render_geothermal_form(
             unit_depth_m=100.0,
             safety_factor=geo_fixed.safety_factor,
         )
-        with _top_level_input_section("PAC géothermie et champ de sondes", expanded=True):
-            st.info(
-                "Mode solaire thermique seul : la PAC géothermique, le champ de sondes et l'injection vers le stockage "
-                "géothermique ne sont pas utilisés dans ce calcul."
-            )
+        if show_disabled_message:
+            with _top_level_input_section("PAC géothermie et champ de sondes", expanded=True):
+                st.info(
+                    "Mode solaire thermique seul : la PAC géothermique, le champ de sondes et l'injection vers le stockage "
+                    "géothermique ne sont pas utilisés dans ce calcul."
+                )
         return GeothermalFormResult(
             btes=BtesInputs(
                 boreholes=int(predesign.boreholes),

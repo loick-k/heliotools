@@ -150,50 +150,74 @@ def render_heliostock_hourly() -> pd.DataFrame:
         render_heliostock_project_controls()
 
     st.session_state["heliostock_input_tabs_enabled"] = True
-    show_parametric_tabs = _current_demand_scope_from_state() != "ht_only"
+    current_demand_scope = _current_demand_scope_from_state()
+    show_geothermal_tabs = current_demand_scope != "ht_only"
+    show_parametric_tabs = show_geothermal_tabs
     tab_labels = [
         "1. Projet",
         "2. Besoins process",
         "3. Solaire thermique",
         "4. Contraintes architecturales",
-        "5. PAC géothermie",
-        "6. Vérification GMI",
-        "7. Économie",
     ]
+    if show_geothermal_tabs:
+        tab_labels.extend(
+            [
+                f"{len(tab_labels) + 1}. PAC géothermie",
+                f"{len(tab_labels) + 2}. Vérification GMI",
+            ]
+        )
+    economy_tab_label = f"{len(tab_labels) + 1}. Économie"
+    tab_labels.append(economy_tab_label)
     if show_parametric_tabs:
-        tab_labels.extend(["8. Paramétrique PAC", "9. Paramétrique solaire"])
-    tab_labels.append(f"{len(tab_labels) + 1}. Calcul et résultats")
+        pac_parametric_tab_label = f"{len(tab_labels) + 1}. Paramétrique PAC"
+        solar_parametric_tab_label = f"{len(tab_labels) + 2}. Paramétrique solaire"
+        tab_labels.extend([pac_parametric_tab_label, solar_parametric_tab_label])
+    else:
+        pac_parametric_tab_label = ""
+        solar_parametric_tab_label = ""
+    calculation_tab_label = f"{len(tab_labels) + 1}. Calcul et résultats"
+    tab_labels.append(calculation_tab_label)
     input_tabs = st.tabs(tab_labels)
+    input_tabs_by_label = dict(zip(tab_labels, input_tabs))
 
-    with input_tabs[0]:
+    with input_tabs_by_label["1. Projet"]:
         project_form = render_heliostock_project_form()
     weather_form = render_weather_form()
-    with input_tabs[1]:
+    with input_tabs_by_label["2. Besoins process"]:
         demand_form = render_demand_form(weather_form.hourly_weather)
     if not demand_form.valid:
         return pd.DataFrame()
 
-    with input_tabs[2]:
+    with input_tabs_by_label["3. Solaire thermique"]:
         solar_form = render_solar_form(
             process_ht_target_c=demand_form.process_ht_target_c,
             demand_scope=demand_form.demand_scope,
         )
-    with input_tabs[3]:
+    with input_tabs_by_label["4. Contraintes architecturales"]:
         render_architectural_constraints_test(state_prefix="heliostock", show_address_inputs=False, show_map=True)
-    with input_tabs[4]:
+    if show_geothermal_tabs:
+        geothermal_tab_label = next(label for label in tab_labels if label.endswith("PAC géothermie"))
+        with input_tabs_by_label[geothermal_tab_label]:
+            geothermal_form = render_geothermal_form(
+                hourly_weather=weather_form.hourly_weather,
+                demands=demand_form.demands,
+                hourly_demand_override=demand_form.hourly_demand_override,
+                process_bt_target_c=demand_form.process_bt_target_c,
+                enabled=True,
+            )
+        gmi_tab_label = next(label for label in tab_labels if label.endswith("Vérification GMI"))
+        with input_tabs_by_label[gmi_tab_label]:
+            render_gmi_verification_block(use_project_location=True, show_map=True)
+    else:
         geothermal_form = render_geothermal_form(
             hourly_weather=weather_form.hourly_weather,
             demands=demand_form.demands,
             hourly_demand_override=demand_form.hourly_demand_override,
             process_bt_target_c=demand_form.process_bt_target_c,
-            enabled=demand_form.demand_scope != "ht_only",
+            enabled=False,
+            show_disabled_message=False,
         )
-    with input_tabs[5]:
-        if demand_form.demand_scope == "ht_only":
-            st.info("Mode solaire thermique seul : la vérification GMI du champ de sondes n'est pas utilisée.")
-        else:
-            render_gmi_verification_block(use_project_location=True, show_map=True)
-    with input_tabs[6]:
+    with input_tabs_by_label[economy_tab_label]:
         economics_inputs = render_economics_form()
     calculation_selection = CalculationSelection(
         calculation_profile="calcul_final",
@@ -212,15 +236,15 @@ def render_heliostock_hourly() -> pd.DataFrame:
         pac_parametric_form = ParametricRange(False, 50.0, 100.0, 10.0)
         solar_parametric_form = ParametricRange(False, max(0.0, float(solar_form.inputs.area_m2) * 0.5), max(50.0, float(solar_form.inputs.area_m2) * 1.5), 250.0)
     else:
-        with input_tabs[7]:
+        with input_tabs_by_label[pac_parametric_tab_label]:
             pac_parametric_form = render_pac_parametric_form()
-        with input_tabs[8]:
+        with input_tabs_by_label[solar_parametric_tab_label]:
             solar_parametric_form = render_solar_parametric_form(solar_form.inputs.area_m2)
     parametric_forms = ParametricFormsResult(
         pac=pac_parametric_form,
         solar=solar_parametric_form,
     )
-    with input_tabs[-1]:
+    with input_tabs_by_label[calculation_tab_label]:
         current_snapshot, current_snapshot_hash = _snapshot_from_forms(
             project_form=project_form,
             weather_form=weather_form,

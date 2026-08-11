@@ -15,8 +15,11 @@ from .engine import (
     collector_efficiency,
     cop_from_source_temperature,
 )
+from .models.stratified_tank_3nodes import J_PER_KWH, StratifiedTank3Nodes
 
 WATER_BUFFER_KWH_PER_L_K = 1.163e-3
+WATER_CP_J_KG_K = 4180.0
+WATER_RHO_KG_L = 1.0
 
 
 @dataclass(frozen=True)
@@ -80,6 +83,20 @@ class HourlyResult:
     collector_eff_ht: float
     collector_eff_storage: float
     solar_ht_buffer_at_max: bool = False
+    T_stock_bottom_c: float = 0.0
+    T_stock_middle_c: float = 0.0
+    T_stock_top_c: float = 0.0
+    T_stock_mean_c: float = 0.0
+    Q_solar_to_tank_kWh: float = 0.0
+    Q_load_from_tank_kWh: float = 0.0
+    Q_losses_tank_kWh: float = 0.0
+    Q_interlayer_exchange_kWh: float = 0.0
+    tank_energy_kWh: float = 0.0
+    tank_solar_fraction: float = 0.0
+    useful_energy_available_kWh: float = 0.0
+    tank_unmet_load_kWh: float = 0.0
+    tank_energy_balance_residual_kWh: float = 0.0
+    tank_energy_balance_residual_ratio: float = 0.0
 
 
 def expand_monthly_demands_to_hourly(
@@ -185,6 +202,18 @@ def _solo2018_buffer_loss_diagnostic(collector: CollectorConfig) -> dict[str, fl
     }
 
 
+def _daily_buffer_ua_total_w_per_k(collector: CollectorConfig) -> float:
+    if collector.daily_buffer_ua_total_w_per_k > 0.0:
+        return collector.daily_buffer_ua_total_w_per_k
+    volume_l = _daily_buffer_volume_l(collector)
+    cr_stock_wh_l_k_day = _solo2018_cr_stock_wh_l_k_day(collector)
+    if volume_l <= 0.0 or cr_stock_wh_l_k_day <= 0.0:
+        return 0.0
+    # CRStockSolaire est en Wh/L/K/jour. V * CR / 24 donne des Wh/h/K,
+    # numériquement équivalents à W/K pour l'UA global.
+    return volume_l * cr_stock_wh_l_k_day / 24.0
+
+
 def _hourly_buffer_loss(buffer_energy_kwh: float, collector: CollectorConfig) -> float:
     buffer_energy_kwh = max(0.0, buffer_energy_kwh)
     if buffer_energy_kwh <= 0.0:
@@ -239,6 +268,43 @@ def _solar_yield_hour_kwh(
     return max(0.0, q), eta
 
 
+def _solar_yield_with_collector_mean_temperature(
+    weather: HourlyWeather,
+    collector: CollectorConfig,
+    t_collector_inlet_c: float,
+) -> tuple[float, float, float, float]:
+    """Estimate solar yield using T_mean_collector = (T_in + T_out) / 2.
+
+    The stratified tank gives the collector return temperature. A specific
+    loop flow rate is used to infer the outlet temperature from the useful
+    hourly collector energy. The fixed-point loop is intentionally short:
+    HelioDyn remains a pre-design hourly model, not a detailed collector loop
+    solver.
+    """
+
+    t_in_c = float(t_collector_inlet_c)
+    flow_l_h = max(0.0, collector.daily_buffer_solar_loop_flow_l_h_m2) * max(0.0, collector.area_m2)
+    mass_kg_per_hour = flow_l_h * WATER_RHO_KG_L
+    if mass_kg_per_hour <= 1e-9:
+        q_kwh, eta = _solar_yield_hour_kwh(weather, collector, t_in_c)
+        return q_kwh, eta, t_in_c, t_in_c
+
+    t_mean_c = t_in_c
+    q_kwh = 0.0
+    eta = 0.0
+    t_out_c = t_in_c
+    for _ in range(4):
+        q_kwh, eta = _solar_yield_hour_kwh(weather, collector, t_mean_c)
+        delta_t_k = q_kwh * J_PER_KWH / max(1e-9, mass_kg_per_hour * WATER_CP_J_KG_K)
+        t_out_c = t_in_c + max(0.0, delta_t_k)
+        next_t_mean_c = 0.5 * (t_in_c + t_out_c)
+        if abs(next_t_mean_c - t_mean_c) < 0.01:
+            t_mean_c = next_t_mean_c
+            break
+        t_mean_c = next_t_mean_c
+    return q_kwh, eta, t_mean_c, t_out_c
+
+
 def simulate_hourly(
     weather: list[HourlyWeather],
     demands: list[MonthlyDemand],
@@ -276,6 +342,27 @@ def simulate_hourly(
     static_borefield_length_m = max(1e-9, float(btes.boreholes) * float(btes.depth_m))
     buffer_capacity = _daily_buffer_capacity_kwh(collector)
     buffer_energy = 0.0
+    use_stratified_tank = collector.daily_buffer_model == "stratified_3_nodes"
+    stratified_tank = (
+        StratifiedTank3Nodes(
+            volume_m3=_daily_buffer_volume_l(collector) / 1000.0,
+            t_init_c=collector.daily_buffer_ambient_temp_c,
+            ua_total_w_per_k=_daily_buffer_ua_total_w_per_k(collector),
+            t_amb_c=collector.daily_buffer_ambient_temp_c,
+            fractions_volume=(
+                collector.daily_buffer_stratified_fraction_bottom,
+                collector.daily_buffer_stratified_fraction_middle,
+                collector.daily_buffer_stratified_fraction_top,
+            ),
+            g_interlayer_w_per_k=collector.daily_buffer_interlayer_w_per_k,
+            t_max_c=collector.daily_buffer_max_temp_c,
+            t_min_useful_c=collector.daily_buffer_min_useful_temp_c,
+            mode_charge_solaire=collector.daily_buffer_charge_mode,
+            dt_internal_s=collector.daily_buffer_internal_timestep_s,
+        )
+        if use_stratified_tank
+        else None
+    )
     results: list[HourlyResult] = []
 
     total_hours = len(weather) * years
@@ -294,48 +381,117 @@ def simulate_hourly(
         else:
             wall_temp_start = btes.t_initial_c
             source_temp_start = btes.t_initial_c
-        buffer_temp_start = _daily_buffer_temperature_c(buffer_energy, collector)
+        tank_bottom_c = 0.0
+        tank_middle_c = 0.0
+        tank_top_c = 0.0
+        tank_mean_c = 0.0
+        tank_q_solar_to_tank = 0.0
+        tank_q_load_from_tank = 0.0
+        tank_q_losses = 0.0
+        tank_q_interlayer_exchange = 0.0
+        tank_useful_energy_available = 0.0
+        tank_unmet_load = 0.0
+        tank_energy_balance_residual = 0.0
+        tank_energy_balance_residual_ratio = 0.0
+        collector_outlet_ht_c = 0.0
 
-        collector_temp_ht = max(
-            collector.daily_buffer_ambient_temp_c + collector.solar_buffer_collector_approach_k,
-            buffer_temp_start + collector.solar_buffer_collector_approach_k,
-        )
-        solar_ht_potential, eta_ht = _solar_yield_hour_kwh(w, collector, collector_temp_ht)
-        buffer_capacity_remaining = max(0.0, buffer_capacity - buffer_energy)
-        ht_surplus_to_buffer_available = (
-            solar_ht_potential
-            * max(0.0, min(1.0, collector.daily_buffer_charge_factor_ht))
-        )
-        solar_ht_to_buffer = min(ht_surplus_to_buffer_available, buffer_capacity_remaining)
-        buffer_energy += solar_ht_to_buffer
-        buffer_loss = min(buffer_energy, _hourly_buffer_loss(buffer_energy, collector))
-        buffer_energy -= buffer_loss
+        if stratified_tank is not None:
+            tank_state_start = stratified_tank.state()
+            buffer_temp_start = tank_state_start.t_mean_c
+            collector_inlet_ht_c = max(
+                collector.daily_buffer_ambient_temp_c + collector.solar_buffer_collector_approach_k,
+                tank_state_start.t_bottom_c + collector.solar_buffer_collector_approach_k,
+            )
+            solar_ht_potential, eta_ht, collector_temp_ht, collector_outlet_ht_c = (
+                _solar_yield_with_collector_mean_temperature(w, collector, collector_inlet_ht_c)
+            )
+            ht_surplus_to_buffer_available = (
+                solar_ht_potential
+                * max(0.0, min(1.0, collector.daily_buffer_charge_factor_ht))
+            )
+            tank_step = stratified_tank.step(
+                q_solar_j=ht_surplus_to_buffer_available * J_PER_KWH,
+                q_load_j=max(0.0, demand_ht) * J_PER_KWH,
+                dt_s=3600.0,
+                t_cold_c=w.tair_c,
+                t_supply_target_c=config.process_ht_target_c,
+                t_amb_c=collector.daily_buffer_ambient_temp_c,
+                t_solar_inlet_c=collector_outlet_ht_c,
+                reference_temp_c=collector.daily_buffer_ambient_temp_c,
+            )
+            tank_state_end = stratified_tank.state()
+            solar_ht_to_buffer = tank_step["solar_to_tank_j"] / J_PER_KWH
+            solar_ht_from_buffer = tank_step["load_from_tank_j"] / J_PER_KWH
+            buffer_loss = max(0.0, tank_step["losses_j"] / J_PER_KWH)
+            buffer_energy = tank_state_end.stored_energy_kwh
+            buffer_temp_after_charge = tank_state_end.t_top_c
+            tank_bottom_c = tank_state_end.t_bottom_c
+            tank_middle_c = tank_state_end.t_middle_c
+            tank_top_c = tank_state_end.t_top_c
+            tank_mean_c = tank_state_end.t_mean_c
+            tank_q_solar_to_tank = solar_ht_to_buffer
+            tank_q_load_from_tank = solar_ht_from_buffer
+            tank_q_losses = buffer_loss
+            tank_q_interlayer_exchange = tank_step["interlayer_exchange_j"] / J_PER_KWH
+            tank_useful_energy_available = tank_state_end.useful_energy_available_kwh
+            tank_unmet_load = tank_step["unmet_load_j"] / J_PER_KWH
+            tank_energy_balance_residual = tank_step["energy_balance_residual_j"] / J_PER_KWH
+            tank_energy_balance_residual_ratio = tank_step["energy_balance_residual_ratio"]
+            solar_ht_instant = 0.0
+            buffer_was_saturated_by_solar = (
+                tank_step["solar_rejected_j"] > 1e-6
+                or tank_state_end.t_top_c >= collector.daily_buffer_max_temp_c - 1e-6
+            )
+        else:
+            buffer_temp_start = _daily_buffer_temperature_c(buffer_energy, collector)
+            collector_temp_ht = max(
+                collector.daily_buffer_ambient_temp_c + collector.solar_buffer_collector_approach_k,
+                buffer_temp_start + collector.solar_buffer_collector_approach_k,
+            )
+            solar_ht_potential, eta_ht = _solar_yield_hour_kwh(w, collector, collector_temp_ht)
+            buffer_capacity_remaining = max(0.0, buffer_capacity - buffer_energy)
+            ht_surplus_to_buffer_available = (
+                solar_ht_potential
+                * max(0.0, min(1.0, collector.daily_buffer_charge_factor_ht))
+            )
+            solar_ht_to_buffer = min(ht_surplus_to_buffer_available, buffer_capacity_remaining)
+            buffer_energy += solar_ht_to_buffer
+            buffer_loss = min(buffer_energy, _hourly_buffer_loss(buffer_energy, collector))
+            buffer_energy -= buffer_loss
 
-        buffer_temp_after_charge = _daily_buffer_temperature_c(buffer_energy, collector)
-        solar_preheat_out_c = min(
-            config.process_ht_target_c,
-            collector.solar_preheat_target_ht_c,
-            max(w.tair_c, buffer_temp_after_charge - collector.solar_buffer_hx_approach_k),
-        )
-        full_ht_lift_k = max(0.0, config.process_ht_target_c - w.tair_c)
-        solar_preheat_lift_k = max(0.0, solar_preheat_out_c - w.tair_c)
-        solar_preheat_fraction = (
-            min(1.0, solar_preheat_lift_k / full_ht_lift_k)
-            if full_ht_lift_k > 1e-9
-            else 0.0
-        )
-        solar_ht_eligible_from_buffer = demand_ht * solar_preheat_fraction
-        solar_ht_from_buffer = min(solar_ht_eligible_from_buffer, buffer_energy)
-        buffer_energy -= solar_ht_from_buffer
-        solar_ht_instant = 0.0
+            buffer_temp_after_charge = _daily_buffer_temperature_c(buffer_energy, collector)
+            solar_preheat_out_c = min(
+                config.process_ht_target_c,
+                collector.solar_preheat_target_ht_c,
+                max(w.tair_c, buffer_temp_after_charge - collector.solar_buffer_hx_approach_k),
+            )
+            full_ht_lift_k = max(0.0, config.process_ht_target_c - w.tair_c)
+            solar_preheat_lift_k = max(0.0, solar_preheat_out_c - w.tair_c)
+            solar_preheat_fraction = (
+                min(1.0, solar_preheat_lift_k / full_ht_lift_k)
+                if full_ht_lift_k > 1e-9
+                else 0.0
+            )
+            solar_ht_eligible_from_buffer = demand_ht * solar_preheat_fraction
+            solar_ht_from_buffer = min(solar_ht_eligible_from_buffer, buffer_energy)
+            buffer_energy -= solar_ht_from_buffer
+            solar_ht_instant = 0.0
+            buffer_was_saturated_by_solar = (
+                solar_ht_potential > 0.0
+                and buffer_capacity_remaining <= ht_surplus_to_buffer_available + 1e-9
+            )
+            tank_bottom_c = _daily_buffer_temperature_c(buffer_energy, collector)
+            tank_middle_c = tank_bottom_c
+            tank_top_c = tank_bottom_c
+            tank_mean_c = tank_bottom_c
+            tank_q_solar_to_tank = solar_ht_to_buffer
+            tank_q_load_from_tank = solar_ht_from_buffer
+            tank_q_losses = buffer_loss
+            tank_useful_energy_available = max(0.0, buffer_energy)
         # Alias legacy conserve pour les exports historiques : la chaleur HT
         # vient bien du ballon solaire journalier, pas d'un usage direct capteur.
         solar_ht_direct_legacy_alias = solar_ht_from_buffer
 
-        buffer_was_saturated_by_solar = (
-            solar_ht_potential > 0.0
-            and buffer_capacity_remaining <= ht_surplus_to_buffer_available + 1e-9
-        )
         if solar_ht_potential > 0.0 and buffer_was_saturated_by_solar:
             resource_used_fraction = min(1.0, solar_ht_to_buffer / solar_ht_potential)
         elif solar_ht_potential > 0.0:
@@ -494,7 +650,7 @@ def simulate_hourly(
             solar_ht_buffer_at_max=buffer_was_saturated_by_solar,
             solar_ht_buffer_energy_end_kwh=buffer_energy,
             solar_ht_buffer_temp_start_c=buffer_temp_start,
-            solar_ht_buffer_temp_end_c=_daily_buffer_temperature_c(buffer_energy, collector),
+            solar_ht_buffer_temp_end_c=tank_mean_c if stratified_tank is not None else _daily_buffer_temperature_c(buffer_energy, collector),
             collector_temp_ht_c=collector_temp_ht,
             collector_temp_storage_c=t_storage_collector,
             solar_ht_direct_kwh=solar_ht_direct_legacy_alias,
@@ -527,6 +683,22 @@ def simulate_hourly(
             unmet_bt_kwh=max(0.0, demand_bt - heat_bt_from_pac),
             collector_eff_ht=eta_ht,
             collector_eff_storage=eta_storage,
+            T_stock_bottom_c=tank_bottom_c,
+            T_stock_middle_c=tank_middle_c,
+            T_stock_top_c=tank_top_c,
+            T_stock_mean_c=tank_mean_c,
+            Q_solar_to_tank_kWh=tank_q_solar_to_tank,
+            Q_load_from_tank_kWh=tank_q_load_from_tank,
+            Q_losses_tank_kWh=tank_q_losses,
+            Q_interlayer_exchange_kWh=tank_q_interlayer_exchange,
+            tank_energy_kWh=buffer_energy,
+            tank_solar_fraction=tank_step["solar_fraction"] if stratified_tank is not None else (
+                solar_ht_from_buffer / max(1e-9, demand_ht)
+            ),
+            useful_energy_available_kWh=tank_useful_energy_available,
+            tank_unmet_load_kWh=tank_unmet_load,
+            tank_energy_balance_residual_kWh=tank_energy_balance_residual,
+            tank_energy_balance_residual_ratio=tank_energy_balance_residual_ratio,
         )
         if result_sink is not None:
             result_sink(result)

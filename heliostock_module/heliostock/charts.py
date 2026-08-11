@@ -89,20 +89,26 @@ def _generator_color(field: str) -> alt.Color:
 
 
 def _temperature_chart(results_df: pd.DataFrame):
-    temp_df = results_df[
-        [
-            "Jour annee",
-            "solar_ht_buffer_temp_end_c",
-            "collector_temp_ht_c",
-            "T_source_PAC_pour_COP_C",
-            "T_source_PAC_fin_heure_C",
-            "T_paroi_forage_C",
-            "T_evaporateur_PAC_C",
-            "T_fluide_injection_C",
-        ]
-    ].rename(
+    temperature_columns = [
+        "Jour annee",
+        "solar_ht_buffer_temp_end_c",
+        "T_stock_top_c",
+        "T_stock_middle_c",
+        "T_stock_bottom_c",
+        "collector_temp_ht_c",
+        "T_source_PAC_pour_COP_C",
+        "T_source_PAC_fin_heure_C",
+        "T_paroi_forage_C",
+        "T_evaporateur_PAC_C",
+        "T_fluide_injection_C",
+    ]
+    available_columns = [col for col in temperature_columns if col in results_df.columns]
+    temp_df = results_df[available_columns].rename(
         columns={
             "solar_ht_buffer_temp_end_c": "T ballon solaire (°C)",
+            "T_stock_top_c": "T haut ballon solaire (°C)",
+            "T_stock_middle_c": "T milieu ballon solaire (°C)",
+            "T_stock_bottom_c": "T bas ballon solaire (°C)",
             "collector_temp_ht_c": "T capteur charge ballon (°C)",
             "T_source_PAC_pour_COP_C": "Température source PAC pour COP (°C)",
             "T_source_PAC_fin_heure_C": "Température source PAC fin d'heure (°C)",
@@ -111,17 +117,10 @@ def _temperature_chart(results_df: pd.DataFrame):
             "T_fluide_injection_C": "Température fluide injection (°C)",
         }
     )
+    value_vars = [col for col in temp_df.columns if col != "Jour annee"]
     temp_long = temp_df.melt(
         id_vars=["Jour annee"],
-        value_vars=[
-            "T ballon solaire (°C)",
-            "T capteur charge ballon (°C)",
-            "Température source PAC pour COP (°C)",
-            "Température source PAC fin d'heure (°C)",
-            "Température paroi forage (°C)",
-            "Température évaporateur PAC (°C)",
-            "Température fluide injection (°C)",
-        ],
+        value_vars=value_vars,
         var_name="Grandeur",
         value_name="Température (°C)",
     )

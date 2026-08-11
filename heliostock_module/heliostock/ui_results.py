@@ -766,6 +766,15 @@ def render_hourly_results(
                 "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
                 "vue par la PAC. La température de paroi forage est affichée séparément."
             )
+        if "tank_energy_balance_residual_ratio" in hourly_df.columns:
+            max_tank_residual_ratio = float(
+                pd.to_numeric(hourly_df["tank_energy_balance_residual_ratio"], errors="coerce").fillna(0.0).max()
+            )
+            if max_tank_residual_ratio > 0.01:
+                st.warning(
+                    "Le bilan énergétique horaire du ballon stratifié présente un résidu supérieur à 1 %. "
+                    "Vérifie les hypothèses avancées du ballon solaire."
+                )
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
         if "Jour annee" in hourly_df and not hourly_df.empty:
             max_day = max(1, int(float(hourly_df["Jour annee"].max())))
