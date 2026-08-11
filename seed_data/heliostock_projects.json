@@ -381,7 +381,7 @@
   },
   {
     "slug": "prolavage-poids-lourds-angers_141d3baa-d45b-4947-9fb7-aca2588dd36d",
-    "saved_at": "2026-08-11T16:30:40",
+    "saved_at": "2026-08-11T16:46:58",
     "owner_email": "loick@atlansun.fr",
     "name": "Prolavage Poids Lourds Angers",
     "payload": {
@@ -392,7 +392,7 @@
       "name": "Prolavage Poids Lourds Angers",
       "owner_email": "loick@atlansun.fr",
       "created_by_email": "loick@atlansun.fr",
-      "saved_at": "2026-08-11T16:30:40",
+      "saved_at": "2026-08-11T16:46:58",
       "app": "HelioStock",
       "project_context": {
         "schema_version": 1,
