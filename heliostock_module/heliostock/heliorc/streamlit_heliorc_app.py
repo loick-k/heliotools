@@ -156,7 +156,10 @@ def _normalise_branch_needs_dataframe(value: object, fallback: pd.DataFrame | No
     if BRANCH_NEEDS_COL in frame.columns:
         source = frame[BRANCH_NEEDS_COL]
     elif TOTAL_NEEDS_COL in frame.columns:
-        source = frame[TOTAL_NEEDS_COL]
+        # Anciennes sessions/projets : une colonne "Besoins RCU" ne doit pas
+        # être interprétée comme besoin de branche, sinon la branche reprend
+        # silencieusement le réseau complet.
+        source = pd.Series([0.0] * 12)
     else:
         source = pd.Series([0.0] * 12)
     values = _coerce_monthly_values(source)
@@ -176,6 +179,15 @@ def _branch_monthly_values_from_frame(frame: object) -> list[float]:
 def _sync_branch_defaults_from_total_if_needed() -> None:
     branch_df = st.session_state.get("branch_needs_df")
     if isinstance(branch_df, pd.DataFrame) and BRANCH_NEEDS_COL in branch_df.columns:
+        manual_values = _monthly_values_from_frame(st.session_state.get("manual_needs_df"))
+        branch_values = _branch_monthly_values_from_frame(branch_df)
+        if branch_values != manual_values:
+            return
+        # En décentralisé, la branche doit être strictement inférieure au RCU.
+        # Si l'ancien état a recopié le réseau complet, on évite de conserver
+        # cette valeur trompeuse dans le tableau de saisie.
+        st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe()
+        st.session_state.pop("branch_needs_editor_form_v3", None)
         return
     # Migration douce des anciens projets : si l'ancien champ branche était vide ou absent,
     # on démarre sur zéro pour éviter de reprendre silencieusement le besoin du RCU complet.
@@ -1021,7 +1033,7 @@ def _render_project_tab(locations: pd.DataFrame) -> None:
             show_analyst=True,
             show_project_date=True,
             show_typology=False,
-            show_region=True,
+            show_region=False,
             show_department=True,
             region_options=HELIORC_PROJECT_REGIONS,
             department_options=department_options,
@@ -1107,8 +1119,7 @@ def render_heliorc_app() -> None:
             st.markdown(
                 "Saisir les besoins mensuels **au niveau du réseau**, pertes comprises, comme dans l'onglet principal du classeur."
             )
-            with st.form("manual_needs_editor_form_container"):
-                edited = st.data_editor(
+            edited = st.data_editor(
                     _editor_monthly_dataframe(
                         _normalise_manual_needs_dataframe(st.session_state.manual_needs_df),
                         TOTAL_NEEDS_COL,
@@ -1124,13 +1135,11 @@ def render_heliorc_app() -> None:
                             help="Collage Excel accepté avec virgule ou point décimal. Exemple : 410,5",
                         ),
                     },
-                )
-                apply_manual_needs = st.form_submit_button("Appliquer les valeurs du RCU", width="stretch")
-            if apply_manual_needs:
-                st.session_state.manual_needs_df = _normalise_manual_needs_dataframe(
-                    edited,
-                    st.session_state.manual_needs_df,
-                )
+            )
+            st.session_state.manual_needs_df = _normalise_manual_needs_dataframe(
+                edited,
+                st.session_state.manual_needs_df,
+            )
             needs_preview = st.session_state.manual_needs_df.copy()
         else:
             col_1, col_2, col_3 = st.columns(3)
@@ -1190,8 +1199,7 @@ def render_heliorc_app() -> None:
                 "Ces valeurs servent au dimensionnement de la centrale décentralisée. "
                 "Les résultats finaux restent ensuite comparés au besoin total du RCU."
             )
-            with st.form("branch_needs_editor_form_container"):
-                branch_edited = st.data_editor(
+            branch_edited = st.data_editor(
                     _editor_monthly_dataframe(
                         _normalise_branch_needs_dataframe(st.session_state.branch_needs_df),
                         BRANCH_NEEDS_COL,
@@ -1207,13 +1215,11 @@ def render_heliorc_app() -> None:
                             help="Collage Excel accepté avec virgule ou point décimal. Exemple : 410,5",
                         ),
                     },
-                )
-                apply_branch_needs = st.form_submit_button("Appliquer les valeurs de la branche", width="stretch")
-            if apply_branch_needs:
-                st.session_state.branch_needs_df = _normalise_branch_needs_dataframe(
-                    branch_edited,
-                    st.session_state.branch_needs_df,
-                )
+            )
+            st.session_state.branch_needs_df = _normalise_branch_needs_dataframe(
+                branch_edited,
+                st.session_state.branch_needs_df,
+            )
             if isinstance(needs_preview, pd.DataFrame) and TOTAL_NEEDS_COL in needs_preview:
                 total_monthly_values = _monthly_values_from_frame(needs_preview)
                 branch_monthly_values = _branch_monthly_values_from_frame(st.session_state.branch_needs_df)
@@ -1397,7 +1403,7 @@ def render_heliorc_app() -> None:
                     }
                 )
                 if _is_decentralized_connection():
-                    monthly[BRANCH_NEEDS_COL] = monthly[TOTAL_NEEDS_COL].astype(float)
+                    monthly[BRANCH_NEEDS_COL] = calculation_monthly_needs
                     monthly["Taux de couverture mensuel branche"] = monthly["Taux de couverture mensuel"].astype(float)
                     monthly["Besoins RCU total (MWh)"] = total_monthly_needs
                     monthly[TOTAL_NEEDS_COL] = total_monthly_needs
