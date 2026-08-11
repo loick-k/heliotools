@@ -287,7 +287,7 @@
   },
   {
     "slug": "prolavage-poids-lourds-niort_bb708dde-b593-4d84-a2b7-9b9d0d7e56e4",
-    "saved_at": "2026-08-11T15:51:09",
+    "saved_at": "2026-08-11T15:52:59",
     "owner_email": "loick@atlansun.fr",
     "name": "Prolavage Poids Lourds Niort",
     "payload": {
@@ -298,7 +298,7 @@
       "name": "Prolavage Poids Lourds Niort",
       "owner_email": "loick@atlansun.fr",
       "created_by_email": "loick@atlansun.fr",
-      "saved_at": "2026-08-11T15:51:09",
+      "saved_at": "2026-08-11T15:52:59",
       "app": "HelioStock",
       "project_context": {
         "schema_version": 1,
@@ -353,7 +353,7 @@
         "solar_eta0": 0.824,
         "solar_a1": 2.905,
         "solar_a2": 0.03,
-        "solar_daily_buffer_l_per_m2": 60.0,
+        "solar_daily_buffer_l_per_m2": 67.56,
         "solar_daily_buffer_ambient_temp_c": 20.0,
         "solar_daily_buffer_max_temp_c": 80.0,
         "gmi_address_query": "8 Rue de la Pérouse 79260 La Crèche",
@@ -363,11 +363,11 @@
         "heliostock_architectural_selected_address": "8 Rue de la Pérouse 79260 La Crèche",
         "heliostock_architectural_latitude": 46.35447,
         "heliostock_architectural_longitude": -0.344728,
-        "heliostock_architectural_project_type": "Capteurs intégrés ou surimposés sur toiture inclinée",
-        "heliostock_architectural_result": null,
+        "heliostock_architectural_project_type": "Capteurs au sol",
+        "heliostock_architectural_result": "{'latitude': 46.35447, 'longitude': -0.344728, 'counts': {'AC1': 0, 'AC2': 0, 'AC4': 0}, 'detected_categories': [], 'has_protection': False, 'feature_collections': {'AC1': {'type': 'FeatureCollection', 'features': []}, 'AC2': {'type': 'FeatureCollection', 'features': []}, 'AC4': {'type': 'FeatureCollection', 'features': []}}, 'errors': [], 'query_scope': {'surface': 'intersection avec le point exact', 'ac1_point_line': \"recherche dans un rayon indicatif d'environ 12 m\"}}",
         "eco_eta_appoint": 0.82,
         "eco_reference_energy_inflation_pct": 3.0,
-        "eco_reference_energy_cost_eur_mwh": 70.0,
+        "eco_reference_energy_cost_eur_mwh": 103.0,
         "eco_electricity_cost_eur_mwh": 200.0,
         "eco_auxiliary_electricity_ratio_pct": 3.0,
         "eco_backup_p2_eur_kw_year": 10.0
