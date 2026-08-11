@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from typing import Any
@@ -442,7 +443,7 @@ def _measurement_map(
             ).add_to(map_object)
         measurement_bounds = _drawings_bounds_lat_lon(drawings)
         if len(measurement_bounds) == 2 and measurement_bounds[0] != measurement_bounds[1]:
-            map_object.fit_bounds(measurement_bounds, padding=(36, 36), max_zoom=21)
+            map_object.fit_bounds(measurement_bounds, padding=(48, 48), max_zoom=19)
     Draw(
         export=False,
         position="topleft",
@@ -560,6 +561,10 @@ def render_surface_orientation_measurement(
         saved_zoom = 20
     default_tab_key = f"{state_prefix}_default_tab"
     default_tab_label = str(st.session_state.get(f"{state_prefix}_surface_orientation_tab_label") or "2. Orientation / surface")
+    drawings_view_signature = hashlib.sha1(
+        json.dumps(drawings, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:12]
+    map_component_key = f"{_key(state_prefix, 'map')}_{current_location_signature}_{drawings_view_signature}"
 
     map_state = st_folium(
         _measurement_map(
@@ -573,9 +578,9 @@ def render_surface_orientation_measurement(
         height=560,
         width="stretch",
         returned_objects=["all_drawings", "last_active_drawing"],
-        key=f"{_key(state_prefix, 'map')}_{current_location_signature}",
+        key=map_component_key,
     )
-    session_map_state = st.session_state.get(f"{_key(state_prefix, 'map')}_{current_location_signature}")
+    session_map_state = st.session_state.get(map_component_key)
     raw_new_drawings = _drawings_from_map_state(map_state) or _drawings_from_map_state(session_map_state)
     new_drawings = _merge_measurement_drawings(drawings, raw_new_drawings)
     if raw_new_drawings and new_drawings != drawings:

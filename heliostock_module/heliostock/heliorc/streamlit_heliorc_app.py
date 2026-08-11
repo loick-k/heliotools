@@ -83,14 +83,6 @@ def _render_styles() -> None:
           [data-testid="stMetricLabel"] {
             min-height: 2.2rem;
           }
-          .heliorc-banner {
-            border-left: 6px solid #0b6f70;
-            padding: 0.85rem 1.05rem;
-            background: linear-gradient(90deg, #edf7f5, #ffffff);
-            border-radius: 0.45rem;
-            margin-bottom: 1rem;
-          }
-          .heliorc-banner p {margin: 0; color: #475467;}
           .small-muted {color: #667085; font-size: 0.88rem;}
         </style>
         """,
@@ -955,14 +947,7 @@ def render_heliorc_app() -> None:
     title_col, logo_col = st.columns([0.78, 0.22], vertical_alignment="center")
     with title_col:
         st.title("HelioRC")
-        st.markdown(
-            """
-            <div class="heliorc-banner">
-              <p>Note d'opportunité pour l'intégration du solaire thermique sur un réseau de chaleur urbain.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.caption("Note d'opportunité pour l'intégration du solaire thermique sur un réseau de chaleur urbain.")
     with logo_col:
         if ADEME_LOGO.exists():
             st.image(str(ADEME_LOGO), width=155)
