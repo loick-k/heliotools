@@ -489,6 +489,14 @@ def build_opportunity_note(
     )
     styles.add(
         ParagraphStyle(
+            name="PhotoCaptionHelio",
+            parent=styles["SmallHelio"],
+            alignment=TA_CENTER,
+            spaceBefore=2,
+        )
+    )
+    styles.add(
+        ParagraphStyle(
             name="CenterKpi",
             parent=styles["BodyText"],
             alignment=TA_CENTER,
@@ -509,8 +517,8 @@ def build_opportunity_note(
     story.append(Paragraph(f"Documentation de référence ADEME : {ADEME_REFERENCE_URL}", styles["SmallHelio"]))
     if CHATEAUBRIANT_RCU_PHOTO.exists():
         story.append(Spacer(1, 0.15 * cm))
-        story.append(Image(str(CHATEAUBRIANT_RCU_PHOTO), width=8.2 * cm, height=3.9 * cm, kind="proportional"))
-        story.append(Paragraph(CHATEAUBRIANT_RCU_CAPTION, styles["SmallHelio"]))
+        story.append(Image(str(CHATEAUBRIANT_RCU_PHOTO), width=10.0 * cm, height=4.75 * cm, kind="proportional"))
+        story.append(Paragraph(CHATEAUBRIANT_RCU_CAPTION, styles["PhotoCaptionHelio"]))
     story.append(Spacer(1, 0.2 * cm))
 
     project_rows = [
