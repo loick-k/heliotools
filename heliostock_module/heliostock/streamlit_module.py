@@ -31,7 +31,7 @@ ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 
 
 def render_heliostock_view_switch() -> str:
-    """Render HelioStock internal view buttons in the main page."""
+    """Render HelioDyn internal view buttons in the main page."""
 
     current_view = st.session_state.get("heliostock_view", "solver")
     if current_view not in {"solver", "notice"}:
@@ -48,7 +48,7 @@ def render_heliostock_view_switch() -> str:
     )
     solver_col, notice_col, spacer = st.columns([1, 1, 4])
     if solver_col.button(
-        "Solveur HelioStock",
+        "Solveur HelioDyn",
         key="heliostock_main_view_solver",
         type="primary" if current_view == "solver" else "secondary",
         width="stretch",
@@ -56,7 +56,7 @@ def render_heliostock_view_switch() -> str:
         st.session_state["heliostock_view"] = "solver"
         st.rerun()
     if notice_col.button(
-        "Notice HelioStock",
+        "Notice HelioDyn",
         key="heliostock_main_view_notice",
         type="primary" if current_view == "notice" else "secondary",
         width="stretch",
@@ -119,21 +119,21 @@ def _snapshot_from_forms(
 
 
 def render_heliostock_hourly() -> pd.DataFrame:
-    """Render the hourly-only HelioStock module."""
+    """Render the hourly-only HelioDyn module."""
 
     logo_left, logo_right = st.columns([2, 1])
     if HELIOPILOT_LOGO.exists():
         logo_left.image(str(HELIOPILOT_LOGO), width=360)
     else:
-        logo_left.header("HelioStock")
+        logo_left.header("HelioDyn")
     if ATLANSUN_LOGO.exists():
         logo_right.image(str(ATLANSUN_LOGO), width=260)
 
     st.markdown(
-        "HelioStock est un outil de pré-dimensionnement pour comparer des scénarios de chaleur renouvelable "
-        "couplant solaire thermique, géothermie et stockage intersaisonnier par champ de sondes. "
-        "Le calcul exploite un profil de besoins au pas de temps horaire, réalise par défaut une simulation 25 ans du champ "
-        "de sondes avec pygfunction, puis propose une comparaison technico-économique des différents scénarios."
+        "HelioDyn est le solveur horaire de pré-dimensionnement énergétique. Il peut traiter un solaire thermique seul "
+        "sur besoin haute température, une PAC géothermique seule sur besoin basse température, ou le mode HelioStock "
+        "lorsque le solaire thermique est couplé à une recharge du champ de sondes géothermiques. "
+        "Le mode HelioStock conserve la simulation multiannuelle du champ avec pygfunction."
     )
     render_heliostock_view_switch()
     if st.session_state.get("heliostock_view", "solver") == "solver":
@@ -173,9 +173,13 @@ def render_heliostock_hourly() -> pd.DataFrame:
             demands=demand_form.demands,
             hourly_demand_override=demand_form.hourly_demand_override,
             process_bt_target_c=demand_form.process_bt_target_c,
+            enabled=demand_form.demand_scope != "ht_only",
         )
     with input_tabs[5]:
-        render_gmi_verification_block(use_project_location=True, show_map=True)
+        if demand_form.demand_scope == "ht_only":
+            st.info("Mode solaire thermique seul : la vérification GMI du champ de sondes n'est pas utilisée.")
+        else:
+            render_gmi_verification_block(use_project_location=True, show_map=True)
     with input_tabs[6]:
         economics_inputs = render_economics_form()
     calculation_selection = CalculationSelection(
@@ -186,8 +190,8 @@ def render_heliostock_hourly() -> pd.DataFrame:
         display_year_mode="finale",
         custom_display_year=25,
         run_geo_only=True,
-        run_reduced_borefield=geothermal_form.run_reduced_borefield,
-        savings_search_mode=geothermal_form.savings_search_mode,
+        run_reduced_borefield=demand_form.demand_scope == "ht_bt" and geothermal_form.run_reduced_borefield,
+        savings_search_mode=geothermal_form.savings_search_mode if demand_form.demand_scope == "ht_bt" else "none",
         recharge_credit=geothermal_form.recharge_credit,
         reduced_borefield_safety_factor=geothermal_form.reduced_borefield_safety_factor,
     )
@@ -228,6 +232,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                         weather=weather_form.hourly_weather,
                         demands=demand_form.demands,
                         hourly_demand_override=demand_form.hourly_demand_override,
+                        demand_scope=demand_form.demand_scope,
                         solar=solar_form.inputs,
                         btes=geothermal_form.btes,
                         heat_pump=geothermal_form.heat_pump,
@@ -304,14 +309,14 @@ def render_heliostock_hourly() -> pd.DataFrame:
         from .heliostock_pdf_export import build_heliostock_overview_pdf
 
         st.download_button(
-            "Télécharger la synthèse HelioStock en PDF",
+            "Télécharger la synthèse HelioDyn en PDF",
             data=build_heliostock_overview_pdf(
                 scenario,
                 calculation_id=calculation_id,
                 calculated_at=calculated_at,
                 gmi_context=gmi_context,
             ),
-            file_name=f"heliostock_synthese_{calculation_id}.pdf",
+            file_name=f"heliodyn_synthese_{calculation_id}.pdf",
             mime="application/pdf",
             width="stretch",
         )

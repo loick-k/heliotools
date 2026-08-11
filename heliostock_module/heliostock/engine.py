@@ -3,6 +3,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
+CALCULATION_MODE_GEO_SOLAR_BTES = "geo_solar_btes"
+CALCULATION_MODE_SOLAR_HT_ONLY = "solar_ht_only"
+CALCULATION_MODE_GEO_BT_ONLY = "geo_bt_only"
+VALID_CALCULATION_MODES = {
+    CALCULATION_MODE_GEO_SOLAR_BTES,
+    CALCULATION_MODE_SOLAR_HT_ONLY,
+    CALCULATION_MODE_GEO_BT_ONLY,
+}
+
+
 @dataclass(frozen=True)
 class MonthlyDemand:
     """Monthly process heat demands, already calculated upstream.
@@ -93,6 +103,25 @@ class SimulationConfig:
     heat_pump: HeatPumpConfig
     process_ht_target_c: float = 60.0
     process_bt_target_c: float = 25.0
+    calculation_mode: str = CALCULATION_MODE_GEO_SOLAR_BTES
+
+    @property
+    def solar_ht_enabled(self) -> bool:
+        return self.calculation_mode in {
+            CALCULATION_MODE_GEO_SOLAR_BTES,
+            CALCULATION_MODE_SOLAR_HT_ONLY,
+        }
+
+    @property
+    def geothermal_enabled(self) -> bool:
+        return self.calculation_mode in {
+            CALCULATION_MODE_GEO_SOLAR_BTES,
+            CALCULATION_MODE_GEO_BT_ONLY,
+        }
+
+    @property
+    def btes_injection_enabled(self) -> bool:
+        return self.calculation_mode == CALCULATION_MODE_GEO_SOLAR_BTES
 
 
 def collector_efficiency(

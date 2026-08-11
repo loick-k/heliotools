@@ -263,10 +263,17 @@ def simulate_hourly(
     collector = config.collector
     hp = config.heat_pump
     years = max(1, int(simulation_years))
-    btes_model = create_btes_model(
-        btes,
-        simulation_hours=len(weather) * years,
+    geothermal_enabled = bool(config.geothermal_enabled)
+    btes_injection_enabled = bool(config.btes_injection_enabled)
+    btes_model = (
+        create_btes_model(
+            btes,
+            simulation_hours=len(weather) * years,
+        )
+        if geothermal_enabled
+        else None
     )
+    static_borefield_length_m = max(1e-9, float(btes.boreholes) * float(btes.depth_m))
     buffer_capacity = _daily_buffer_capacity_kwh(collector)
     buffer_energy = 0.0
     results: list[HourlyResult] = []
@@ -280,9 +287,13 @@ def simulate_hourly(
             demand_ht, demand_bt = hourly_demand_override.get(w.hour_index, (0.0, 0.0))
         else:
             demand_ht, demand_bt = hourly_demands.get(w.month, (0.0, 0.0))
-        state_start = btes_model.state()
-        wall_temp_start = state_start.t_borehole_wall_c
-        source_temp_start = state_start.t_source_pac_c
+        if btes_model is not None:
+            state_start = btes_model.state()
+            wall_temp_start = state_start.t_borehole_wall_c
+            source_temp_start = state_start.t_source_pac_c
+        else:
+            wall_temp_start = btes.t_initial_c
+            source_temp_start = btes.t_initial_c
         buffer_temp_start = _daily_buffer_temperature_c(buffer_energy, collector)
 
         collector_temp_ht = max(
@@ -337,89 +348,108 @@ def simulate_hourly(
             resource_used_fraction = 0.0
         remaining_resource_fraction = max(0.0, 1.0 - resource_used_fraction)
 
-        t_storage_collector = min(
-            collector.max_collector_temp_storage_c,
-            max(collector.min_collector_temp_storage_c, wall_temp_start + collector.btes_injection_margin_k),
-        )
-        solar_storage_gross, eta_storage = _solar_yield_hour_kwh(w, collector, t_storage_collector)
-        solar_storage_potential = solar_storage_gross * remaining_resource_fraction
-
-        solar_to_btes_unlimited = solar_storage_potential * max(0.0, min(1.0, btes.injection_efficiency))
-        total_length_m = btes_model.total_borehole_length_m
-        max_injection_by_power = max(0.0, btes.max_injection_w_m) * total_length_m / 1000.0
-        if btes.borehole_thermal_resistance_m_k_w > 0.0:
-            max_q_injection_by_temp = max(
-                0.0,
-                (btes.t_max_c - wall_temp_start) / btes.borehole_thermal_resistance_m_k_w,
+        total_length_m = btes_model.total_borehole_length_m if btes_model is not None else static_borefield_length_m
+        if btes_injection_enabled and btes_model is not None:
+            t_storage_collector = min(
+                collector.max_collector_temp_storage_c,
+                max(collector.min_collector_temp_storage_c, wall_temp_start + collector.btes_injection_margin_k),
             )
-            max_injection_by_temp = max_q_injection_by_temp * total_length_m / 1000.0
-        else:
-            max_injection_by_temp = solar_to_btes_unlimited
-        solar_to_btes = min(solar_to_btes_unlimited, max_injection_by_power, max_injection_by_temp)
-        solar_not_used = max(0.0, solar_storage_potential - solar_to_btes)
-        q_injection_w_m = solar_to_btes * 1000.0 / total_length_m
-        t_fluide_injection_c = btes_model.injection_fluid_temperature_c(q_injection_w_m)
+            solar_storage_gross, eta_storage = _solar_yield_hour_kwh(w, collector, t_storage_collector)
+            solar_storage_potential = solar_storage_gross * remaining_resource_fraction
 
-        pac_power_limit = demand_bt
-        if hp.max_thermal_power_kw is not None and hp.max_thermal_power_kw > 0.0:
-            pac_power_limit = min(pac_power_limit, hp.max_thermal_power_kw)
-        heat_bt_from_pac = max(0.0, pac_power_limit)
-        cop = cop_from_source_temperature(source_temp_start, hp)
-        source_temp_limited = False
-        max_extract_by_power = max(0.0, btes.max_extraction_w_m) * total_length_m / 1000.0
-        max_extract_by_temp = max_extract_by_power
-        heat_limit_from_ground = pac_power_limit
-        temp_limit_tol = 1e-6
-        for _ in range(4):
-            if demand_bt <= 0.0 or heat_bt_from_pac <= 0.0 or cop <= 1.0:
-                heat_bt_from_pac = 0.0
-                electricity_compressor = 0.0
-                btes_extracted = 0.0
-                q_extraction_w_m = 0.0
-                source_temp_for_cop = source_temp_start
-                break
-            field_fraction = max(0.0, 1.0 - 1.0 / cop)
-            max_extract_by_power = max(0.0, btes.max_extraction_w_m) * total_length_m / 1000.0
+            solar_to_btes_unlimited = solar_storage_potential * max(0.0, min(1.0, btes.injection_efficiency))
+            max_injection_by_power = max(0.0, btes.max_injection_w_m) * total_length_m / 1000.0
             if btes.borehole_thermal_resistance_m_k_w > 0.0:
-                max_q_extraction_by_temp = max(
+                max_q_injection_by_temp = max(
                     0.0,
-                    (wall_temp_start - btes.t_min_c) / btes.borehole_thermal_resistance_m_k_w,
+                    (btes.t_max_c - wall_temp_start) / btes.borehole_thermal_resistance_m_k_w,
                 )
-                max_extract_by_temp = max_q_extraction_by_temp * total_length_m / 1000.0
+                max_injection_by_temp = max_q_injection_by_temp * total_length_m / 1000.0
             else:
-                max_extract_by_temp = max_extract_by_power
-            max_ground_extract = min(max_extract_by_power, max_extract_by_temp)
-            if max_ground_extract <= 0.0 or field_fraction <= 0.0:
-                heat_bt_from_pac = 0.0
-                electricity_compressor = 0.0
-                btes_extracted = 0.0
-                q_extraction_w_m = 0.0
-                source_temp_for_cop = btes_model.source_temperature_for_extraction(0.0)
-                source_temp_limited = True
-                break
-            heat_limit_from_ground = max_ground_extract / max(1e-9, field_fraction)
-            next_heat_bt_from_pac = min(pac_power_limit, heat_limit_from_ground)
-            electricity_compressor = next_heat_bt_from_pac / cop
-            btes_extracted = next_heat_bt_from_pac - electricity_compressor
-            q_extraction_w_m = btes_extracted * 1000.0 / total_length_m
-            source_temp_for_cop = btes_model.source_temperature_for_extraction(q_extraction_w_m)
-            new_cop = cop_from_source_temperature(source_temp_for_cop, hp)
-            heat_bt_from_pac = next_heat_bt_from_pac
-            if (
-                max_extract_by_temp < max_extract_by_power - temp_limit_tol
-                or heat_limit_from_ground < pac_power_limit - temp_limit_tol
-                or source_temp_for_cop <= btes.t_min_c + 1e-6
-            ):
-                source_temp_limited = True
-            if abs(new_cop - cop) < 0.01:
-                cop = new_cop
-                break
-            cop = new_cop
+                max_injection_by_temp = solar_to_btes_unlimited
+            solar_to_btes = min(solar_to_btes_unlimited, max_injection_by_power, max_injection_by_temp)
+            solar_not_used = max(0.0, solar_storage_potential - solar_to_btes)
+            q_injection_w_m = solar_to_btes * 1000.0 / total_length_m
+            t_fluide_injection_c = btes_model.injection_fluid_temperature_c(q_injection_w_m)
         else:
-            electricity_compressor = heat_bt_from_pac / max(1e-9, cop)
-            btes_extracted = heat_bt_from_pac - electricity_compressor
-            q_extraction_w_m = btes_extracted * 1000.0 / total_length_m
-            source_temp_for_cop = btes_model.source_temperature_for_extraction(q_extraction_w_m)
+            t_storage_collector = collector.min_collector_temp_storage_c
+            eta_storage = 0.0
+            solar_storage_potential = 0.0
+            solar_to_btes = 0.0
+            solar_not_used = solar_ht_potential * remaining_resource_fraction
+            q_injection_w_m = 0.0
+            t_fluide_injection_c = btes.t_initial_c
+
+        if geothermal_enabled and btes_model is not None:
+            pac_power_limit = demand_bt
+            if hp.max_thermal_power_kw is not None and hp.max_thermal_power_kw > 0.0:
+                pac_power_limit = min(pac_power_limit, hp.max_thermal_power_kw)
+            heat_bt_from_pac = max(0.0, pac_power_limit)
+            cop = cop_from_source_temperature(source_temp_start, hp)
+            source_temp_limited = False
+            max_extract_by_power = max(0.0, btes.max_extraction_w_m) * total_length_m / 1000.0
+            max_extract_by_temp = max_extract_by_power
+            heat_limit_from_ground = pac_power_limit
+            temp_limit_tol = 1e-6
+            for _ in range(4):
+                if demand_bt <= 0.0 or heat_bt_from_pac <= 0.0 or cop <= 1.0:
+                    heat_bt_from_pac = 0.0
+                    electricity_compressor = 0.0
+                    btes_extracted = 0.0
+                    q_extraction_w_m = 0.0
+                    source_temp_for_cop = source_temp_start
+                    break
+                field_fraction = max(0.0, 1.0 - 1.0 / cop)
+                max_extract_by_power = max(0.0, btes.max_extraction_w_m) * total_length_m / 1000.0
+                if btes.borehole_thermal_resistance_m_k_w > 0.0:
+                    max_q_extraction_by_temp = max(
+                        0.0,
+                        (wall_temp_start - btes.t_min_c) / btes.borehole_thermal_resistance_m_k_w,
+                    )
+                    max_extract_by_temp = max_q_extraction_by_temp * total_length_m / 1000.0
+                else:
+                    max_extract_by_temp = max_extract_by_power
+                max_ground_extract = min(max_extract_by_power, max_extract_by_temp)
+                if max_ground_extract <= 0.0 or field_fraction <= 0.0:
+                    heat_bt_from_pac = 0.0
+                    electricity_compressor = 0.0
+                    btes_extracted = 0.0
+                    q_extraction_w_m = 0.0
+                    source_temp_for_cop = btes_model.source_temperature_for_extraction(0.0)
+                    source_temp_limited = True
+                    break
+                heat_limit_from_ground = max_ground_extract / max(1e-9, field_fraction)
+                next_heat_bt_from_pac = min(pac_power_limit, heat_limit_from_ground)
+                electricity_compressor = next_heat_bt_from_pac / cop
+                btes_extracted = next_heat_bt_from_pac - electricity_compressor
+                q_extraction_w_m = btes_extracted * 1000.0 / total_length_m
+                source_temp_for_cop = btes_model.source_temperature_for_extraction(q_extraction_w_m)
+                new_cop = cop_from_source_temperature(source_temp_for_cop, hp)
+                heat_bt_from_pac = next_heat_bt_from_pac
+                if (
+                    max_extract_by_temp < max_extract_by_power - temp_limit_tol
+                    or heat_limit_from_ground < pac_power_limit - temp_limit_tol
+                    or source_temp_for_cop <= btes.t_min_c + 1e-6
+                ):
+                    source_temp_limited = True
+                if abs(new_cop - cop) < 0.01:
+                    cop = new_cop
+                    break
+                cop = new_cop
+            else:
+                electricity_compressor = heat_bt_from_pac / max(1e-9, cop)
+                btes_extracted = heat_bt_from_pac - electricity_compressor
+                q_extraction_w_m = btes_extracted * 1000.0 / total_length_m
+                source_temp_for_cop = btes_model.source_temperature_for_extraction(q_extraction_w_m)
+        else:
+            pac_power_limit = 0.0
+            heat_bt_from_pac = 0.0
+            cop = 0.0
+            source_temp_limited = False
+            electricity_compressor = 0.0
+            btes_extracted = 0.0
+            q_extraction_w_m = 0.0
+            source_temp_for_cop = source_temp_start
 
         cop_limited_max = cop >= hp.cop_max - 1e-9
         t_evaporator_pac_c = source_temp_for_cop - hp.evaporator_approach_k
@@ -427,20 +457,25 @@ def simulate_hourly(
 
         # Conservative pre-design allowance for PAC/geothermal pumps and
         # controls. Solar and BTES injection pumps are intentionally excluded.
-        electricity_pac_auxiliaries = electricity_compressor * max(0.0, hp.aux_pac_ratio)
-        electricity_standby = max(0.0, hp.standby_power_kw)
+        electricity_pac_auxiliaries = electricity_compressor * max(0.0, hp.aux_pac_ratio) if geothermal_enabled else 0.0
+        electricity_standby = max(0.0, hp.standby_power_kw) if geothermal_enabled else 0.0
         electricity_pac_total = electricity_compressor + electricity_pac_auxiliaries + electricity_standby
         electricity_system_total = electricity_pac_total
 
         q_net_w_m = q_extraction_w_m - q_injection_w_m
         q_injection_signed_w_m = -q_injection_w_m
-        btes_model.commit_load(
-            q_net_w_m=q_net_w_m,
-            q_extraction_w_m=q_extraction_w_m,
-            q_injection_w_m=q_injection_w_m,
-        )
-        final_state = btes_model.state()
-        t_source_pac_end_c = final_state.t_source_pac_c
+        if btes_model is not None:
+            btes_model.commit_load(
+                q_net_w_m=q_net_w_m,
+                q_extraction_w_m=q_extraction_w_m,
+                q_injection_w_m=q_injection_w_m,
+            )
+            final_state = btes_model.state()
+            t_borehole_wall_end_c = final_state.t_borehole_wall_c
+            t_source_pac_end_c = final_state.t_source_pac_c
+        else:
+            t_borehole_wall_end_c = wall_temp_start
+            t_source_pac_end_c = source_temp_start
 
         result = HourlyResult(
             simulation_year=year_index,
@@ -466,7 +501,7 @@ def simulate_hourly(
             solar_storage_potential_kwh=solar_storage_potential,
             solar_to_btes_kwh=solar_to_btes,
             solar_not_used_kwh=solar_not_used,
-            t_borehole_wall_c=final_state.t_borehole_wall_c,
+            t_borehole_wall_c=t_borehole_wall_end_c,
             t_source_pac_c=t_source_pac_end_c,
             t_source_pac_for_cop_c=source_temp_for_cop,
             t_evaporator_pac_c=t_evaporator_pac_c,

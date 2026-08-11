@@ -8,7 +8,12 @@ from typing import Callable
 
 import pandas as pd
 
-from .engine import MonthlyDemand
+from .engine import (
+    CALCULATION_MODE_GEO_BT_ONLY,
+    CALCULATION_MODE_GEO_SOLAR_BTES,
+    CALCULATION_MODE_SOLAR_HT_ONLY,
+    MonthlyDemand,
+)
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, ScenarioInputs, SolarInputs
 from .load_profiles import _peak_bt_power_kw
@@ -52,6 +57,7 @@ class HourlyCalculationRequest:
     weather: list[HourlyWeather]
     demands: list[MonthlyDemand]
     hourly_demand_override: dict[int, tuple[float, float]] | None
+    demand_scope: str
     solar: SolarInputs
     btes: BtesInputs
     heat_pump: HeatPumpInputs
@@ -100,12 +106,21 @@ def _range_points(param_range: ParametricRange, label: str) -> tuple[list[float]
     return points, []
 
 
+def calculation_mode_from_demand_scope(demand_scope: str) -> str:
+    scope = str(demand_scope or "ht_bt").lower()
+    if scope == "ht_only":
+        return CALCULATION_MODE_SOLAR_HT_ONLY
+    if scope == "bt_only":
+        return CALCULATION_MODE_GEO_BT_ONLY
+    return CALCULATION_MODE_GEO_SOLAR_BTES
+
+
 def run_hourly_calculation(
     request: HourlyCalculationRequest,
     *,
     progress: ProgressCallback | None = None,
 ) -> HourlyCalculationResult:
-    """Run the HelioStock calculation layer independently from Streamlit rendering."""
+    """Run the HelioDyn calculation layer independently from Streamlit rendering."""
 
     started_at = time.perf_counter()
     last_at = started_at
@@ -150,7 +165,13 @@ def run_hourly_calculation(
         if progress is not None:
             progress(value, text)
 
-    mark("start", "Demarrage du calcul HelioStock")
+    calculation_mode = calculation_mode_from_demand_scope(request.demand_scope)
+    calculation_label = {
+        CALCULATION_MODE_GEO_SOLAR_BTES: "HelioDyn - mode HelioStock couple solaire + geothermie",
+        CALCULATION_MODE_SOLAR_HT_ONLY: "HelioDyn - solaire thermique HT seul",
+        CALCULATION_MODE_GEO_BT_ONLY: "HelioDyn - geothermie BT seule",
+    }.get(calculation_mode, "HelioDyn")
+    mark("start", f"Demarrage du calcul {calculation_label}")
     warnings: list[str] = []
     mark("inputs:start", "Calcul Pmax BT et construction des configurations")
     peak_bt_power_kw = _peak_bt_power_kw(
@@ -175,6 +196,7 @@ def run_hourly_calculation(
         btes=request.btes,
         heat_pump=heat_pump,
         economics=request.economics,
+        calculation_mode=calculation_mode,
     )
     warnings.extend(scenario_inputs.validate())
 
@@ -186,9 +208,13 @@ def run_hourly_calculation(
     technical_simulation_years = int(request.calculation_selection.technical_simulation_years or 25)
     display_year_mode = "finale"
     custom_display_year = technical_simulation_years
-    run_geo_only = True
+    run_geo_only = calculation_mode != CALCULATION_MODE_SOLAR_HT_ONLY
     savings_search_mode = str(request.calculation_selection.savings_search_mode or "none")
-    run_reduced_borefield = savings_search_mode != "none" and bool(request.calculation_selection.run_reduced_borefield)
+    run_reduced_borefield = (
+        calculation_mode == CALCULATION_MODE_GEO_SOLAR_BTES
+        and savings_search_mode != "none"
+        and bool(request.calculation_selection.run_reduced_borefield)
+    )
     mark("scenario:start", "Scenario principal : annuel, multiannuel, economie")
     scenario = run_hourly_scenario(
         weather=request.weather,
@@ -210,7 +236,11 @@ def run_hourly_calculation(
 
     parametric_pac_df = pd.DataFrame()
     mark("param_pac:prepare", "Preparation de l'etude parametrique PAC")
-    pac_fractions_pct, pac_warnings = _range_points(request.pac_parametric, "Etude PAC")
+    pac_fractions_pct, pac_warnings = (
+        _range_points(request.pac_parametric, "Etude PAC")
+        if calculation_mode != CALCULATION_MODE_SOLAR_HT_ONLY
+        else ([], [])
+    )
     warnings.extend(pac_warnings)
     if pac_fractions_pct:
         mark("param_pac:start", f"Etude parametrique PAC : {len(pac_fractions_pct)} points")
@@ -248,7 +278,11 @@ def run_hourly_calculation(
 
     parametric_surface_df = pd.DataFrame()
     mark("param_solar:prepare", "Preparation de l'etude parametrique solaire")
-    surfaces_m2, surface_warnings = _range_points(request.solar_parametric, "Etude parametrique solaire")
+    surfaces_m2, surface_warnings = (
+        _range_points(request.solar_parametric, "Etude parametrique solaire")
+        if calculation_mode != CALCULATION_MODE_GEO_BT_ONLY
+        else ([], [])
+    )
     warnings.extend(surface_warnings)
     if surfaces_m2:
         mark("param_solar:start", f"Etude parametrique solaire : {len(surfaces_m2)} points")
@@ -311,7 +345,7 @@ def run_hourly_calculation(
         },
         update_last_step=False,
     )
-    mark("end", "Calcul HelioStock termine")
+    mark("end", "Calcul HelioDyn termine")
 
     performance_log_df = pd.DataFrame(performance_events)
     if not performance_log_df.empty:

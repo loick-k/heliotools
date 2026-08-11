@@ -103,6 +103,7 @@ def _request(
         weather=weather,
         demands=_demand_aggregate(1, weather, ht_kwh=ht_kwh, bt_kwh=bt_kwh),
         hourly_demand_override=_hourly_override(weather, ht_kwh=ht_kwh, bt_kwh=bt_kwh),
+        demand_scope="ht_bt",
         solar=solar or _solar_inputs(),
         btes=btes or _btes_inputs(),
         heat_pump=_heat_pump_inputs(),

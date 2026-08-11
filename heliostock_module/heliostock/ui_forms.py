@@ -343,9 +343,9 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
             help="Exemple : ECS ou process haute température.",
         )
         scope_options = {
-            "HT + BT - scénario complet": "ht_bt",
-            "BT seule - test géothermie/PAC": "bt_only",
-            "HT seule - test solaire thermique": "ht_only",
+            "Couplage solaire thermique + géothermie (mode HelioStock)": "ht_bt",
+            "Géothermie seule - besoin basse température": "bt_only",
+            "Solaire thermique seul - besoin haute température": "ht_only",
         }
         scope_labels = list(scope_options.keys())
         if st.session_state.get("demand_scope_label") not in scope_labels:
@@ -504,8 +504,69 @@ def render_geothermal_form(
     demands: list[MonthlyDemand],
     hourly_demand_override: dict[int, tuple[float, float]] | None,
     process_bt_target_c: float,
+    enabled: bool = True,
 ) -> GeothermalFormResult:
     pre_peak_bt_power_kw = _peak_bt_power_kw(hourly_weather, demands, hourly_demand_override)
+    if not enabled:
+        geo_fixed = FixedGeoAssumptions(air_target_bt_c=float(process_bt_target_c))
+        predesign = predimension_borefield(
+            pac_power_kw=0.0,
+            cop=geo_fixed.cop_min,
+            heat_pac_mwh_year=0.0,
+            power_ratio_w_per_m=geo_fixed.predesign_power_ratio_w_m,
+            energy_ratio_kwh_per_m_year=geo_fixed.predesign_energy_ratio_kwh_m_year,
+            unit_depth_m=100.0,
+            safety_factor=geo_fixed.safety_factor,
+        )
+        with _top_level_input_section("PAC géothermie et champ de sondes", expanded=True):
+            st.info(
+                "Mode solaire thermique seul : la PAC géothermique, le champ de sondes et l'injection vers le stockage "
+                "géothermique ne sont pas utilisés dans ce calcul."
+            )
+        return GeothermalFormResult(
+            btes=BtesInputs(
+                boreholes=int(predesign.boreholes),
+                depth_m=predesign.unit_depth_m,
+                spacing_m=geo_fixed.spacing_m,
+                t_initial_c=geo_fixed.t_initial_c,
+                t_min_c=geo_fixed.t_min_c,
+                t_max_c=geo_fixed.t_max_c,
+                gmi_t_min_c=geo_fixed.gmi_t_min_c,
+                gmi_t_max_c=geo_fixed.gmi_t_max_c,
+                gmi_check_enabled=bool(geo_fixed.gmi_check_enabled),
+                ground_conductivity_w_m_k=geo_fixed.ground_conductivity_w_m_k,
+                ground_diffusivity_m2_s=geo_fixed.ground_diffusivity_m2_s,
+                borehole_radius_m=geo_fixed.borehole_radius_m,
+                borehole_buried_depth_m=geo_fixed.borehole_buried_depth_m,
+                borehole_thermal_resistance_m_k_w=geo_fixed.borehole_thermal_resistance_m_k_w,
+                max_extraction_w_m=geo_fixed.max_extraction_w_m,
+                max_injection_w_m=geo_fixed.max_injection_w_m,
+                backend="pygfunction",
+            ),
+            heat_pump=HeatPumpInputs(
+                air_target_bt_c=float(process_bt_target_c),
+                condenser_approach_k=geo_fixed.condenser_approach_k,
+                evaporator_approach_k=geo_fixed.evaporator_approach_k,
+                carnot_efficiency=geo_fixed.carnot_efficiency,
+                cop_min=geo_fixed.cop_min,
+                cop_max=geo_fixed.cop_max,
+                pac_power_fraction_pct=100.0,
+                peak_bt_power_kw=0.0,
+                aux_pac_ratio=geo_fixed.aux_pac_ratio,
+                standby_power_kw=geo_fixed.standby_power_kw,
+            ),
+            pac_power_fraction_pct=100.0,
+            use_probe_predesign=True,
+            probe_power_ratio_w_m=geo_fixed.predesign_power_ratio_w_m,
+            probe_energy_ratio_kwh_m=geo_fixed.predesign_energy_ratio_kwh_m_year,
+            probe_unit_depth_m=float(predesign.unit_depth_m),
+            btes_backend="pygfunction",
+            predesign=predesign,
+            savings_search_mode="none",
+            run_reduced_borefield=False,
+            recharge_credit=0.0,
+            reduced_borefield_safety_factor=float(geo_fixed.reduced_borefield_safety_factor),
+        )
     with _top_level_input_section("4) Géothermie PAC et champ de sondes", expanded=True):
         st.caption(
             "Bloc simplifié : la PAC est dimensionnée en % du Pmax BT. Le prédimensionnement propose un nombre de sondes, "

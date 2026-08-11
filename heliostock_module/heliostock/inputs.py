@@ -3,7 +3,13 @@
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from .engine import BtesConfig, CollectorConfig, HeatPumpConfig, SimulationConfig
+from .engine import (
+    CALCULATION_MODE_GEO_SOLAR_BTES,
+    BtesConfig,
+    CollectorConfig,
+    HeatPumpConfig,
+    SimulationConfig,
+)
 
 if TYPE_CHECKING:
     from .scenario_outputs import ScenarioEconomicsConfig
@@ -215,6 +221,7 @@ class ScenarioInputs:
     btes: BtesInputs
     heat_pump: HeatPumpInputs
     economics: EconomicsInputs
+    calculation_mode: str = CALCULATION_MODE_GEO_SOLAR_BTES
 
     @property
     def pac_nominal_power_kw(self) -> float:
@@ -235,6 +242,7 @@ class ScenarioInputs:
             heat_pump=self.heat_pump.to_heat_pump_config(),
             process_ht_target_c=self.solar.process_ht_target_c,
             process_bt_target_c=self.heat_pump.air_target_bt_c,
+            calculation_mode=self.calculation_mode,
         )
 
     def to_economics_config(self) -> ScenarioEconomicsConfig:

@@ -3,7 +3,15 @@ from dataclasses import replace
 import pytest
 
 from heliostock.btes_models import PygfunctionBtesModel, create_btes_model, pygfunction_available
-from heliostock.engine import BtesConfig, CollectorConfig, HeatPumpConfig, MonthlyDemand, SimulationConfig
+from heliostock.engine import (
+    CALCULATION_MODE_GEO_SOLAR_BTES,
+    CALCULATION_MODE_SOLAR_HT_ONLY,
+    BtesConfig,
+    CollectorConfig,
+    HeatPumpConfig,
+    MonthlyDemand,
+    SimulationConfig,
+)
 from heliostock.hourly_engine import HourlyResult, HourlyWeather, aggregate_hourly_results_monthly, simulate_hourly
 from heliostock.postprocess import _hourly_by_month_summary, _hourly_results_to_dataframe, _multiyear_btes_summary
 
@@ -129,6 +137,59 @@ def test_hourly_simulation_smoke():
         <= 1e-6
         for result in results
     )
+
+
+def test_default_simulation_mode_keeps_heliostock_coupling():
+    config = SimulationConfig(
+        collector=CollectorConfig(area_m2=100.0),
+        btes=BtesConfig(boreholes=10, depth_m=100.0),
+        heat_pump=HeatPumpConfig(air_target_bt_c=25.0),
+    )
+
+    assert config.calculation_mode == CALCULATION_MODE_GEO_SOLAR_BTES
+    assert config.solar_ht_enabled
+    assert config.geothermal_enabled
+    assert config.btes_injection_enabled
+
+
+def test_solar_ht_only_does_not_create_btes_or_inject_to_ground():
+    weather = [
+        HourlyWeather(
+            hour_index=hour,
+            month=7,
+            day=hour // 24 + 1,
+            hour=hour % 24 + 1,
+            tair_c=24.0,
+            g_tilt_kwh_m2=0.9 if 9 <= hour % 24 <= 17 else 0.0,
+        )
+        for hour in range(24 * 2)
+    ]
+    config = SimulationConfig(
+        collector=CollectorConfig(
+            area_m2=200.0,
+            daily_buffer_l_per_m2=10.0,
+            daily_buffer_ambient_temp_c=20.0,
+            daily_buffer_max_temp_c=65.0,
+            solar_preheat_target_ht_c=60.0,
+        ),
+        btes=BtesConfig(boreholes=20, depth_m=100.0, spacing_m=10.0),
+        heat_pump=HeatPumpConfig(air_target_bt_c=25.0),
+        calculation_mode=CALCULATION_MODE_SOLAR_HT_ONLY,
+    )
+
+    results = simulate_hourly(
+        weather=weather,
+        demands=_demand_aggregate(7, weather, ht_kwh=2.0, bt_kwh=0.0),
+        config=config,
+        hourly_demand_override=_hourly_override(weather, ht_kwh=2.0, bt_kwh=0.0),
+    )
+
+    assert results
+    assert sum(result.solar_to_btes_kwh for result in results) == 0.0
+    assert sum(result.q_injection_w_m for result in results) == 0.0
+    assert sum(result.heat_bt_from_pac_kwh for result in results) == 0.0
+    assert sum(result.electricity_pac_total_kwh for result in results) == 0.0
+    assert sum(result.solar_not_used_kwh for result in results) > 0.0
 
 
 def test_multiyear_simulation_keeps_btes_thermal_memory_without_saturation():

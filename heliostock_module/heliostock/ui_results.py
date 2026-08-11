@@ -218,7 +218,7 @@ def render_hourly_results(
     hourly_profile_df: pd.DataFrame,
     demand_scope: str = "ht_bt",
 ) -> pd.DataFrame:
-    """Render all result panels for a completed HelioStock calculation."""
+    """Render all result panels for a completed HelioDyn calculation."""
 
     hourly_df = scenario.hourly_df
     no_solar_hourly_df = scenario.no_solar_hourly_df
@@ -391,6 +391,32 @@ def render_hourly_results(
         ],
         tone="energy",
     )
+
+    if show_solar_blocks and not show_geothermal_blocks:
+        st.markdown("### Solaire thermique seul - besoin haute température")
+        _render_kpi_section("Taux EnR global", [("Taux EnR global", f"{global_ren_rate * 100:.0f} %")], tone="energy")
+        _render_kpi_section(
+            "Solaire thermique",
+            [
+                ("Production solaire totale", f"{total_preheat_ht / 1000:.0f} MWh"),
+                ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+                ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
+                ("Heures palier haut ballon", f"{solar_buffer_at_max_hours} h"),
+                ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
+                ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
+                ("Solaire non valorisé", f"{float(hourly_df.get('solar_not_used_kwh', pd.Series(dtype=float)).sum()) / 1000:.0f} MWh"),
+                ("Rendement capteur ECS", f"{ht_eff * 100:.1f} %", f"{ht_energy_mwh:.0f} MWh captés"),
+            ],
+            tone="solar",
+        )
+        _render_kpi_section(
+            "Appoint gaz",
+            [
+                ("Conso appoint gaz année finale", f"{total_backup_ht / 1000:.0f} MWh"),
+                ("Pic appoint gaz appelé", f"{backup_power_kw:.0f} kW"),
+            ],
+            tone="gas",
+        )
 
     def _df_mwh(df: pd.DataFrame, column: str) -> float | None:
         if df.empty or column not in df:
@@ -713,6 +739,8 @@ def render_hourly_results(
     if show_geothermal_blocks:
         result_sections.append("Analyse solaire et géothermie" if show_solar_blocks else "Analyse géothermie")
         result_sections.append("Multiannuel BTES")
+    elif show_solar_blocks:
+        result_sections.append("Analyse solaire")
     result_sections.extend(["Monotone horaire", "Analyses mensuelles", "Économie"])
     if show_geothermal_blocks:
         result_sections.append("Paramétrique PAC")
@@ -727,13 +755,17 @@ def render_hourly_results(
         key=f"result_section_{calculation_id}",
     )
 
-    if result_section in {"Analyse solaire et géothermie", "Analyse géothermie"}:
-        title = "Grandeurs solaires et géothermie horaire" if show_solar_blocks else "Grandeurs géothermie horaire"
+    if result_section in {"Analyse solaire et géothermie", "Analyse géothermie", "Analyse solaire"}:
+        if result_section == "Analyse solaire":
+            title = "Grandeurs solaires horaires"
+        else:
+            title = "Grandeurs solaires et géothermie horaire" if show_solar_blocks else "Grandeurs géothermie horaire"
         st.markdown(f"### {title} - année {scenario.simulation_year_displayed}")
-        st.caption(
-            "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
-            "vue par la PAC. La température de paroi forage est affichée séparément."
-        )
+        if show_geothermal_blocks:
+            st.caption(
+                "T source PAC n'est pas une température moyenne du sous-sol : c'est la température côté source géothermique "
+                "vue par la PAC. La température de paroi forage est affichée séparément."
+            )
         st.altair_chart(_temperature_chart(hourly_df), width="stretch")
         if "Jour annee" in hourly_df and not hourly_df.empty:
             max_day = max(1, int(float(hourly_df["Jour annee"].max())))
@@ -1042,58 +1074,73 @@ def _render_monthly_tab(
     hourly_by_month_df: pd.DataFrame,
     scenario: ScenarioResult,
 ) -> None:
-    st.markdown("### Analyses mensuelles - scénario B")
-    st.caption(
-        "Scénario affiché : B - Géothermie avec recharge solaire et linéaire initial, "
-        f"année {scenario.simulation_year_displayed}. Les graphiques mensuels ne représentent pas les scénarios A ou C."
+    show_solar_blocks = scenario.total_ht_kwh > 1e-6
+    show_geothermal_blocks = scenario.total_bt_kwh > 1e-6 and bool(scenario.config.geothermal_enabled)
+    scenario_label = (
+        "scénario B - Géothermie avec recharge solaire et linéaire initial"
+        if show_geothermal_blocks
+        else "mode solaire thermique seul"
     )
+    st.markdown(f"### Analyses mensuelles - {scenario_label}")
+    st.caption(f"Année affichée : {scenario.simulation_year_displayed}.")
 
     coverage_rate_df = hourly_by_month_df[["Mois", "Taux couverture solaire HT (%)"]].rename(
         columns={"Taux couverture solaire HT (%)": "Valeur"}
     )
-    ground_flux_df = pd.concat(
-        [
-            hourly_by_month_df[["Mois", "Injection BTES (MWh)"]].rename(columns={"Injection BTES (MWh)": "Valeur"}).assign(Poste="Injection solaire BTES"),
-            hourly_by_month_df[["Mois", "Extraction champ PAC (MWh)"]].rename(columns={"Extraction champ PAC (MWh)": "Valeur"}).assign(Poste="Extraction champ vers PAC"),
-            hourly_by_month_df[["Mois", "Bilan net sol (MWh)"]].rename(columns={"Bilan net sol (MWh)": "Valeur"}).assign(Poste="Bilan net sol"),
-        ],
-        ignore_index=True,
-    )
-    ground_flux_df.loc[ground_flux_df["Poste"] == "Extraction champ vers PAC", "Valeur"] *= -1.0
 
     chart_a, chart_b = st.columns(2)
     with chart_a:
-        st.markdown("### Couverture solaire HT - scénario B")
+        st.markdown("### Couverture solaire HT")
         st.altair_chart(_percent_bar_chart(coverage_rate_df, y_title="Couverture solaire HT (%)"), width="stretch")
-        st.caption(
-            "La priorité HT est appliquée au pas horaire via le ballon solaire journalier. "
-            "Une injection BTES mensuelle peut donc coexister avec un taux HT inférieur à 100 %."
-        )
+        if show_geothermal_blocks:
+            st.caption(
+                "La priorité HT est appliquée au pas horaire via le ballon solaire journalier. "
+                "Une injection BTES mensuelle peut donc coexister avec un taux HT inférieur à 100 %."
+            )
     with chart_b:
-        st.markdown("### Flux sous-sol - scénario B")
-        st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
-        st.caption(
-            "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire."
-        )
+        if show_geothermal_blocks:
+            ground_flux_df = pd.concat(
+                [
+                    hourly_by_month_df[["Mois", "Injection BTES (MWh)"]].rename(columns={"Injection BTES (MWh)": "Valeur"}).assign(Poste="Injection solaire BTES"),
+                    hourly_by_month_df[["Mois", "Extraction champ PAC (MWh)"]].rename(columns={"Extraction champ PAC (MWh)": "Valeur"}).assign(Poste="Extraction champ vers PAC"),
+                    hourly_by_month_df[["Mois", "Bilan net sol (MWh)"]].rename(columns={"Bilan net sol (MWh)": "Valeur"}).assign(Poste="Bilan net sol"),
+                ],
+                ignore_index=True,
+            )
+            ground_flux_df.loc[ground_flux_df["Poste"] == "Extraction champ vers PAC", "Valeur"] *= -1.0
+            st.markdown("### Flux sous-sol - scénario B")
+            st.altair_chart(_bar_chart(ground_flux_df), width="stretch")
+            st.caption(
+                "Les extractions PAC sont affichées négatives. Le bilan net sol correspond à extraction PAC - injection solaire."
+            )
+        else:
+            st.markdown("### Solaire non valorisé")
+            st.altair_chart(
+                _bar_chart(_melt_monthly(hourly_by_month_df, ["Solaire non valorise (MWh)"])),
+                width="stretch",
+            )
 
     chart_c, chart_d = st.columns(2)
     with chart_c:
-        st.markdown("### Production solaire ECS et injection BTES - scénario B")
-        st.altair_chart(
-            _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Injection BTES (MWh)"])),
-            width="stretch",
-        )
+        if show_geothermal_blocks:
+            st.markdown("### Production solaire ECS et injection BTES - scénario B")
+            solar_columns = ["Prechauffage HT solaire (MWh)", "Injection BTES (MWh)"]
+        else:
+            st.markdown("### Production solaire ECS")
+            solar_columns = ["Prechauffage HT solaire (MWh)"]
+        st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, solar_columns)), width="stretch")
     with chart_d:
-        st.markdown("### Couverture besoin HT - scénario B")
+        st.markdown("### Couverture besoin HT")
         st.altair_chart(
             _bar_chart(_melt_monthly(hourly_by_month_df, ["Prechauffage HT solaire (MWh)", "Appoint HT (MWh)"])),
             width="stretch",
         )
 
-    chart_e, _chart_empty = st.columns(2)
-    with chart_e:
-        st.markdown("### Couverture besoin BT - scénario B")
-        st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
+    if show_geothermal_blocks:
+        chart_e, _chart_empty = st.columns(2)
+        with chart_e:
+            st.markdown("### Couverture besoin BT - scénario B")
+            st.altair_chart(_bar_chart(_melt_monthly(hourly_by_month_df, ["BT PAC (MWh)", "Appoint BT (MWh)"])), width="stretch")
 
 
 def _render_parametric_pac_tab(parametric_pac_df: pd.DataFrame, *, calculation_id: str) -> None:

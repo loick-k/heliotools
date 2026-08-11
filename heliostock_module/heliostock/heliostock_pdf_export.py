@@ -97,6 +97,16 @@ def _draw_footer(canvas, *, page_number: int, width: float) -> None:
     draw_report_footer(canvas, page_number=page_number, width=width)
 
 
+def _product_title(scenario: ScenarioResult) -> str:
+    if bool(getattr(scenario.config, "btes_injection_enabled", False)):
+        return "HelioDyn / HelioStock"
+    return "HelioDyn"
+
+
+def _has_geothermal_results(scenario: ScenarioResult) -> bool:
+    return bool(getattr(scenario.config, "geothermal_enabled", True)) and float(getattr(scenario, "total_bt_kwh", 0.0) or 0.0) > 1e-6
+
+
 def _draw_section_title(canvas, title: str, *, x: float, y: float) -> float:
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 12)
@@ -569,7 +579,7 @@ def _annual_temperature_series(scenario: ScenarioResult) -> list[tuple[str, pd.D
 
 
 def _draw_multiyear_charts_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
-    _draw_header(canvas, title="HelioStock - graphiques multiannuels", subtitle=subtitle, width=width, height=height)
+    _draw_header(canvas, title=f"{_product_title(scenario)} - graphiques multiannuels", subtitle=subtitle, width=width, height=height)
     chart_w = (width - 82) / 2
     chart_h = 310
     _draw_line_chart(
@@ -605,7 +615,8 @@ def _draw_multiyear_charts_page(canvas, scenario: ScenarioResult, *, width: floa
 
 
 def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
-    _draw_header(canvas, title="HelioStock - graphiques année affichée", subtitle=subtitle, width=width, height=height)
+    _draw_header(canvas, title=f"{_product_title(scenario)} - graphiques année affichée", subtitle=subtitle, width=width, height=height)
+    has_geothermal = _has_geothermal_results(scenario)
     chart_w = (width - 82) / 2
     chart_h = 310
     hourly_series = [
@@ -616,28 +627,33 @@ def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: f
             "solar_ht_buffer_temp_end_c",
             (0.00, 0.45, 0.85),
         ),
-        (
-            "T source PAC fin d'heure",
-            scenario.hourly_df,
-            "Jour annee",
-            "T_source_PAC_fin_heure_C",
-            (0.09, 0.64, 0.29),
-        ),
-        (
-            "T paroi forage",
-            scenario.hourly_df,
-            "Jour annee",
-            "T_paroi_forage_C",
-            (0.98, 0.45, 0.08),
-        ),
-        (
-            "T évaporateur PAC",
-            scenario.hourly_df,
-            "Jour annee",
-            "T_evaporateur_PAC_C",
-            (0.92, 0.20, 0.14),
-        ),
     ]
+    if has_geothermal:
+        hourly_series.extend(
+            [
+                (
+                    "T source PAC fin d'heure",
+                    scenario.hourly_df,
+                    "Jour annee",
+                    "T_source_PAC_fin_heure_C",
+                    (0.09, 0.64, 0.29),
+                ),
+                (
+                    "T paroi forage",
+                    scenario.hourly_df,
+                    "Jour annee",
+                    "T_paroi_forage_C",
+                    (0.98, 0.45, 0.08),
+                ),
+                (
+                    "T évaporateur PAC",
+                    scenario.hourly_df,
+                    "Jour annee",
+                    "T_evaporateur_PAC_C",
+                    (0.92, 0.20, 0.14),
+                ),
+            ]
+        )
     _draw_line_chart(
         canvas,
         hourly_series,
@@ -645,7 +661,11 @@ def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: f
         y=height - 92 - chart_h,
         width=chart_w,
         height=chart_h,
-        title=f"Températures horaires - scénario B, année {scenario.simulation_year_displayed}",
+        title=(
+            f"Températures horaires - scénario B, année {scenario.simulation_year_displayed}"
+            if has_geothermal
+            else f"Températures solaires horaires - année {scenario.simulation_year_displayed}"
+        ),
         x_label="Jour de l'année",
         y_label="Température (°C)",
         max_points=365,
@@ -654,30 +674,35 @@ def _draw_display_year_charts_page(canvas, scenario: ScenarioResult, *, width: f
         canvas,
         scenario.hourly_by_month_df,
         categories_col="Mois",
-        series_cols=[
-            ("Solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
-            ("PAC géothermie", "BT PAC (MWh)", ENERGY_COLORS["Géothermie PAC"]),
-            ("Appoint HT", "Appoint HT (MWh)", ENERGY_COLORS["Appoint gaz"]),
-            ("Appoint BT", "Appoint BT (MWh)", ENERGY_COLORS["Appoint gaz"]),
-        ],
+        series_cols=(
+            [
+                ("Solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
+                ("PAC géothermie", "BT PAC (MWh)", ENERGY_COLORS["Géothermie PAC"]),
+                ("Appoint HT", "Appoint HT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+                ("Appoint BT", "Appoint BT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+            ]
+            if has_geothermal
+            else [
+                ("Solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
+                ("Appoint gaz HT", "Appoint HT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+            ]
+        ),
         x=48 + chart_w,
         y=height - 92 - chart_h,
         width=chart_w,
         height=chart_h,
-        title=f"Besoins couverts par générateur - scénario B, année {scenario.simulation_year_displayed}",
+        title=f"Besoins couverts par générateur - année {scenario.simulation_year_displayed}",
         y_label="MWh/mois",
     )
-    _draw_note(
-        canvas,
-        "Les températures horaires sont échantillonnées pour garder un rapport lisible et léger. L'injection BTES n'est pas empilée dans le bilan par générateur : elle recharge le sol et contribue indirectement à la PAC géothermique.",
-        x=34,
-        y=80,
-        width=width - 68,
-    )
+    note = "Les températures horaires sont échantillonnées pour garder un rapport lisible et léger."
+    if has_geothermal:
+        note += " L'injection BTES n'est pas empilée dans le bilan par générateur : elle recharge le sol et contribue indirectement à la PAC géothermique."
+    _draw_note(canvas, note, x=34, y=80, width=width - 68)
 
 
 def _draw_monthly_analysis_charts_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
-    _draw_header(canvas, title="HelioStock - analyses mensuelles", subtitle=subtitle, width=width, height=height)
+    _draw_header(canvas, title=f"{_product_title(scenario)} - analyses mensuelles", subtitle=subtitle, width=width, height=height)
+    has_geothermal = _has_geothermal_results(scenario)
     chart_w = (width - 92) / 2
     chart_h = 205
     left_x = 34
@@ -695,40 +720,64 @@ def _draw_monthly_analysis_charts_page(canvas, scenario: ScenarioResult, *, widt
         y=top_y,
         width=chart_w,
         height=chart_h,
-        title=f"Couverture solaire HT - scénario B, année {scenario.simulation_year_displayed}",
+        title=f"Couverture solaire HT - année {scenario.simulation_year_displayed}",
         y_label="%",
         color=ENERGY_COLORS["Solaire thermique"],
         max_items=12,
         y_max_override=100.0,
     )
+    if has_geothermal:
+        _draw_grouped_bar_chart(
+            canvas,
+            month_df,
+            categories_col="Mois",
+            series_cols=[
+                ("PAC géothermie BT", "BT PAC (MWh)", (0.09, 0.64, 0.29)),
+                ("Appoint gaz BT", "Appoint BT (MWh)", ENERGY_COLORS["Appoint gaz"]),
+            ],
+            x=right_x,
+            y=top_y,
+            width=chart_w,
+            height=chart_h,
+            title=f"Couverture PAC géothermie BT - scénario B, année {scenario.simulation_year_displayed}",
+            y_label="MWh/mois",
+        )
+    else:
+        _draw_simple_bar_chart(
+            canvas,
+            month_df,
+            label_col="Mois",
+            value_col="Solaire non valorise (MWh)",
+            x=right_x,
+            y=top_y,
+            width=chart_w,
+            height=chart_h,
+            title=f"Solaire non valorisé - année {scenario.simulation_year_displayed}",
+            y_label="MWh/mois",
+            color=(0.74, 0.77, 0.82),
+            max_items=12,
+        )
     _draw_grouped_bar_chart(
         canvas,
         month_df,
         categories_col="Mois",
-        series_cols=[
-            ("PAC géothermie BT", "BT PAC (MWh)", (0.09, 0.64, 0.29)),
-            ("Appoint gaz BT", "Appoint BT (MWh)", ENERGY_COLORS["Appoint gaz"]),
-        ],
-        x=right_x,
-        y=top_y,
-        width=chart_w,
-        height=chart_h,
-        title=f"Couverture PAC géothermie BT - scénario B, année {scenario.simulation_year_displayed}",
-        y_label="MWh/mois",
-    )
-    _draw_grouped_bar_chart(
-        canvas,
-        month_df,
-        categories_col="Mois",
-        series_cols=[
-            ("Production solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
-            ("Injection BTES", "Injection BTES (MWh)", ENERGY_COLORS["Injection solaire BTES"]),
-        ],
+        series_cols=(
+            [
+                ("Production solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"]),
+                ("Injection BTES", "Injection BTES (MWh)", ENERGY_COLORS["Injection solaire BTES"]),
+            ]
+            if has_geothermal
+            else [("Production solaire ECS", "Prechauffage HT solaire (MWh)", ENERGY_COLORS["Solaire thermique"])]
+        ),
         x=left_x,
         y=bottom_y,
         width=chart_w,
         height=chart_h,
-        title=f"Production solaire ECS et injection BTES - scénario B, année {scenario.simulation_year_displayed}",
+        title=(
+            f"Production solaire ECS et injection BTES - scénario B, année {scenario.simulation_year_displayed}"
+            if has_geothermal
+            else f"Production solaire ECS - année {scenario.simulation_year_displayed}"
+        ),
         y_label="MWh/mois",
     )
     _draw_grouped_bar_chart(
@@ -771,7 +820,7 @@ def build_heliostock_overview_pdf(
     calculated_at: str = "",
     gmi_context: dict[str, Any] | None = None,
 ) -> bytes:
-    """Build a compact PDF export from the already-computed HelioStock result."""
+    """Build a compact PDF export from the already-computed HelioDyn result."""
 
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.pdfgen import canvas as pdf_canvas
@@ -784,7 +833,10 @@ def build_heliostock_overview_pdf(
         f"sur {scenario.simulation_years_total} ans"
     )
 
-    _draw_header(canvas, title="HelioStock - synthèse du calcul", subtitle=subtitle, width=page_width, height=page_height)
+    product_title = _product_title(scenario)
+    has_geothermal = _has_geothermal_results(scenario)
+
+    _draw_header(canvas, title=f"{product_title} - synthèse du calcul", subtitle=subtitle, width=page_width, height=page_height)
     y = page_height - 92
     storage_m3 = scenario.config.collector.area_m2 * scenario.config.collector.daily_buffer_l_per_m2 / 1000.0
     y = _draw_section_title(canvas, "Données d'entrée principales", x=34, y=y)
@@ -826,26 +878,42 @@ def build_heliostock_overview_pdf(
     canvas.showPage()
     page_number += 1
 
-    _draw_header(canvas, title="HelioStock - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
+    _draw_header(canvas, title=f"{product_title} - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
     y = page_height - 92
-    for label, scenario_name in SCENARIOS:
-        y = _draw_section_title(canvas, label, x=34, y=y)
-        y = _draw_kpi_grid(canvas, _scenario_metrics(scenario, scenario_name), x=34, y=y, width=page_width - 68)
-        y -= 4
-        if y < 120:
-            _draw_footer(canvas, page_number=page_number, width=page_width)
-            canvas.showPage()
-            page_number += 1
-            _draw_header(canvas, title="HelioStock - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
-            y = page_height - 92
+    if has_geothermal:
+        for label, scenario_name in SCENARIOS:
+            y = _draw_section_title(canvas, label, x=34, y=y)
+            y = _draw_kpi_grid(canvas, _scenario_metrics(scenario, scenario_name), x=34, y=y, width=page_width - 68)
+            y -= 4
+            if y < 120:
+                _draw_footer(canvas, page_number=page_number, width=page_width)
+                canvas.showPage()
+                page_number += 1
+                _draw_header(canvas, title=f"{product_title} - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
+                y = page_height - 92
+    else:
+        y = _draw_section_title(canvas, "Solaire thermique seul", x=34, y=y)
+        y = _draw_kpi_grid(
+            canvas,
+            [
+                ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
+                ("Pertes ballon solaire", _fmt_mwh_from_kwh(getattr(scenario, "solar_buffer_loss_kwh", 0.0))),
+                ("Couverture solaire HT", _fmt_number(scenario.annual_ht_solar_coverage * 100.0, 0, "%")),
+                ("Appoint gaz HT", _fmt_mwh_from_kwh(scenario.total_backup_ht_kwh)),
+            ],
+            x=34,
+            y=y,
+            width=page_width - 68,
+        )
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
     page_number += 1
 
-    _draw_multiyear_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
-    _draw_footer(canvas, page_number=page_number, width=page_width)
-    canvas.showPage()
-    page_number += 1
+    if has_geothermal:
+        _draw_multiyear_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
+        _draw_footer(canvas, page_number=page_number, width=page_width)
+        canvas.showPage()
+        page_number += 1
 
     _draw_display_year_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
     _draw_footer(canvas, page_number=page_number, width=page_width)
@@ -857,28 +925,29 @@ def build_heliostock_overview_pdf(
     canvas.showPage()
     page_number += 1
 
-    _draw_header(canvas, title="HelioStock - économie multiannuelle", subtitle=subtitle, width=page_width, height=page_height)
-    y = page_height - 92
-    chart_w = (page_width - 82) / 2
-    _draw_economic_chart(canvas, scenario, x=34, y=page_height - 92 - 220, width=chart_w, height=220)
-    y = _draw_section_title(canvas, "Comparaison économique des scénarios", x=48 + chart_w, y=y)
-    y = _draw_economic_table(canvas, scenario, x=48 + chart_w, y=y, width=chart_w)
-    y -= 10
-    savings = scenario.savings or {}
-    y = _draw_section_title(canvas, "Statut économie de sondes", x=48 + chart_w, y=y)
-    _draw_kpi_grid(
-        canvas,
-        [
-            ("Calcul physique C", "réalisé" if bool(savings.get("simulated", False)) else "non lancé"),
-            ("Réduction validée", "oui" if bool(savings.get("found", False)) else "non"),
-            ("Linéaire testé", _fmt_number(savings.get("candidate_length_m"), 0, "ml")),
-            ("Gain retenu", _fmt_number(savings.get("saved_length_m", 0.0), 0, "ml")),
-        ],
-        x=48 + chart_w,
-        y=y,
-        width=chart_w,
-        cols=2,
-    )
-    _draw_footer(canvas, page_number=page_number, width=page_width)
+    if has_geothermal:
+        _draw_header(canvas, title=f"{product_title} - économie multiannuelle", subtitle=subtitle, width=page_width, height=page_height)
+        y = page_height - 92
+        chart_w = (page_width - 82) / 2
+        _draw_economic_chart(canvas, scenario, x=34, y=page_height - 92 - 220, width=chart_w, height=220)
+        y = _draw_section_title(canvas, "Comparaison économique des scénarios", x=48 + chart_w, y=y)
+        y = _draw_economic_table(canvas, scenario, x=48 + chart_w, y=y, width=chart_w)
+        y -= 10
+        savings = scenario.savings or {}
+        y = _draw_section_title(canvas, "Statut économie de sondes", x=48 + chart_w, y=y)
+        _draw_kpi_grid(
+            canvas,
+            [
+                ("Calcul physique C", "réalisé" if bool(savings.get("simulated", False)) else "non lancé"),
+                ("Réduction validée", "oui" if bool(savings.get("found", False)) else "non"),
+                ("Linéaire testé", _fmt_number(savings.get("candidate_length_m"), 0, "ml")),
+                ("Gain retenu", _fmt_number(savings.get("saved_length_m", 0.0), 0, "ml")),
+            ],
+            x=48 + chart_w,
+            y=y,
+            width=chart_w,
+            cols=2,
+        )
+        _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.save()
     return buffer.getvalue()
