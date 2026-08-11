@@ -103,6 +103,20 @@ def _initial_branch_monthly_dataframe(values: list[float] | None = None) -> pd.D
     return pd.DataFrame({"Mois": MONTHS_FR, BRANCH_NEEDS_COL: data})
 
 
+def _coerce_monthly_values(source: object) -> list[float]:
+    series = pd.Series(source)
+    cleaned = (
+        series.astype(str)
+        .str.replace("\u202f", "", regex=False)
+        .str.replace("\xa0", "", regex=False)
+        .str.replace(" ", "", regex=False)
+        .str.replace(",", ".", regex=False)
+        .str.strip()
+    )
+    values = pd.to_numeric(cleaned, errors="coerce").fillna(0.0).astype(float).tolist()
+    return (values + [0.0] * 12)[:12]
+
+
 def _normalise_manual_needs_dataframe(value: object, fallback: pd.DataFrame | None = None) -> pd.DataFrame:
     if isinstance(value, pd.DataFrame):
         frame = value.copy()
@@ -112,8 +126,7 @@ def _normalise_manual_needs_dataframe(value: object, fallback: pd.DataFrame | No
     if TOTAL_NEEDS_COL not in frame.columns:
         values = [0.0] * 12
     else:
-        values = pd.to_numeric(frame[TOTAL_NEEDS_COL], errors="coerce").fillna(0.0).astype(float).tolist()
-    values = (values + [0.0] * 12)[:12]
+        values = _coerce_monthly_values(frame[TOTAL_NEEDS_COL])
     return _initial_monthly_dataframe(values)
 
 
@@ -129,8 +142,7 @@ def _normalise_branch_needs_dataframe(value: object, fallback: pd.DataFrame | No
         source = frame[TOTAL_NEEDS_COL]
     else:
         source = pd.Series([0.0] * 12)
-    values = pd.to_numeric(source, errors="coerce").fillna(0.0).astype(float).tolist()
-    values = (values + [0.0] * 12)[:12]
+    values = _coerce_monthly_values(source)
     return _initial_branch_monthly_dataframe(values)
 
 
@@ -156,14 +168,21 @@ def _sync_branch_defaults_from_total_if_needed() -> None:
 
 
 def _ensure_branch_editor_schema() -> None:
-    if st.session_state.get("_heliorc_branch_editor_schema") == 2:
+    if st.session_state.get("_heliorc_branch_editor_schema") == 3:
         return
     branch_df = st.session_state.get("branch_needs_df")
-    if not (isinstance(branch_df, pd.DataFrame) and BRANCH_NEEDS_COL in branch_df.columns):
+    manual_values = _monthly_values_from_frame(st.session_state.get("manual_needs_df"))
+    branch_values = _branch_monthly_values_from_frame(branch_df)
+    if branch_values == manual_values:
+        st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe()
+    elif not (isinstance(branch_df, pd.DataFrame) and BRANCH_NEEDS_COL in branch_df.columns):
         st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe()
     st.session_state.pop("branch_needs_editor", None)
     st.session_state.pop("branch_needs_editor_form", None)
-    st.session_state["_heliorc_branch_editor_schema"] = 2
+    st.session_state.pop("manual_needs_editor_form", None)
+    st.session_state.pop("manual_needs_editor_form_v3", None)
+    st.session_state.pop("branch_needs_editor_form_v3", None)
+    st.session_state["_heliorc_branch_editor_schema"] = 3
 
 
 
@@ -954,11 +973,13 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
         st.session_state["manual_needs_df"] = _initial_monthly_dataframe([float(value) for value in monthly_values])
         st.session_state.pop("manual_needs_editor", None)
         st.session_state.pop("manual_needs_editor_form", None)
+        st.session_state.pop("manual_needs_editor_form_v3", None)
     branch_monthly_values = input_data.get("branch_monthly_needs_mwh")
     if isinstance(branch_monthly_values, list) and len(branch_monthly_values) == 12:
         st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe([float(value) for value in branch_monthly_values])
         st.session_state.pop("branch_needs_editor", None)
         st.session_state.pop("branch_needs_editor_form", None)
+        st.session_state.pop("branch_needs_editor_form_v3", None)
     rate = input_data.get("discount_rate_override")
     st.session_state["override_discount_rate"] = rate is not None
     if rate is not None:
@@ -1072,14 +1093,15 @@ def render_heliorc_app() -> None:
             with st.form("manual_needs_editor_form_container"):
                 edited = st.data_editor(
                     _normalise_manual_needs_dataframe(st.session_state.manual_needs_df),
-                    key="manual_needs_editor_form",
+                    key="manual_needs_editor_form_v3",
                     hide_index=True,
                     width="stretch",
                     disabled=["Mois"],
                     column_config={
                         "Mois": st.column_config.TextColumn("Mois"),
-                        "Besoins RCU (MWh)": st.column_config.NumberColumn(
-                            "Besoins RCU (MWh)", min_value=0.0, step=1.0, format="%.1f"
+                        TOTAL_NEEDS_COL: st.column_config.TextColumn(
+                            TOTAL_NEEDS_COL,
+                            help="Collage Excel accepté avec virgule ou point décimal. Exemple : 410,5",
                         ),
                     },
                 )
@@ -1151,14 +1173,15 @@ def render_heliorc_app() -> None:
             with st.form("branch_needs_editor_form_container"):
                 branch_edited = st.data_editor(
                     _normalise_branch_needs_dataframe(st.session_state.branch_needs_df),
-                    key="branch_needs_editor_form",
+                    key="branch_needs_editor_form_v3",
                     hide_index=True,
                     width="stretch",
                     disabled=["Mois"],
                     column_config={
                         "Mois": st.column_config.TextColumn("Mois"),
-                        BRANCH_NEEDS_COL: st.column_config.NumberColumn(
-                            BRANCH_NEEDS_COL, min_value=0.0, step=1.0, format="%.1f"
+                        BRANCH_NEEDS_COL: st.column_config.TextColumn(
+                            BRANCH_NEEDS_COL,
+                            help="Collage Excel accepté avec virgule ou point décimal. Exemple : 410,5",
                         ),
                     },
                 )
