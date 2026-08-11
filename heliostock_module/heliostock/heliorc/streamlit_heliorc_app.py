@@ -53,6 +53,8 @@ from .. import ui_portal
 APP_DIR = Path(__file__).resolve().parent
 ASSETS_DIR = APP_DIR.parents[1] / "assets"
 ADEME_LOGO = ASSETS_DIR / "Logo_ADEME.png"
+TOTAL_NEEDS_COL = "Besoins RCU (MWh)"
+BRANCH_NEEDS_COL = "Besoins branche sélectionnée (MWh)"
 PROJECT_STORE = JsonProjectStore("heliorc", app_label="HelioRC")
 DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliorc_projects.json"
 PROJECTS_SESSION_CACHE_KEY = "heliorc_projects_cache"
@@ -93,7 +95,12 @@ def _render_styles() -> None:
 
 def _initial_monthly_dataframe(values: list[float] | None = None) -> pd.DataFrame:
     data = values if values is not None else DEFAULT_MONTHLY_NEEDS_MWH
-    return pd.DataFrame({"Mois": MONTHS_FR, "Besoins RCU (MWh)": data})
+    return pd.DataFrame({"Mois": MONTHS_FR, TOTAL_NEEDS_COL: data})
+
+
+def _initial_branch_monthly_dataframe(values: list[float] | None = None) -> pd.DataFrame:
+    data = values if values is not None else [0.0] * 12
+    return pd.DataFrame({"Mois": MONTHS_FR, BRANCH_NEEDS_COL: data})
 
 
 def _normalise_manual_needs_dataframe(value: object, fallback: pd.DataFrame | None = None) -> pd.DataFrame:
@@ -102,17 +109,62 @@ def _normalise_manual_needs_dataframe(value: object, fallback: pd.DataFrame | No
     else:
         frame = fallback.copy() if isinstance(fallback, pd.DataFrame) else _initial_monthly_dataframe()
 
-    if "Besoins RCU (MWh)" not in frame.columns:
+    if TOTAL_NEEDS_COL not in frame.columns:
         values = [0.0] * 12
     else:
-        values = pd.to_numeric(frame["Besoins RCU (MWh)"], errors="coerce").fillna(0.0).astype(float).tolist()
+        values = pd.to_numeric(frame[TOTAL_NEEDS_COL], errors="coerce").fillna(0.0).astype(float).tolist()
     values = (values + [0.0] * 12)[:12]
     return _initial_monthly_dataframe(values)
 
 
+def _normalise_branch_needs_dataframe(value: object, fallback: pd.DataFrame | None = None) -> pd.DataFrame:
+    if isinstance(value, pd.DataFrame):
+        frame = value.copy()
+    else:
+        frame = fallback.copy() if isinstance(fallback, pd.DataFrame) else _initial_branch_monthly_dataframe()
+
+    if BRANCH_NEEDS_COL in frame.columns:
+        source = frame[BRANCH_NEEDS_COL]
+    elif TOTAL_NEEDS_COL in frame.columns:
+        source = frame[TOTAL_NEEDS_COL]
+    else:
+        source = pd.Series([0.0] * 12)
+    values = pd.to_numeric(source, errors="coerce").fillna(0.0).astype(float).tolist()
+    values = (values + [0.0] * 12)[:12]
+    return _initial_branch_monthly_dataframe(values)
+
+
 def _monthly_values_from_frame(frame: object) -> list[float]:
     normalised = _normalise_manual_needs_dataframe(frame)
-    return normalised["Besoins RCU (MWh)"].astype(float).tolist()
+    return normalised[TOTAL_NEEDS_COL].astype(float).tolist()
+
+
+def _branch_monthly_values_from_frame(frame: object) -> list[float]:
+    normalised = _normalise_branch_needs_dataframe(frame)
+    return normalised[BRANCH_NEEDS_COL].astype(float).tolist()
+
+
+def _sync_branch_defaults_from_total_if_needed() -> None:
+    branch_df = st.session_state.get("branch_needs_df")
+    if isinstance(branch_df, pd.DataFrame) and BRANCH_NEEDS_COL in branch_df.columns:
+        return
+    # Migration douce des anciens projets : si l'ancien champ branche était vide ou absent,
+    # on démarre sur zéro pour éviter de reprendre silencieusement le besoin du RCU complet.
+    st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe()
+    st.session_state.pop("branch_needs_editor", None)
+    st.session_state.pop("branch_needs_editor_form", None)
+
+
+def _ensure_branch_editor_schema() -> None:
+    if st.session_state.get("_heliorc_branch_editor_schema") == 2:
+        return
+    branch_df = st.session_state.get("branch_needs_df")
+    if not (isinstance(branch_df, pd.DataFrame) and BRANCH_NEEDS_COL in branch_df.columns):
+        st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe()
+    st.session_state.pop("branch_needs_editor", None)
+    st.session_state.pop("branch_needs_editor_form", None)
+    st.session_state["_heliorc_branch_editor_schema"] = 2
+
 
 
 def _current_connection_mode() -> str:
@@ -151,7 +203,7 @@ def _init_state() -> None:
         "annual_ecs": 2000.0,
         "network_efficiency_percent": 85,
         "manual_needs_df": _initial_monthly_dataframe(),
-        "branch_needs_df": _initial_monthly_dataframe([value * 0.5 for value in DEFAULT_MONTHLY_NEEDS_MWH]),
+        "branch_needs_df": _initial_branch_monthly_dataframe(),
         "solar_connection_mode": "Installation centralisée",
         "network_operates_summer": True,
         "summer_excess_enr": False,
@@ -295,10 +347,10 @@ def _current_project_data() -> dict[str, Any]:
 def _current_inputs_data() -> dict[str, Any]:
     manual_df = st.session_state.get("manual_needs_df")
     monthly_needs = DEFAULT_MONTHLY_NEEDS_MWH
-    if isinstance(manual_df, pd.DataFrame) and "Besoins RCU (MWh)" in manual_df:
-        monthly_needs = manual_df["Besoins RCU (MWh)"].astype(float).tolist()
+    if isinstance(manual_df, pd.DataFrame) and TOTAL_NEEDS_COL in manual_df:
+        monthly_needs = manual_df[TOTAL_NEEDS_COL].astype(float).tolist()
     branch_df = st.session_state.get("branch_needs_df")
-    branch_monthly_needs = _monthly_values_from_frame(branch_df)
+    branch_monthly_needs = _branch_monthly_values_from_frame(branch_df)
     return {
         "location_label": st.session_state.get("location_label"),
         "zone": st.session_state.get("zone"),
@@ -904,7 +956,7 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
         st.session_state.pop("manual_needs_editor_form", None)
     branch_monthly_values = input_data.get("branch_monthly_needs_mwh")
     if isinstance(branch_monthly_values, list) and len(branch_monthly_values) == 12:
-        st.session_state["branch_needs_df"] = _initial_monthly_dataframe([float(value) for value in branch_monthly_values])
+        st.session_state["branch_needs_df"] = _initial_branch_monthly_dataframe([float(value) for value in branch_monthly_values])
         st.session_state.pop("branch_needs_editor", None)
         st.session_state.pop("branch_needs_editor_form", None)
     rate = input_data.get("discount_rate_override")
@@ -966,6 +1018,7 @@ def render_heliorc_app() -> None:
 
     _render_styles()
     _init_state()
+    _ensure_branch_editor_schema()
     locations = load_locations()
 
     title_col, logo_col = st.columns([0.78, 0.22], vertical_alignment="center")
@@ -1089,6 +1142,7 @@ def render_heliorc_app() -> None:
                 st.error(str(exc))
 
         if _is_decentralized_connection():
+            _sync_branch_defaults_from_total_if_needed()
             st.markdown("### Besoins de la branche sélectionnée")
             st.caption(
                 "Ces valeurs servent au dimensionnement de la centrale décentralisée. "
@@ -1096,31 +1150,31 @@ def render_heliorc_app() -> None:
             )
             with st.form("branch_needs_editor_form_container"):
                 branch_edited = st.data_editor(
-                    _normalise_manual_needs_dataframe(st.session_state.branch_needs_df),
+                    _normalise_branch_needs_dataframe(st.session_state.branch_needs_df),
                     key="branch_needs_editor_form",
                     hide_index=True,
                     width="stretch",
                     disabled=["Mois"],
                     column_config={
                         "Mois": st.column_config.TextColumn("Mois"),
-                        "Besoins RCU (MWh)": st.column_config.NumberColumn(
-                            "Besoins branche sélectionnée (MWh)", min_value=0.0, step=1.0, format="%.1f"
+                        BRANCH_NEEDS_COL: st.column_config.NumberColumn(
+                            BRANCH_NEEDS_COL, min_value=0.0, step=1.0, format="%.1f"
                         ),
                     },
                 )
                 apply_branch_needs = st.form_submit_button("Appliquer les valeurs de la branche", width="stretch")
             if apply_branch_needs:
-                st.session_state.branch_needs_df = _normalise_manual_needs_dataframe(
+                st.session_state.branch_needs_df = _normalise_branch_needs_dataframe(
                     branch_edited,
                     st.session_state.branch_needs_df,
                 )
-            if isinstance(needs_preview, pd.DataFrame) and "Besoins RCU (MWh)" in needs_preview:
+            if isinstance(needs_preview, pd.DataFrame) and TOTAL_NEEDS_COL in needs_preview:
                 total_monthly_values = _monthly_values_from_frame(needs_preview)
-                branch_monthly_values = _monthly_values_from_frame(st.session_state.branch_needs_df)
+                branch_monthly_values = _branch_monthly_values_from_frame(st.session_state.branch_needs_df)
                 for guard_message in decentralized_branch_guard(total_monthly_values, branch_monthly_values):
                     st.error(guard_message)
-                total_summer = float(pd.to_numeric(needs_preview["Besoins RCU (MWh)"], errors="coerce").fillna(0.0).iloc[4:9].sum())
-                branch_summer = float(st.session_state.branch_needs_df["Besoins RCU (MWh)"].astype(float).iloc[4:9].sum())
+                total_summer = float(pd.to_numeric(needs_preview[TOTAL_NEEDS_COL], errors="coerce").fillna(0.0).iloc[4:9].sum())
+                branch_summer = float(_normalise_branch_needs_dataframe(st.session_state.branch_needs_df)[BRANCH_NEEDS_COL].astype(float).iloc[4:9].sum())
                 if total_summer > 0:
                     branch_share = branch_summer / total_summer
                     st.metric("Part estivale de la branche sélectionnée", f"{branch_share:.1%}")
@@ -1255,7 +1309,7 @@ def render_heliorc_app() -> None:
                 progress.progress(25, text="Construction du profil mensuel...")
                 if st.session_state.needs_mode == "Besoins mensuels connus":
                     total_monthly_needs = (
-                        st.session_state.manual_needs_df["Besoins RCU (MWh)"]
+                        st.session_state.manual_needs_df[TOTAL_NEEDS_COL]
                         .astype(float)
                         .tolist()
                     )
@@ -1267,12 +1321,12 @@ def render_heliorc_app() -> None:
                         network_efficiency=float(st.session_state.network_efficiency_percent) / 100,
                         calculation_mode="excel_v5_3",
                     )
-                    total_monthly_needs = estimated["Besoins RCU (MWh)"].astype(float).tolist()
+                    total_monthly_needs = estimated[TOTAL_NEEDS_COL].astype(float).tolist()
 
                 progress.progress(60, text="Prédimensionnement technique...")
                 calculation_monthly_needs = total_monthly_needs
                 if _is_decentralized_connection():
-                    calculation_monthly_needs = _monthly_values_from_frame(st.session_state.branch_needs_df)
+                    calculation_monthly_needs = _branch_monthly_values_from_frame(st.session_state.branch_needs_df)
                     guard_messages = decentralized_branch_guard(total_monthly_needs, calculation_monthly_needs)
                     if guard_messages:
                         for guard_message in guard_messages:
@@ -1297,10 +1351,10 @@ def render_heliorc_app() -> None:
                     }
                 )
                 if _is_decentralized_connection():
-                    monthly["Besoins branche sélectionnée (MWh)"] = monthly["Besoins RCU (MWh)"].astype(float)
+                    monthly[BRANCH_NEEDS_COL] = monthly[TOTAL_NEEDS_COL].astype(float)
                     monthly["Taux de couverture mensuel branche"] = monthly["Taux de couverture mensuel"].astype(float)
                     monthly["Besoins RCU total (MWh)"] = total_monthly_needs
-                    monthly["Besoins RCU (MWh)"] = total_monthly_needs
+                    monthly[TOTAL_NEEDS_COL] = total_monthly_needs
                     total_need_series = pd.Series(total_monthly_needs, dtype=float).replace(0.0, pd.NA)
                     monthly["Taux de couverture mensuel"] = (
                         monthly["Production solaire (MWh)"].astype(float).div(total_need_series).fillna(0.0)
@@ -1470,19 +1524,19 @@ def render_heliorc_app() -> None:
                     height=520,
                 )
 
-            if "Besoins branche sélectionnée (MWh)" in monthly.columns:
+            if BRANCH_NEEDS_COL in monthly.columns:
                 st.markdown("### Production solaire thermique sur les besoins de la branche")
                 st.caption(
                     "En mode décentralisé, ce graphique vérifie la production solaire sur la branche réellement desservie. "
                     "Le graphique précédent reste rapporté au besoin total du RCU."
                 )
-                branch_needs_mwh = monthly["Besoins branche sélectionnée (MWh)"].astype(float)
+                branch_needs_mwh = monthly[BRANCH_NEEDS_COL].astype(float)
                 branch_solar_covered_mwh = solar_mwh.clip(upper=branch_needs_mwh)
                 branch_backup_mwh = (branch_needs_mwh - branch_solar_covered_mwh).clip(lower=0)
                 branch_display_monthly = monthly[
                     [
                         "Mois",
-                        "Besoins branche sélectionnée (MWh)",
+                        BRANCH_NEEDS_COL,
                         "Production solaire (MWh)",
                         "Taux de couverture mensuel branche",
                     ]
@@ -1523,7 +1577,7 @@ def render_heliorc_app() -> None:
                     st.dataframe(
                         branch_display_monthly.style.format(
                             {
-                                "Besoins branche sélectionnée (MWh)": "{:.1f}",
+                                BRANCH_NEEDS_COL: "{:.1f}",
                                 "Production solaire (MWh)": "{:.1f}",
                                 "Taux de couverture mensuel branche": "{:.1%}",
                             }
