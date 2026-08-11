@@ -17,7 +17,6 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import cm
 from reportlab.platypus import (
     KeepTogether,
-    PageBreak,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
@@ -48,6 +47,8 @@ ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 ADEME_LOGO = ASSETS_DIR / "Logo_ADEME.png"
 CHATEAUBRIANT_RCU_PHOTO = ASSETS_DIR / "heliorc_chateaubriant_rcu.jpg"
 CHATEAUBRIANT_RCU_CAPTION = "Installation solaire thermique du RCU de Chateaubriant (44)"
+SOLAR_NETWORK_SCHEMA = ASSETS_DIR / "heliorc_schema_reseau_solaire.png"
+SOLAR_NETWORK_SCHEMA_CAPTION = "Principe d'intégration d'une centrale solaire thermique sur réseau de chaleur"
 
 
 def _money(value: float) -> str:
@@ -431,6 +432,20 @@ def _surface_snapshot_flowables(
     ]
 
 
+def _intro_visual_cell(
+    *,
+    image_path: Path,
+    caption: str,
+    styles: dict[str, Any],
+    max_width: float,
+    max_height: float,
+) -> list[Any]:
+    return [
+        Image(str(image_path), width=max_width, height=max_height, kind="proportional"),
+        Paragraph(caption, styles["PhotoCaptionHelio"]),
+    ]
+
+
 def build_opportunity_note(
     *,
     project: dict[str, Any],
@@ -515,10 +530,48 @@ def build_opportunity_note(
         )
     )
     story.append(Paragraph(f"Documentation de référence ADEME : {ADEME_REFERENCE_URL}", styles["SmallHelio"]))
+    intro_visuals: list[list[Any] | str] = []
+    if SOLAR_NETWORK_SCHEMA.exists():
+        intro_visuals.append(
+            _intro_visual_cell(
+                image_path=SOLAR_NETWORK_SCHEMA,
+                caption=SOLAR_NETWORK_SCHEMA_CAPTION,
+                styles=styles,
+                max_width=7.7 * cm,
+                max_height=4.65 * cm,
+            )
+        )
+    else:
+        intro_visuals.append("")
     if CHATEAUBRIANT_RCU_PHOTO.exists():
+        intro_visuals.append(
+            _intro_visual_cell(
+                image_path=CHATEAUBRIANT_RCU_PHOTO,
+                caption=CHATEAUBRIANT_RCU_CAPTION,
+                styles=styles,
+                max_width=7.7 * cm,
+                max_height=4.65 * cm,
+            )
+        )
+    else:
+        intro_visuals.append("")
+    if any(intro_visuals):
+        visual_table = Table([intro_visuals], colWidths=[8.05 * cm, 8.05 * cm])
+        visual_table.setStyle(
+            TableStyle(
+                [
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (0, 0), (0, 0), "LEFT"),
+                    ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 4),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+        )
         story.append(Spacer(1, 0.15 * cm))
-        story.append(Image(str(CHATEAUBRIANT_RCU_PHOTO), width=10.0 * cm, height=4.75 * cm, kind="proportional"))
-        story.append(Paragraph(CHATEAUBRIANT_RCU_CAPTION, styles["PhotoCaptionHelio"]))
+        story.append(visual_table)
     story.append(Spacer(1, 0.2 * cm))
 
     project_rows = [
@@ -550,15 +603,31 @@ def build_opportunity_note(
     story.append(table)
     story.append(Spacer(1, 0.35 * cm))
 
+    display_annual_need = results.annual_need_mwh
+    display_solar_fraction = results.solar_fraction
+    calculation_solar_fraction = results.solar_fraction
+    connection_mode = ""
+    if isinstance(sizing_context, dict):
+        connection_mode = str(sizing_context.get("solar_connection_mode") or "")
+        if isinstance(sizing_context.get("annual_total_need_mwh"), (float, int)):
+            display_annual_need = float(sizing_context["annual_total_need_mwh"])
+        if isinstance(sizing_context.get("global_solar_fraction"), (float, int)):
+            display_solar_fraction = float(sizing_context["global_solar_fraction"])
+        if isinstance(sizing_context.get("calculation_solar_fraction"), (float, int)):
+            calculation_solar_fraction = float(sizing_context["calculation_solar_fraction"])
+
     story.append(Paragraph("1. Hypothèses principales", styles["SectionHelio"]))
     assumptions = [
         ["Régime moyen", f"{inputs.regime_label} - {inputs.mean_network_temperature_c:.0f} °C"],
         ["Dimensionnement au talon", f"{inputs.base_load_fraction:.0%}"],
-        ["Besoins annuels du RCU", f"{_number(results.annual_need_mwh)} MWh/an"],
+        ["Besoins annuels du RCU", f"{_number(display_annual_need)} MWh/an"],
         ["Part des besoins mai-septembre", f"{results.summer_need_share:.1%}"],
         ["Gisement horizontal", f"{_number(results.annual_horizontal_irradiation_kwh_m2)} kWh/m².an"],
         ["Zone d'aide ADEME", f"{inputs.zone}"],
     ]
+    if connection_mode.startswith("Installation décentralisée"):
+        assumptions.append(["Mode d'implantation", "Décentralisé sur branche du réseau"])
+        assumptions.append(["Fraction solaire branche", f"{calculation_solar_fraction:.1%}"])
     assumptions_table = Table(assumptions, colWidths=[7.5 * cm, 9.0 * cm])
     assumptions_table.setStyle(
         TableStyle(
@@ -578,7 +647,7 @@ def build_opportunity_note(
     story.append(Paragraph("2. Résultats techniques", styles["SectionHelio"]))
     technical = [
         ["Surface de capteurs", f"{_number(results.collector_area_m2)} m²", "Production solaire", f"{_number(results.annual_solar_production_mwh)} MWh/an"],
-        ["Productivité", f"{_number(results.productivity_kwh_m2_year)} kWh/m².an", "Fraction solaire", f"{results.solar_fraction:.1%}"],
+        ["Productivité", f"{_number(results.productivity_kwh_m2_year)} kWh/m².an", "Fraction solaire RCU global", f"{display_solar_fraction:.1%}"],
         ["Stockage journalier", f"{_number(results.storage_volume_m3)} m³", "Emprise foncière", f"{results.land_area_ha:.2f} ha"],
         [
             Paragraph("Distance maximum<br/>de raccordement conseillée", styles["BodyText"]),
@@ -605,17 +674,16 @@ def build_opportunity_note(
     )
     story.append(technical_table)
     story.append(Spacer(1, 0.15 * cm))
-    story.append(
-        _simple_key_value_table(
-            _foncier_conclusion(
-                results=results,
-                sizing_context=sizing_context,
-                surface_orientation=surface_orientation,
-            )
-            + _architectural_conclusion(architectural_constraints),
-            styles,
+    project_conclusions_table = _simple_key_value_table(
+        _foncier_conclusion(
+            results=results,
+            sizing_context=sizing_context,
+            surface_orientation=surface_orientation,
         )
+        + _architectural_conclusion(architectural_constraints),
+        styles,
     )
+    story.append(KeepTogether([project_conclusions_table]))
     story.append(Spacer(1, 0.15 * cm))
     story.extend(
         _surface_snapshot_flowables(
@@ -627,7 +695,6 @@ def build_opportunity_note(
     story.append(Spacer(1, 0.15 * cm))
     story.append(_chart(monthly))
 
-    story.append(Paragraph("3. Première analyse économique", styles["SectionHelio"]))
     economics = [
         ["CAPEX indicatif", _money(results.capex_eur)],
         ["Coût surfacique", f"{_number(results.unit_capex_eur_m2)} € HT/m²"],
@@ -654,9 +721,16 @@ def build_opportunity_note(
             ]
         )
     )
-    story.append(economics_table)
+    story.append(
+        KeepTogether(
+            [
+                Paragraph("3. Première analyse économique", styles["SectionHelio"]),
+                economics_table,
+            ]
+        )
+    )
 
-    story.append(PageBreak())
+    story.append(Spacer(1, 0.25 * cm))
     story.append(Paragraph("4. Profil mensuel", styles["SectionHelio"]))
     monthly_rows = [["Mois", "Besoins RCU", "Production solaire", "Couverture"]]
     for _, row in monthly.iterrows():
@@ -684,7 +758,7 @@ def build_opportunity_note(
             ]
         )
     )
-    story.append(monthly_table)
+    story.append(KeepTogether([monthly_table]))
 
     story.append(Paragraph("5. Vigilances et suites à donner", styles["SectionHelio"]))
     warning_flowables = []

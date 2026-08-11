@@ -138,6 +138,29 @@ def _sync_manual_needs_editor() -> None:
     )
 
 
+def _sync_branch_needs_editor() -> None:
+    fallback = st.session_state.get("branch_needs_df")
+    if not isinstance(fallback, pd.DataFrame):
+        fallback = _initial_monthly_dataframe([value * 0.5 for value in DEFAULT_MONTHLY_NEEDS_MWH])
+    st.session_state["branch_needs_df"] = _manual_needs_from_editor_state(
+        st.session_state.get("branch_needs_editor"),
+        fallback,
+    )
+
+
+def _monthly_values_from_frame(frame: object) -> list[float]:
+    normalised = _normalise_manual_needs_dataframe(frame)
+    return normalised["Besoins RCU (MWh)"].astype(float).tolist()
+
+
+def _current_connection_mode() -> str:
+    return str(st.session_state.get("solar_connection_mode") or "Installation centralisée")
+
+
+def _is_decentralized_connection() -> bool:
+    return _current_connection_mode().startswith("Installation décentralisée")
+
+
 def _init_state() -> None:
     defaults: dict[str, Any] = {
         "project_name": "Étude d'opportunité solaire thermique",
@@ -166,6 +189,8 @@ def _init_state() -> None:
         "annual_ecs": 2000.0,
         "network_efficiency_percent": 85,
         "manual_needs_df": _initial_monthly_dataframe(),
+        "branch_needs_df": _initial_monthly_dataframe([value * 0.5 for value in DEFAULT_MONTHLY_NEEDS_MWH]),
+        "solar_connection_mode": "Installation centralisée",
         "network_operates_summer": True,
         "summer_excess_enr": False,
         "land_identified": True,
@@ -310,6 +335,8 @@ def _current_inputs_data() -> dict[str, Any]:
     monthly_needs = DEFAULT_MONTHLY_NEEDS_MWH
     if isinstance(manual_df, pd.DataFrame) and "Besoins RCU (MWh)" in manual_df:
         monthly_needs = manual_df["Besoins RCU (MWh)"].astype(float).tolist()
+    branch_df = st.session_state.get("branch_needs_df")
+    branch_monthly_needs = _monthly_values_from_frame(branch_df)
     return {
         "location_label": st.session_state.get("location_label"),
         "zone": st.session_state.get("zone"),
@@ -318,6 +345,8 @@ def _current_inputs_data() -> dict[str, Any]:
         "base_load_fraction": float(st.session_state.get("base_load_percent", 90)) / 100,
         "sizing_strategy": st.session_state.get("sizing_strategy", SIZING_STRATEGIES[0]),
         "monthly_needs_mwh": monthly_needs,
+        "branch_monthly_needs_mwh": branch_monthly_needs,
+        "solar_connection_mode": _current_connection_mode(),
         "needs_mode": st.session_state.get("needs_mode"),
         "annual_heating_mwh": float(st.session_state.get("annual_heating", 0.0)),
         "annual_ecs_mwh": float(st.session_state.get("annual_ecs", 0.0)),
@@ -661,16 +690,38 @@ def _upsert_project_backup(*, path: Path, payload: dict[str, Any]) -> None:
     _save_project_backups(projects)
 
 
-def _delete_project_backup(*, payload: dict[str, Any] | None, path: Path) -> None:
+def _project_backup_matches_path(
+    project: dict[str, Any],
+    *,
+    path: Path,
+    payload: dict[str, Any] | None,
+) -> bool:
     payload = payload or {}
-    backup_item = {
-        "slug": path.with_suffix("").name,
-        "owner_email": payload.get("owner_email", ""),
-        "project_id": payload.get("project_id", ""),
-        "name": payload.get("name", path.stem),
-    }
-    slug = _project_backup_slug(backup_item)
-    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    slug = path.with_suffix("").name
+    if _project_backup_slug(project) == slug:
+        return True
+    target_project_id = str(payload.get("project_id") or "").strip()
+    if not target_project_id:
+        return False
+    target_owner = normalize_email(str(payload.get("owner_email") or ""))
+    backup_payload = project.get("payload", project)
+    if not isinstance(backup_payload, dict):
+        backup_payload = {}
+    backup_project_id = str(project.get("project_id") or backup_payload.get("project_id") or "").strip()
+    backup_owner = normalize_email(str(project.get("owner_email") or backup_payload.get("owner_email") or ""))
+    return bool(
+        backup_project_id
+        and backup_project_id == target_project_id
+        and (not target_owner or not backup_owner or backup_owner == target_owner)
+    )
+
+
+def _delete_project_backup(*, payload: dict[str, Any] | None, path: Path) -> None:
+    projects = [
+        project
+        for project in _load_project_backups()
+        if not _project_backup_matches_path(project, path=path, payload=payload)
+    ]
     _save_project_backups(projects)
 
 
@@ -813,7 +864,7 @@ def _render_project_store_controls() -> None:
                 deleted_payload = PROJECT_STORE.load_project(path=resolved, owner_email=owner_email)
             except Exception:
                 deleted_payload = None
-            resolved.unlink(missing_ok=True)
+            PROJECT_STORE.delete_project(path=resolved, owner_email=owner_email)
             _delete_project_backup(payload=deleted_payload, path=resolved)
             st.success("Projet HelioRC supprimé.")
             st.rerun()
@@ -877,12 +928,21 @@ def _load_imported_project(payload: dict[str, Any]) -> None:
         st.session_state["base_load_percent"] = round(float(input_data["base_load_fraction"]) * 100)
     if input_data.get("sizing_strategy") in SIZING_STRATEGIES:
         st.session_state["sizing_strategy"] = input_data["sizing_strategy"]
+    if input_data.get("solar_connection_mode") in (
+        "Installation centralisée",
+        "Installation décentralisée sur une branche du réseau",
+    ):
+        st.session_state["solar_connection_mode"] = input_data["solar_connection_mode"]
     restore_surface_orientation_state(payload, project_id=str(payload.get("project_id", "projet")), state_prefix="heliorc")
     _restore_heliorc_architectural_state(payload, str(payload.get("project_id", "projet")))
     monthly_values = input_data.get("monthly_needs_mwh")
     if isinstance(monthly_values, list) and len(monthly_values) == 12:
         st.session_state["manual_needs_df"] = _initial_monthly_dataframe([float(value) for value in monthly_values])
         st.session_state.pop("manual_needs_editor", None)
+    branch_monthly_values = input_data.get("branch_monthly_needs_mwh")
+    if isinstance(branch_monthly_values, list) and len(branch_monthly_values) == 12:
+        st.session_state["branch_needs_df"] = _initial_monthly_dataframe([float(value) for value in branch_monthly_values])
+        st.session_state.pop("branch_needs_editor", None)
     rate = input_data.get("discount_rate_override")
     st.session_state["override_discount_rate"] = rate is not None
     if rate is not None:
@@ -960,11 +1020,11 @@ def render_heliorc_app() -> None:
     _render_project_store_controls()
     st.divider()
 
-    st.session_state["heliorc_surface_orientation_tab_label"] = "3. Orientation / surface"
+    st.session_state["heliorc_surface_orientation_tab_label"] = "2. Orientation / surface"
     tab_labels = [
         "1. Contexte",
-        "2. Besoins du RCU",
-        "3. Orientation / surface",
+        "2. Orientation / surface",
+        "3. Besoins du RCU",
         "4. Contraintes architecturales",
         "5. Hypothèses techniques",
         "6. Hypothèses économiques",
@@ -981,7 +1041,7 @@ def render_heliorc_app() -> None:
     with input_tabs[0]:
         _render_project_tab(locations)
 
-    with input_tabs[1]:
+    with input_tabs[2]:
         st.radio(
             "Mode de saisie",
             ["Besoins mensuels connus", "Estimation depuis les besoins annuels"],
@@ -1059,7 +1119,62 @@ def render_heliorc_app() -> None:
                 needs_preview = pd.DataFrame()
                 st.error(str(exc))
 
-    with input_tabs[2]:
+        if _is_decentralized_connection():
+            st.markdown("### Besoins de la branche sélectionnée")
+            st.caption(
+                "Ces valeurs servent au dimensionnement de la centrale décentralisée. "
+                "Les résultats finaux restent ensuite comparés au besoin total du RCU."
+            )
+            branch_edited = st.data_editor(
+                _normalise_manual_needs_dataframe(st.session_state.branch_needs_df),
+                key="branch_needs_editor",
+                hide_index=True,
+                width="stretch",
+                disabled=["Mois"],
+                on_change=_sync_branch_needs_editor,
+                column_config={
+                    "Mois": st.column_config.TextColumn("Mois"),
+                    "Besoins RCU (MWh)": st.column_config.NumberColumn(
+                        "Besoins branche sélectionnée (MWh)", min_value=0.0, step=1.0, format="%.1f"
+                    ),
+                },
+            )
+            st.session_state.branch_needs_df = _normalise_manual_needs_dataframe(
+                branch_edited,
+                st.session_state.branch_needs_df,
+            )
+            if isinstance(needs_preview, pd.DataFrame) and "Besoins RCU (MWh)" in needs_preview:
+                total_summer = float(pd.to_numeric(needs_preview["Besoins RCU (MWh)"], errors="coerce").fillna(0.0).iloc[4:9].sum())
+                branch_summer = float(st.session_state.branch_needs_df["Besoins RCU (MWh)"].astype(float).iloc[4:9].sum())
+                if total_summer > 0:
+                    branch_share = branch_summer / total_summer
+                    st.metric("Part estivale de la branche sélectionnée", f"{branch_share:.1%}")
+                    if branch_share < 0.50:
+                        st.warning(
+                            "Pour une centrale décentralisée sur branche, il est recommandé que la branche sélectionnée "
+                            "représente au moins 50 % des besoins estivaux qu'elle dessert."
+                        )
+
+    with input_tabs[1]:
+        st.radio(
+            "Position de la centrale solaire thermique",
+            [
+                "Installation centralisée",
+                "Installation décentralisée sur une branche du réseau",
+            ],
+            key="solar_connection_mode",
+            horizontal=True,
+            help=(
+                "Centralisée : la centrale est à proximité directe de la chaufferie principale. "
+                "Décentralisée : la centrale est éloignée de la chaufferie mais proche d'une branche du réseau ; "
+                "la branche doit idéalement représenter au moins 50 % des besoins estivaux qu'elle dessert."
+            ),
+        )
+        if _is_decentralized_connection():
+            st.info(
+                "Mode décentralisé : le prédimensionnement solaire est calculé sur les besoins de la branche sélectionnée. "
+                "Les résultats globaux restent ensuite rapportés au besoin total du RCU."
+            )
         orientation_payload = _render_heliorc_surface_orientation_measurement()
         metrics = orientation_payload.get("metrics") if isinstance(orientation_payload, dict) else {}
         available_ground_m2 = None
@@ -1164,7 +1279,7 @@ def render_heliorc_app() -> None:
             try:
                 progress.progress(25, text="Construction du profil mensuel...")
                 if st.session_state.needs_mode == "Besoins mensuels connus":
-                    monthly_needs = (
+                    total_monthly_needs = (
                         st.session_state.manual_needs_df["Besoins RCU (MWh)"]
                         .astype(float)
                         .tolist()
@@ -1177,10 +1292,39 @@ def render_heliorc_app() -> None:
                         network_efficiency=float(st.session_state.network_efficiency_percent) / 100,
                         calculation_mode="excel_v5_3",
                     )
-                    monthly_needs = estimated["Besoins RCU (MWh)"].astype(float).tolist()
+                    total_monthly_needs = estimated["Besoins RCU (MWh)"].astype(float).tolist()
 
                 progress.progress(60, text="Prédimensionnement technique...")
-                inputs, results, monthly, sizing_context = _calculate_with_sizing_strategy(monthly_needs)
+                calculation_monthly_needs = total_monthly_needs
+                if _is_decentralized_connection():
+                    calculation_monthly_needs = _monthly_values_from_frame(st.session_state.branch_needs_df)
+                inputs, results, monthly, sizing_context = _calculate_with_sizing_strategy(calculation_monthly_needs)
+                annual_total_need = float(sum(total_monthly_needs))
+                annual_calculation_need = float(sum(calculation_monthly_needs))
+                global_solar_fraction = results.annual_solar_production_mwh / annual_total_need if annual_total_need > 0 else 0.0
+                calculation_solar_fraction = (
+                    results.annual_solar_production_mwh / annual_calculation_need if annual_calculation_need > 0 else 0.0
+                )
+                sizing_context.update(
+                    {
+                        "solar_connection_mode": _current_connection_mode(),
+                        "total_monthly_needs_mwh": total_monthly_needs,
+                        "calculation_monthly_needs_mwh": calculation_monthly_needs,
+                        "annual_total_need_mwh": annual_total_need,
+                        "annual_calculation_need_mwh": annual_calculation_need,
+                        "global_solar_fraction": global_solar_fraction,
+                        "calculation_solar_fraction": calculation_solar_fraction,
+                    }
+                )
+                if _is_decentralized_connection():
+                    monthly["Besoins branche sélectionnée (MWh)"] = monthly["Besoins RCU (MWh)"].astype(float)
+                    monthly["Taux de couverture mensuel branche"] = monthly["Taux de couverture mensuel"].astype(float)
+                    monthly["Besoins RCU total (MWh)"] = total_monthly_needs
+                    monthly["Besoins RCU (MWh)"] = total_monthly_needs
+                    total_need_series = pd.Series(total_monthly_needs, dtype=float).replace(0.0, pd.NA)
+                    monthly["Taux de couverture mensuel"] = (
+                        monthly["Production solaire (MWh)"].astype(float).div(total_need_series).fillna(0.0)
+                    )
                 progress.progress(85, text="Analyse économique et interprétation...")
                 project = _current_project_data()
                 st.session_state.last_results = results
@@ -1204,6 +1348,14 @@ def render_heliorc_app() -> None:
         if results is None or monthly is None or inputs is None or project is None:
             st.info("Renseignez les hypothèses puis lancez le calcul pour afficher la note d'opportunité.")
             return
+
+        display_solar_fraction = results.solar_fraction
+        calculation_solar_fraction = results.solar_fraction
+        if isinstance(sizing_context, dict):
+            if isinstance(sizing_context.get("global_solar_fraction"), (float, int)):
+                display_solar_fraction = float(sizing_context["global_solar_fraction"])
+            if isinstance(sizing_context.get("calculation_solar_fraction"), (float, int)):
+                calculation_solar_fraction = float(sizing_context["calculation_solar_fraction"])
 
         st.markdown("## Résultats du dernier calcul")
         status_lower = results.opportunity_status.lower()
@@ -1242,7 +1394,7 @@ def render_heliorc_app() -> None:
             m1, m2, m3, m4 = st.columns(4)
             m1.metric("Surface de capteurs", f"{results.collector_area_m2:,.0f} m²".replace(",", " "))
             m2.metric("Production solaire", f"{results.annual_solar_production_mwh:,.0f} MWh/an".replace(",", " "))
-            m3.metric("Fraction solaire", f"{results.solar_fraction:.1%}")
+            m3.metric("Fraction solaire RCU global", f"{display_solar_fraction:.1%}")
             m4.metric("Productivité", f"{results.productivity_kwh_m2_year:,.0f} kWh/m²/an".replace(",", " "))
             m5, m6, m7, m8 = st.columns(4)
             m5.metric("Stockage journalier", f"{results.storage_volume_m3:,.0f} m³".replace(",", " "))
@@ -1264,6 +1416,14 @@ def render_heliorc_app() -> None:
             e4.metric("LCOH aidé", f"{results.lcoh_aided_eur_mwh:.1f} € HT/MWh")
 
             with st.expander("Vigilances identifiées", expanded=True):
+                if isinstance(sizing_context, dict) and str(sizing_context.get("solar_connection_mode", "")).startswith(
+                    "Installation décentralisée"
+                ):
+                    st.write(
+                        f"- Mode décentralisé : la cohérence technique est contrôlée sur la branche sélectionnée "
+                        f"(fraction solaire branche : {calculation_solar_fraction:.1%}). "
+                        f"La fraction solaire affichée en synthèse est rapportée au RCU global."
+                    )
                 for warning in results.warnings:
                     st.write(f"- {warning}")
                 st.markdown("**Points de vigilance issus de la documentation ADEME**")
@@ -1331,9 +1491,16 @@ def render_heliorc_app() -> None:
                 )
 
         with result_tabs[2]:
+            display_annual_need = (
+                float(sizing_context["annual_total_need_mwh"])
+                if isinstance(sizing_context, dict) and isinstance(sizing_context.get("annual_total_need_mwh"), (float, int))
+                else results.annual_need_mwh
+            )
             technical_rows = {
-                "Besoin annuel du RCU (MWh/an)": results.annual_need_mwh,
+                "Besoin annuel du RCU (MWh/an)": display_annual_need,
                 "Part des besoins estivaux mai-septembre": results.summer_need_share,
+                "Fraction solaire RCU global": display_solar_fraction,
+                "Fraction solaire utilisée pour la cohérence": calculation_solar_fraction,
                 "Talon mensuel minimal (MWh)": results.minimum_monthly_need_mwh,
                 "Talon de dimensionnement appliqué": inputs.base_load_fraction,
                 "Gisement horizontal (kWh/m².an)": results.annual_horizontal_irradiation_kwh_m2,

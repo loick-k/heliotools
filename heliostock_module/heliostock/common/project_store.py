@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -166,6 +167,27 @@ class JsonProjectStore:
         expected_owner = normalize_email(owner_email)
         if payload_owner and payload_owner != expected_owner:
             raise PermissionError("Ce projet appartient à un autre utilisateur.")
+        return payload
+
+    def delete_project(self, *, path: Path, owner_email: str | None = None) -> dict[str, Any] | None:
+        """Delete a project JSON and its linked artifact directory."""
+
+        resolved = self.assert_project_path(path)
+        payload: dict[str, Any] | None = None
+        if owner_email:
+            payload = self.load_project(path=resolved, owner_email=owner_email)
+        elif resolved.exists():
+            try:
+                decoded = json.loads(resolved.read_text(encoding="utf-8"))
+                if isinstance(decoded, dict):
+                    payload = decoded
+            except Exception:
+                payload = None
+
+        artifact_dir = self.project_artifact_dir(resolved)
+        if artifact_dir.exists() and artifact_dir.is_dir():
+            shutil.rmtree(artifact_dir)
+        resolved.unlink(missing_ok=True)
         return payload
 
     def save_project(

@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import math
 import os
+import shutil
 import time
 import uuid
 from datetime import datetime
@@ -434,9 +435,40 @@ def _upsert_project_backup(*, path: Path, payload: dict[str, Any], demand_bytes:
     _save_project_backups(projects)
 
 
-def _delete_project_backup(path: Path) -> None:
+def _project_backup_matches_path(project: dict[str, Any], *, path: Path, payload: dict[str, Any]) -> bool:
     slug = path.with_suffix("").name
-    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    if _project_backup_slug(project) == slug:
+        return True
+    target_project_id = str(payload.get("project_id") or "").strip()
+    if not target_project_id:
+        return False
+    target_owner = _email_normalise(str(payload.get("owner_email") or payload.get("created_by_email") or ""))
+    backup_payload = project.get("payload", project)
+    if not isinstance(backup_payload, dict):
+        backup_payload = {}
+    backup_project_id = str(project.get("project_id") or backup_payload.get("project_id") or "").strip()
+    backup_owner = _email_normalise(
+        str(project.get("owner_email") or backup_payload.get("owner_email") or backup_payload.get("created_by_email") or "")
+    )
+    return bool(
+        backup_project_id
+        and backup_project_id == target_project_id
+        and (not target_owner or not backup_owner or backup_owner == target_owner)
+    )
+
+
+def _delete_project_backup(path: Path) -> None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    projects = [
+        project
+        for project in _load_project_backups()
+        if not _project_backup_matches_path(project, path=path, payload=payload)
+    ]
     _save_project_backups(projects)
 
 
@@ -894,7 +926,7 @@ def _project_files() -> list[Path]:
     return _dedupe_project_files(files)
 
 
-def _all_heliostock_project_files() -> list[Path]:
+def _raw_heliostock_project_files() -> list[Path]:
     _restore_projects_from_backup()
     roots = [PROJECTS_DIR, HELIOSTOCK_PROJECT_STORE.app_dir()]
     files: list[Path] = []
@@ -905,6 +937,11 @@ def _all_heliostock_project_files() -> list[Path]:
             if not _is_heliostock_project_file(path):
                 continue
             files.append(path)
+    return sorted(set(files), key=lambda path: path.stat().st_mtime, reverse=True)
+
+
+def _all_heliostock_project_files() -> list[Path]:
+    files = _raw_heliostock_project_files()
     return _dedupe_project_files(files)
 
 
@@ -1751,15 +1788,34 @@ def _save_heliostock_project(project_name: str) -> None:
     st.success(f"Projet enregistré : {payload['name']}")
 
 
-def _delete_heliostock_project(path: Path) -> None:
-    demand_path, result_path = _project_artifact_paths(path)
-    legacy_demand_path, legacy_result_path = _legacy_project_sidecar_paths(path)
-    demand_path.unlink(missing_ok=True)
-    result_path.unlink(missing_ok=True)
+def _delete_local_heliostock_project_file(path: Path) -> None:
+    resolved = _assert_local_project_path(path)
+    legacy_demand_path, legacy_result_path = _legacy_project_sidecar_paths(resolved)
     legacy_demand_path.unlink(missing_ok=True)
     legacy_result_path.unlink(missing_ok=True)
-    _delete_project_backup(path)
-    path.unlink(missing_ok=True)
+    artifact_root = resolved.with_suffix("")
+    if artifact_root.exists() and artifact_root.is_dir():
+        shutil.rmtree(artifact_root)
+    resolved.unlink(missing_ok=True)
+
+
+def _matching_heliostock_project_files(path: Path) -> list[Path]:
+    resolved = _assert_local_project_path(path)
+    target_key = _project_unique_key(resolved)
+    matches = [
+        candidate
+        for candidate in _raw_heliostock_project_files()
+        if _project_unique_key(candidate) == target_key
+    ]
+    if resolved not in matches:
+        matches.append(resolved)
+    return sorted(set(matches), key=lambda candidate: str(candidate.resolve()))
+
+
+def _delete_heliostock_project(path: Path) -> None:
+    for project_path in _matching_heliostock_project_files(path):
+        _delete_project_backup(project_path)
+        _delete_local_heliostock_project_file(project_path)
     st.session_state.pop("heliostock_current_project_name", None)
     st.session_state.pop("heliostock_current_project_id", None)
 
@@ -1772,6 +1828,7 @@ def render_heliostock_project_controls() -> None:
 
     project_files = _project_files()
     labels = _unique_project_labels(project_files) if project_files else []
+    path_by_label = dict(zip(labels, project_files, strict=True))
     default_name = str(st.session_state.get("heliostock_current_project_name", "") or "")
 
     with st.container(border=True):
@@ -1782,9 +1839,7 @@ def render_heliostock_project_controls() -> None:
             index=0,
             key="portal_project_to_load",
         )
-        selected_path = None
-        if selected_label != "-" and selected_label in labels:
-            selected_path = project_files[labels.index(selected_label)]
+        selected_path = path_by_label.get(selected_label)
 
         if load_col.button("Charger", width="stretch", disabled=selected_path is None):
             _load_project(selected_path)
