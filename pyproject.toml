@@ -9,5 +9,7 @@ dependencies = [
     "numpy>=2.2,<3",
     "scipy>=1.16,<2",
     "openpyxl>=3.1,<4",
+    "xlsxwriter>=3.1,<4",
+    "plotly>=5.20,<6",
     "pygfunction>=2.3,<3",
 ]

@@ -16,6 +16,13 @@ from .epw_reader import read_epw_hourly_weather_from_zip
 from .geothermal_design import BorefieldPreDesign, predimension_borefield
 from .geocoding_service import GeocodingServiceError, search_addresses
 from .gmi_service import GMIServiceError, WMS_URL, check_gmi_zoning, discover_gmi_layers, select_layer, wms_layer_name
+from .gas_reference import (
+    GAS_REFERENCE_CONTEXT_HELP,
+    GAS_REFERENCE_CONTEXT_LABELS,
+    GAS_REFERENCE_EXISTING_BOILER,
+    gas_reference_context_label,
+    normalize_gas_reference_context,
+)
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, SolarInputs
 from .load_profiles import (
@@ -1037,6 +1044,19 @@ def render_economics_form() -> EconomicsInputs:
         c1, c2 = st.columns(2)
         eta_appoint_eco = c1.number_input("Rendement appoint gaz", min_value=0.01, max_value=1.50, value=0.82, step=0.01, key="eco_eta_appoint")
         reference_energy_inflation_pct = c2.number_input("Inflation gaz référence (%/an)", min_value=0.0, max_value=20.0, value=3.0, step=0.5, key="eco_reference_energy_inflation_pct")
+        gas_context_options = list(GAS_REFERENCE_CONTEXT_LABELS)
+        gas_context_default = normalize_gas_reference_context(
+            st.session_state.get("eco_gas_reference_context", GAS_REFERENCE_EXISTING_BOILER)
+        )
+        gas_reference_context = st.radio(
+            "Contexte de référence gaz",
+            options=gas_context_options,
+            format_func=gas_reference_context_label,
+            horizontal=True,
+            index=gas_context_options.index(gas_context_default),
+            key="eco_gas_reference_context",
+            help=GAS_REFERENCE_CONTEXT_HELP,
+        )
         st.caption("Durée d'analyse économique par défaut : 20 ans. Aucune autre aide publique déjà acquise n'est appliquée.")
 
         st.markdown("#### P1 - Énergies")
@@ -1069,6 +1089,7 @@ def render_economics_form() -> EconomicsInputs:
         ademe_eur_mwh_year=economics_fixed.ademe_eur_mwh_year,
         other_public_aid_eur=economics_fixed.other_public_aid_eur,
         backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+        gas_reference_context=gas_reference_context,
     )
 
 

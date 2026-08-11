@@ -115,6 +115,13 @@ def _snapshot_from_forms(
         pac_parametric=parametric_forms.pac,
         solar_parametric=parametric_forms.solar,
         project=project_form,
+        architectural={
+            "selected_address": st.session_state.get("heliostock_architectural_selected_address"),
+            "latitude": st.session_state.get("heliostock_architectural_latitude"),
+            "longitude": st.session_state.get("heliostock_architectural_longitude"),
+            "project_type": st.session_state.get("heliostock_architectural_project_type"),
+            "result": st.session_state.get("heliostock_architectural_result"),
+        },
         gmi={
             "address_query": st.session_state.get("gmi_address_query"),
             "selected_address_label": st.session_state.get("gmi_selected_address_label"),
@@ -347,6 +354,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
         scenario = last_result["scenario"]
         input_snapshot = last_result.get("input_snapshot", {})
         gmi_context = input_snapshot.get("gmi", {}) if isinstance(input_snapshot, dict) else {}
+        architectural_context = input_snapshot.get("architectural", {}) if isinstance(input_snapshot, dict) else {}
         from .heliostock_pdf_export import build_heliostock_overview_pdf
 
         st.download_button(
@@ -356,6 +364,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                 calculation_id=calculation_id,
                 calculated_at=calculated_at,
                 gmi_context=gmi_context,
+                architectural_context=architectural_context,
             ),
             file_name=f"heliodyn_synthese_{calculation_id}.pdf",
             mime="application/pdf",

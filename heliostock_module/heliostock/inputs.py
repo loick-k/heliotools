@@ -10,6 +10,7 @@ from .engine import (
     HeatPumpConfig,
     SimulationConfig,
 )
+from .gas_reference import GAS_REFERENCE_EXISTING_BOILER, normalize_gas_reference_context
 
 if TYPE_CHECKING:
     from .scenario_outputs import ScenarioEconomicsConfig
@@ -215,6 +216,7 @@ class EconomicsInputs:
     ademe_eur_mwh_year: float
     other_public_aid_eur: float
     backup_p2_eur_kw_year: float
+    gas_reference_context: str = GAS_REFERENCE_EXISTING_BOILER
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
@@ -238,6 +240,7 @@ class EconomicsInputs:
             ademe_eur_mwh_year=self.ademe_eur_mwh_year,
             other_public_aid_eur=self.other_public_aid_eur,
             backup_p2_eur_kw_year=self.backup_p2_eur_kw_year,
+            gas_reference_context=normalize_gas_reference_context(self.gas_reference_context),
         )
 
 

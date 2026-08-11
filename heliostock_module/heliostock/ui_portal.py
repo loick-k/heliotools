@@ -61,6 +61,7 @@ APP_OPPORTUNITY_LABEL = "HelioNOP"
 APP_HELIOECO_LABEL = "HelioEco"
 APP_HELIORC_LABEL = "HelioRC"
 APP_SOCOL_LABEL = "Schémathèque SOCOL"
+APP_HELIOPROFIL_LABEL = "HelioProfil"
 APP_ACCESS_LABELS = (
     APP_HELIOSTOCK_LABEL,
     APP_DASHBOARD_LABEL,
@@ -68,6 +69,7 @@ APP_ACCESS_LABELS = (
     APP_HELIOECO_LABEL,
     APP_HELIORC_LABEL,
     APP_SOCOL_LABEL,
+    APP_HELIOPROFIL_LABEL,
 )
 PORTAL_PAGE_LABELS = (APP_HOME_LABEL, APP_ADMIN_LABEL)
 
@@ -128,6 +130,7 @@ SAVEABLE_WIDGET_KEYS = [
     "eco_electricity_cost_eur_mwh",
     "eco_auxiliary_electricity_ratio_pct",
     "eco_backup_p2_eur_kw_year",
+    "eco_gas_reference_context",
     "param_pac_enabled",
     "param_pac_min_pct",
     "param_pac_max_pct",
@@ -1489,6 +1492,11 @@ def render_heliotools_home_page() -> None:
             APP_SOCOL_LABEL,
             "Schémathèque dynamique de principes hydrauliques solaires thermiques SOCOL.",
             "Ouvrir la schémathèque",
+        ),
+        (
+            APP_HELIOPROFIL_LABEL,
+            "Génération de profils horaires 8760 h compatibles avec HelioDyn.",
+            "Ouvrir HelioProfil",
         ),
     ]
     cards = [card for card in cards + optional_cards if card[0] in allowed_apps]

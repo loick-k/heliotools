@@ -10,6 +10,7 @@ from .borefield_savings import borefield_equivalent_savings
 from .economic_scenarios import _capex_net_total, _multiyear_heat_cost
 from .economics import compute_heat_costs, compute_solar_thermal_economics
 from .engine import MonthlyDemand, SimulationConfig
+from .gas_reference import GAS_REFERENCE_EXISTING_BOILER
 from .hourly_engine import HourlyWeather
 from .scenario_compact import _simulate_hourly_compact
 from .scenario_outputs import ScenarioEconomicsConfig
@@ -40,7 +41,6 @@ def solar_surface_parametric_study(
     reference_gas_power_kw: float,
     reference_heat_mwh: float,
     analysis_years: int,
-    technical_simulation_years: int | None = None,
     reference_energy_cost_eur_mwh: float,
     reference_energy_inflation_pct: float,
     eta_appoint_eco: float,
@@ -50,6 +50,8 @@ def solar_surface_parametric_study(
     maintenance_cost_eur_m2_year: float,
     ademe_eur_mwh_year: float,
     other_public_aid_eur: float,
+    technical_simulation_years: int | None = None,
+    gas_reference_context: str = GAS_REFERENCE_EXISTING_BOILER,
     savings_search_mode: str = "fast",
     recharge_credit: float = 0.6,
     reduced_borefield_safety_factor: float = 1.10,
@@ -78,6 +80,7 @@ def solar_surface_parametric_study(
         ademe_eur_mwh_year=ademe_eur_mwh_year,
         other_public_aid_eur=other_public_aid_eur,
         backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+        gas_reference_context=gas_reference_context,
     )
 
     for index, surface_m2 in enumerate(surfaces_m2, start=1):
@@ -222,6 +225,7 @@ def solar_surface_parametric_study(
             gas_reference_inflation_rate=reference_energy_inflation_pct / 100.0,
             geothermal_p1_eur_mwh=electricity_cost_eur_mwh,
             backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+            gas_reference_context=gas_reference_context,
         )
         heat_costs_variant = compute_heat_costs(
             solar_economics=solar_economics_variant,
@@ -241,6 +245,7 @@ def solar_surface_parametric_study(
             gas_reference_inflation_rate=reference_energy_inflation_pct / 100.0,
             geothermal_p1_eur_mwh=electricity_cost_eur_mwh,
             backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+            gas_reference_context=gas_reference_context,
         )
         same_capex_variant = _capex_net_total(same_heat_costs_variant, ["Solaire thermique", "Geothermie PAC", "Appoint gaz"])
         same_multiyear_cost_variant = _multiyear_heat_cost(

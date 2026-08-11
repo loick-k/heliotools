@@ -114,3 +114,17 @@ elif selected_app == ui_portal.APP_SOCOL_LABEL:
     except Exception:
         _show_startup_error("La schémathèque SOCOL a rencontré une erreur.")
 
+elif selected_app == ui_portal.APP_HELIOPROFIL_LABEL:
+    try:
+        from heliostock.helioprofil import render_helioprofil_app
+
+        render_helioprofil_app()
+    except ModuleNotFoundError as exc:
+        st.error(
+            "HelioProfil nécessite des dépendances optionnelles. "
+            "Vérifie que `plotly`, `pandas` et `xlsxwriter` sont installés, puis relance l'application."
+        )
+        st.caption(str(exc))
+    except Exception:
+        _show_startup_error("HelioProfil a rencontré une erreur.")
+

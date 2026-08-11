@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from .engine import SimulationConfig
+from .gas_reference import GAS_REFERENCE_EXISTING_BOILER
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class ScenarioEconomicsConfig:
     ademe_eur_mwh_year: float
     other_public_aid_eur: float
     backup_p2_eur_kw_year: float
+    gas_reference_context: str = GAS_REFERENCE_EXISTING_BOILER
 
 
 @dataclass(frozen=True)

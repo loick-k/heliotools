@@ -66,6 +66,14 @@ from .opportunity_model import (
     dict_to_site_inputs,
 )
 from .pdf_export import build_opportunity_note_pdf
+from ..gas_reference import (
+    GAS_REFERENCE_CONTEXT_HELP,
+    GAS_REFERENCE_CONTEXT_LABELS,
+    GAS_REFERENCE_EXISTING_BOILER,
+    GAS_REFERENCE_RENEWAL,
+    gas_reference_context_label,
+    normalize_gas_reference_context,
+)
 from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
 from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, project_context_to_payload, render_project_identity_form
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
@@ -2102,6 +2110,19 @@ def render_opportunity_notes_app() -> None:
                 step=0.5,
             ) / 100.0
             years = st.number_input("Durée d'analyse (ans)", min_value=1, value=int(economic_default.get("years", 20)), step=1)
+            gas_context_options = list(GAS_REFERENCE_CONTEXT_LABELS)
+            gas_reference_context = st.radio(
+                "Contexte de référence gaz",
+                options=gas_context_options,
+                format_func=gas_reference_context_label,
+                index=gas_context_options.index(
+                    normalize_gas_reference_context(
+                        str(economic_default.get("gas_reference_context", GAS_REFERENCE_EXISTING_BOILER))
+                    )
+                ),
+                horizontal=True,
+                help=GAS_REFERENCE_CONTEXT_HELP,
+            )
         with col_c:
             works_cost = st.number_input(
                 "Coût travaux installation (€HT/m²)",
@@ -2166,6 +2187,33 @@ def render_opportunity_notes_app() -> None:
                 ademe_cap = st.number_input(
                     "Plafond aide travaux (% coût)", value=float(economic_default.get("ademe_cap_percent", 65.0)), step=5.0
                 ) / 100.0
+                reference_boiler_power_default = float(
+                    economic_default.get(
+                        "reference_boiler_power_kw",
+                        max(0.0, economic_surface * economic_productivity / 1200.0),
+                    )
+                )
+                reference_boiler_power_kw = st.number_input(
+                    "Puissance chaudière gaz de référence (kW)",
+                    min_value=0.0,
+                    value=reference_boiler_power_default,
+                    step=10.0,
+                    disabled=gas_reference_context != GAS_REFERENCE_RENEWAL,
+                )
+                reference_boiler_p2_eur_kw_year = st.number_input(
+                    "P2 chaudière gaz référence (€/kW.an)",
+                    min_value=0.0,
+                    value=float(economic_default.get("reference_boiler_p2_eur_kw_year", 10.0)),
+                    step=1.0,
+                    disabled=gas_reference_context != GAS_REFERENCE_RENEWAL,
+                )
+                reference_boiler_capex_eur_kw = st.number_input(
+                    "P4 chaudière gaz référence (€/kW)",
+                    min_value=0.0,
+                    value=float(economic_default.get("reference_boiler_capex_eur_kw", 200.0)),
+                    step=10.0,
+                    disabled=gas_reference_context != GAS_REFERENCE_RENEWAL,
+                )
     
         economic_inputs = CescEconomicInputs(
             typologie=economic_typology,
@@ -2176,6 +2224,10 @@ def render_opportunity_notes_app() -> None:
             years=int(years),
             works_cost_eur_m2=works_cost,
             eta_appoint=eta_appoint,
+            gas_reference_context=gas_reference_context,
+            reference_boiler_power_kw=reference_boiler_power_kw,
+            reference_boiler_p2_eur_kw_year=reference_boiler_p2_eur_kw_year,
+            reference_boiler_capex_eur_kw=reference_boiler_capex_eur_kw,
             auxiliary_electricity_ratio=auxiliary_ratio,
             electricity_cost_eur_mwh=electricity_cost,
             maintenance_cost_eur_m2_year=maintenance_cost,
@@ -2229,6 +2281,10 @@ def render_opportunity_notes_app() -> None:
         "years": int(years),
         "works_cost_eur_m2": works_cost,
         "eta_appoint": eta_appoint,
+        "gas_reference_context": gas_reference_context,
+        "reference_boiler_power_kw": reference_boiler_power_kw,
+        "reference_boiler_p2_eur_kw_year": reference_boiler_p2_eur_kw_year,
+        "reference_boiler_capex_eur_kw": reference_boiler_capex_eur_kw,
         "auxiliary_ratio_percent": auxiliary_ratio * 100.0,
         "electricity_cost_eur_mwh": electricity_cost,
         "maintenance_cost_eur_m2_year": maintenance_cost,

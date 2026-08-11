@@ -30,6 +30,14 @@ from ..common.solar_thermal_cost_reference import (
     SOLAR_THERMAL_COST_REFERENCE_NOTE,
     build_solar_thermal_cost_reference_plotly,
 )
+from ..gas_reference import (
+    GAS_REFERENCE_CONTEXT_HELP,
+    GAS_REFERENCE_CONTEXT_LABELS,
+    GAS_REFERENCE_EXISTING_BOILER,
+    GAS_REFERENCE_RENEWAL,
+    gas_reference_context_label,
+    normalize_gas_reference_context,
+)
 
 
 APP_KEY = "helioeco"
@@ -229,6 +237,20 @@ def render_helioeco_app() -> None:
         reference_energy_cost = st.number_input("Coût énergie de référence (€HT/MWh)", min_value=0.0, value=75.0, step=5.0)
         inflation = st.number_input("Inflation énergie de référence (%/an)", value=3.0, step=0.5) / 100.0
         years = st.number_input("Durée d'analyse (ans)", min_value=1, value=20, step=1)
+        gas_context_options = list(GAS_REFERENCE_CONTEXT_LABELS)
+        gas_reference_context = st.radio(
+            "Contexte reference gaz",
+            options=gas_context_options,
+            format_func=gas_reference_context_label,
+            index=gas_context_options.index(
+                normalize_gas_reference_context(
+                    st.session_state.get("helioeco_gas_reference_context", GAS_REFERENCE_EXISTING_BOILER)
+                )
+            ),
+            horizontal=True,
+            key="helioeco_gas_reference_context",
+            help=GAS_REFERENCE_CONTEXT_HELP,
+        )
     with col_c:
         works_cost = st.number_input("Coût travaux installation (€HT/m²)", min_value=0.0, value=1563.0, step=50.0)
         eta_appoint = st.number_input("Rendement appoint global", min_value=0.01, max_value=1.5, value=0.82, step=0.01)
@@ -260,6 +282,28 @@ def render_helioeco_app() -> None:
         fae_aid_rate = adv_c.number_input("Taux aide FAE (%)", value=70.0, step=5.0) / 100.0
         ademe_cap = adv_c.number_input("Plafond aide travaux (% coût)", value=65.0, step=5.0) / 100.0
 
+        reference_boiler_power_kw = adv_c.number_input(
+            "Puissance chaudiere gaz de reference (kW)",
+            min_value=0.0,
+            value=max(0.0, float(surface_m2) * float(productivity) / 1200.0),
+            step=10.0,
+            disabled=gas_reference_context != GAS_REFERENCE_RENEWAL,
+        )
+        reference_boiler_p2_eur_kw_year = adv_c.number_input(
+            "P2 chaudiere gaz reference (EUR/kW.an)",
+            min_value=0.0,
+            value=10.0,
+            step=1.0,
+            disabled=gas_reference_context != GAS_REFERENCE_RENEWAL,
+        )
+        reference_boiler_capex_eur_kw = adv_c.number_input(
+            "P4 chaudiere gaz reference (EUR/kW)",
+            min_value=0.0,
+            value=200.0,
+            step=10.0,
+            disabled=gas_reference_context != GAS_REFERENCE_RENEWAL,
+        )
+
     inputs = CescEconomicInputs(
         typologie=str(typologie),
         surface_m2=float(surface_m2),
@@ -269,6 +313,10 @@ def render_helioeco_app() -> None:
         years=int(years),
         works_cost_eur_m2=float(works_cost),
         eta_appoint=float(eta_appoint),
+        gas_reference_context=gas_reference_context,
+        reference_boiler_power_kw=float(reference_boiler_power_kw),
+        reference_boiler_p2_eur_kw_year=float(reference_boiler_p2_eur_kw_year),
+        reference_boiler_capex_eur_kw=float(reference_boiler_capex_eur_kw),
         auxiliary_electricity_ratio=float(auxiliary_ratio),
         electricity_cost_eur_mwh=float(electricity_cost),
         maintenance_cost_eur_m2_year=float(maintenance_cost),

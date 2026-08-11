@@ -169,6 +169,7 @@ def _scenario_heat_costs(
         gas_reference_inflation_rate=economics.reference_energy_inflation_pct / 100.0,
         geothermal_p1_eur_mwh=economics.electricity_cost_eur_mwh,
         backup_p2_eur_kw_year=economics.backup_p2_eur_kw_year,
+        gas_reference_context=economics.gas_reference_context,
     )
 
 

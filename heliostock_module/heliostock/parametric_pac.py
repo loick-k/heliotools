@@ -9,6 +9,7 @@ import pandas as pd
 from .economic_scenarios import _capex_net_total, _multiyear_heat_cost
 from .economics import compute_heat_costs, compute_solar_thermal_economics
 from .engine import MonthlyDemand, SimulationConfig, cop_from_source_temperature
+from .gas_reference import GAS_REFERENCE_EXISTING_BOILER
 from .geothermal_design import predimension_borefield
 from .hourly_engine import HourlyWeather
 from .load_profiles import _estimate_capped_bt_heat_mwh
@@ -41,7 +42,6 @@ def pac_power_parametric_study(
     reference_gas_power_kw: float,
     reference_heat_mwh: float,
     analysis_years: int,
-    technical_simulation_years: int | None = None,
     reference_energy_cost_eur_mwh: float,
     reference_energy_inflation_pct: float,
     eta_appoint_eco: float,
@@ -51,6 +51,8 @@ def pac_power_parametric_study(
     maintenance_cost_eur_m2_year: float,
     ademe_eur_mwh_year: float,
     other_public_aid_eur: float,
+    technical_simulation_years: int | None = None,
+    gas_reference_context: str = GAS_REFERENCE_EXISTING_BOILER,
     simulation_cache: SimulationCache | None = None,
     progress: ProgressCallback | None = None,
 ) -> pd.DataFrame:
@@ -75,6 +77,7 @@ def pac_power_parametric_study(
         ademe_eur_mwh_year=ademe_eur_mwh_year,
         other_public_aid_eur=other_public_aid_eur,
         backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+        gas_reference_context=gas_reference_context,
     )
 
     for index, fraction_pct in enumerate(pac_power_fractions_pct, start=1):
@@ -184,6 +187,7 @@ def pac_power_parametric_study(
             gas_reference_inflation_rate=reference_energy_inflation_pct / 100.0,
             geothermal_p1_eur_mwh=electricity_cost_eur_mwh,
             backup_p2_eur_kw_year=backup_p2_eur_kw_year,
+            gas_reference_context=gas_reference_context,
         )
         capex_variant = _capex_net_total(heat_costs_variant, ["Geothermie PAC", "Appoint gaz"])
         multiyear_cost_variant = _multiyear_heat_cost(

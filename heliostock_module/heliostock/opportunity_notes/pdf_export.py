@@ -18,6 +18,7 @@ from ..architectural_static_map import (
     render_static_map,
 )
 from ..common.pdf import PdfReport, _fmt_number
+from ..gas_reference import gas_reference_context_label
 from ..pdf_report import CARD_FILL, CARD_STROKE, CHART_COLORS, GRID_COLOR, MUTED_COLOR, PDF_FONT_BOLD, PDF_FONT_REGULAR, TEXT_COLOR
 from .cesc_economic_model import CescEconomicInputs, CescEconomicResults, build_yearly_cashflow_projection
 from .opportunity_model import LoopInputs, NeedsInputs, OpportunityResults, SizingInputs, SiteInputs
@@ -747,6 +748,7 @@ def build_opportunity_note_pdf(
             {"Paramètre": "Productivité solaire", "Valeur": f"{_fmt_number(sizing_inputs.productivity_kwh_m2_year, 0)} kWh/m².an"},
             {"Paramètre": "Ratio V/S cible", "Valeur": f"{_fmt_number(sizing_inputs.target_storage_ratio_l_m2, 0)} L/m²"},
             {"Paramètre": "Coût énergie référence", "Valeur": _eur_mwh(economic_inputs.reference_energy_cost_eur_mwh, 1)},
+            {"Paramètre": "Contexte référence gaz", "Valeur": gas_reference_context_label(economic_inputs.gas_reference_context)},
             {"Paramètre": "Durée d'analyse", "Valeur": f"{economic_inputs.years} ans"},
         ],
         x=margin,

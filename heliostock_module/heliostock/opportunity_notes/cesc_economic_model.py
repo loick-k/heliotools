@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass
 from math import isfinite
 from typing import Any
 
+from ..gas_reference import GAS_REFERENCE_EXISTING_BOILER, includes_gas_boiler_fixed_costs
+
 
 ADEME_AID_EUR_PER_MWH_YEAR_BY_TYPOLOGY: dict[str, float] = {
     "CESC": 1260.0,
@@ -57,6 +59,10 @@ class CescEconomicInputs:
 
     # Rendement global de l'appoint utilisé dans l'Excel : cellule B32.
     eta_appoint: float = 0.82
+    gas_reference_context: str = GAS_REFERENCE_EXISTING_BOILER
+    reference_boiler_power_kw: float = 0.0
+    reference_boiler_p2_eur_kw_year: float = 10.0
+    reference_boiler_capex_eur_kw: float = 200.0
 
     # P1' : consommation électrique auxiliaire par MWh solaire utile.
     auxiliary_electricity_ratio: float = DEFAULT_AUXILIARY_ELECTRICITY_RATIO
@@ -156,6 +162,17 @@ def compute_cesc_economic_model(inputs: CescEconomicInputs) -> CescEconomicResul
         / inputs.eta_appoint
         * _annuity_average_factor(inputs.reference_energy_inflation_rate, inputs.years)
     )
+    if includes_gas_boiler_fixed_costs(inputs.gas_reference_context):
+        reference_boiler_power_kw = max(0.0, float(inputs.reference_boiler_power_kw))
+        reference_boiler_p2_eur_mwh = _safe_divide(
+            reference_boiler_power_kw * max(0.0, float(inputs.reference_boiler_p2_eur_kw_year)),
+            annual_production_mwh,
+        ) or 0.0
+        reference_boiler_p4_eur_mwh = _safe_divide(
+            reference_boiler_power_kw * max(0.0, float(inputs.reference_boiler_capex_eur_kw)),
+            annual_production_mwh * inputs.years,
+        ) or 0.0
+        average_reference_energy_cost_eur_mwh += reference_boiler_p2_eur_mwh + reference_boiler_p4_eur_mwh
 
     p1_auxiliary_electricity_eur = (
         inputs.auxiliary_electricity_ratio
@@ -297,9 +314,14 @@ def build_yearly_cashflow_projection(
     operating_costs_eur_mwh = (results.heat_cost_p1_eur_mwh or 0.0) + (
         results.heat_cost_p2_eur_mwh or 0.0
     )
-    initial_reference_cost_eur_mwh = (
-        inputs.reference_energy_cost_eur_mwh / inputs.eta_appoint
-    )
+    initial_reference_cost_eur_mwh = inputs.reference_energy_cost_eur_mwh / inputs.eta_appoint
+    reference_boiler_fixed_eur_mwh = 0.0
+    if includes_gas_boiler_fixed_costs(inputs.gas_reference_context):
+        reference_boiler_power_kw = max(0.0, float(inputs.reference_boiler_power_kw))
+        reference_boiler_fixed_eur_mwh = (
+            reference_boiler_power_kw * max(0.0, float(inputs.reference_boiler_p2_eur_kw_year))
+            + reference_boiler_power_kw * max(0.0, float(inputs.reference_boiler_capex_eur_kw)) / max(1, int(inputs.years))
+        ) / max(1e-9, float(results.annual_production_mwh))
 
     rows: list[dict[str, float | int]] = []
     cumulative_inflated = -results.net_investment_eur
@@ -311,7 +333,7 @@ def build_yearly_cashflow_projection(
         else:
             reference_cost_year_eur_mwh = initial_reference_cost_eur_mwh * (
                 (1.0 + inputs.reference_energy_inflation_rate) ** (year - 1)
-            )
+            ) + reference_boiler_fixed_eur_mwh
             annual_savings_inflated_eur = results.annual_production_mwh * (
                 reference_cost_year_eur_mwh - operating_costs_eur_mwh
             )
@@ -342,6 +364,10 @@ def build_inputs_from_installation(
     reference_energy_cost_eur_mwh: float | None = None,
     years: int | None = None,
     eta_appoint: float | None = None,
+    gas_reference_context: str | None = None,
+    reference_boiler_power_kw: float | None = None,
+    reference_boiler_p2_eur_kw_year: float | None = None,
+    reference_boiler_capex_eur_kw: float | None = None,
 ) -> CescEconomicInputs:
     """Petit adaptateur pour Heliopilot.
 
@@ -361,5 +387,17 @@ def build_inputs_from_installation(
         else defaults.reference_energy_cost_eur_mwh,
         years=years if years is not None else defaults.years,
         eta_appoint=eta_appoint if eta_appoint is not None else defaults.eta_appoint,
+        gas_reference_context=gas_reference_context
+        if gas_reference_context is not None
+        else defaults.gas_reference_context,
+        reference_boiler_power_kw=reference_boiler_power_kw
+        if reference_boiler_power_kw is not None
+        else defaults.reference_boiler_power_kw,
+        reference_boiler_p2_eur_kw_year=reference_boiler_p2_eur_kw_year
+        if reference_boiler_p2_eur_kw_year is not None
+        else defaults.reference_boiler_p2_eur_kw_year,
+        reference_boiler_capex_eur_kw=reference_boiler_capex_eur_kw
+        if reference_boiler_capex_eur_kw is not None
+        else defaults.reference_boiler_capex_eur_kw,
     )
 

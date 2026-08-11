@@ -68,6 +68,7 @@ def build_calculation_snapshot(
     solar_parametric: Any,
     gmi: Any | None = None,
     project: Any | None = None,
+    architectural: Any | None = None,
 ) -> dict[str, Any]:
     return {
         "project": _jsonable(project or {}),
@@ -103,6 +104,7 @@ def build_calculation_snapshot(
             "solar": _jsonable(solar_parametric),
         },
         "gmi": _jsonable(gmi or {}),
+        "architectural": _jsonable(architectural or {}),
     }
 
 

@@ -5,8 +5,12 @@ import math
 from typing import Any
 
 import pandas as pd
+from reportlab.lib.utils import ImageReader
 
+from .architectural_patrimony_service import CATEGORY_CONFIG
+from .architectural_static_map import StaticMapError, render_static_map
 from .common.pdf import draw_report_footer, draw_report_header
+from .gas_reference import gas_reference_context_label
 from .scenario_outputs import ScenarioResult
 
 
@@ -60,6 +64,154 @@ def _solar_buffer_at_max_hours(scenario: ScenarioResult) -> int:
     max_temp_c = scenario.config.collector.daily_buffer_max_temp_c
     temperatures = pd.to_numeric(hourly_df["solar_ht_buffer_temp_end_c"], errors="coerce")
     return int((temperatures >= max_temp_c - 1e-6).sum())
+
+
+def _solar_buffer_at_max_episodes(scenario: ScenarioResult) -> int:
+    hourly_df = scenario.hourly_df
+    if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty:
+        return 0
+    if "solar_ht_buffer_at_max" in hourly_df:
+        at_max = pd.to_numeric(hourly_df["solar_ht_buffer_at_max"], errors="coerce").fillna(0.0).astype(bool)
+    elif "solar_ht_buffer_temp_end_c" in hourly_df:
+        max_temp_c = scenario.config.collector.daily_buffer_max_temp_c
+        temperatures = pd.to_numeric(hourly_df["solar_ht_buffer_temp_end_c"], errors="coerce")
+        at_max = temperatures >= max_temp_c - 1e-6
+    else:
+        return 0
+    previous = at_max.shift(1, fill_value=False)
+    return int((at_max & ~previous).sum())
+
+
+def _sum_hourly_column_kwh(scenario: ScenarioResult, column: str) -> float:
+    hourly_df = scenario.hourly_df
+    if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty or column not in hourly_df:
+        return 0.0
+    return float(pd.to_numeric(hourly_df[column], errors="coerce").fillna(0.0).sum())
+
+
+def _solar_buffer_loss_kwh(scenario: ScenarioResult) -> float:
+    direct = getattr(scenario, "solar_buffer_loss_kwh", None)
+    try:
+        if direct is not None and float(direct) > 0.0:
+            return float(direct)
+    except (TypeError, ValueError):
+        pass
+    return _sum_hourly_column_kwh(scenario, "solar_ht_buffer_loss_kwh")
+
+
+def _storage_value_for_pdf(scenario: ScenarioResult, *, has_geothermal: bool) -> str:
+    volume_l = scenario.config.collector.area_m2 * scenario.config.collector.daily_buffer_l_per_m2
+    if has_geothermal:
+        return _fmt_number(volume_l / 1000.0, 0, "m3")
+    return _fmt_number(volume_l, 0, "L")
+
+
+def _monthly_with_solar_losses(scenario: ScenarioResult) -> pd.DataFrame:
+    month_df = scenario.hourly_by_month_df.copy()
+    if month_df.empty:
+        return month_df
+    if "Pertes ballon solaire (MWh)" not in month_df.columns and "Pertes ballon HT (kWh)" in month_df.columns:
+        month_df["Pertes ballon solaire (MWh)"] = (
+            pd.to_numeric(month_df["Pertes ballon HT (kWh)"], errors="coerce").fillna(0.0) / 1000.0
+        )
+    return month_df
+
+
+def _solar_only_duration_dataframe(scenario: ScenarioResult) -> pd.DataFrame:
+    hourly_df = scenario.hourly_df
+    required = {"demand_ht_kwh", "solar_ht_from_buffer_kwh", "backup_ht_kwh"}
+    if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty or not required.issubset(hourly_df.columns):
+        return pd.DataFrame()
+    data = pd.DataFrame(
+        {
+            "Besoin HT": pd.to_numeric(hourly_df["demand_ht_kwh"], errors="coerce").fillna(0.0),
+            "Solaire thermique": pd.to_numeric(hourly_df["solar_ht_from_buffer_kwh"], errors="coerce").fillna(0.0),
+            "Appoint gaz": pd.to_numeric(hourly_df["backup_ht_kwh"], errors="coerce").fillna(0.0),
+        }
+    ).sort_values("Besoin HT", ascending=False)
+    data = data.reset_index(drop=True)
+    data["Heure classee"] = data.index + 1
+    return data
+
+
+def _architectural_conclusion_lines(architectural_context: dict[str, Any] | None) -> list[str]:
+    if not isinstance(architectural_context, dict) or not architectural_context:
+        return ["Analyse des contraintes architecturales non disponible dans ce calcul."]
+    result = architectural_context.get("result")
+    if not isinstance(result, dict):
+        return ["Analyse des contraintes architecturales non réalisée ou non sauvegardée avec ce calcul."]
+    counts = result.get("counts") if isinstance(result.get("counts"), dict) else {}
+    total = sum(int(counts.get(category, 0) or 0) for category in CATEGORY_CONFIG)
+    if total <= 0:
+        return ["Aucune servitude AC1, AC2 ou AC4 n'a été détectée au droit du point dans les données interrogées."]
+    parts = [
+        f"{category} : {int(counts.get(category, 0) or 0)}"
+        for category in CATEGORY_CONFIG
+        if int(counts.get(category, 0) or 0) > 0
+    ]
+    return [
+        "Des contraintes architecturales potentielles ont été détectées au droit du point.",
+        "Synthèse des objets détectés : " + ", ".join(parts) + ".",
+    ]
+
+
+def _draw_architectural_conclusion(
+    canvas,
+    architectural_context: dict[str, Any] | None,
+    *,
+    x: float,
+    y: float,
+    width: float,
+) -> float:
+    y = _draw_section_title(canvas, "Analyse des contraintes architecturales", x=x, y=y)
+    for line in _architectural_conclusion_lines(architectural_context):
+        y = _draw_note(canvas, line, x=x, y=y, width=width)
+    return y
+
+
+def _draw_architectural_map(
+    canvas,
+    architectural_context: dict[str, Any] | None,
+    *,
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+) -> None:
+    if not isinstance(architectural_context, dict):
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title="Carte du site")
+        return
+    latitude = architectural_context.get("latitude")
+    longitude = architectural_context.get("longitude")
+    if latitude is None or longitude is None:
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title="Carte du site")
+        return
+    try:
+        image = render_static_map(
+            latitude=float(latitude),
+            longitude=float(longitude),
+            result=architectural_context.get("result") if isinstance(architectural_context.get("result"), dict) else None,
+            address=str(architectural_context.get("selected_address") or ""),
+            zoom=16,
+            width=1100,
+            height=620,
+        )
+        image_buffer = BytesIO()
+        image.save(image_buffer, format="PNG")
+        image_buffer.seek(0)
+        canvas.drawImage(
+            ImageReader(image_buffer),
+            x,
+            y,
+            width=width,
+            height=height,
+            preserveAspectRatio=True,
+            anchor="c",
+            mask="auto",
+        )
+    except (StaticMapError, ValueError, OSError) as exc:
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title="Carte du site")
+        _draw_note(canvas, f"La carte n'a pas pu être générée : {exc}", x=x + 12, y=y + height / 2, width=width - 24)
 
 
 def _row_float(row: pd.Series | None, column: str, default: float | None = None) -> float | None:
@@ -709,7 +861,7 @@ def _draw_monthly_analysis_charts_page(canvas, scenario: ScenarioResult, *, widt
     right_x = 58 + chart_w
     top_y = height - 92 - chart_h
     bottom_y = 72
-    month_df = scenario.hourly_by_month_df
+    month_df = _monthly_with_solar_losses(scenario)
 
     _draw_simple_bar_chart(
         canvas,
@@ -747,12 +899,12 @@ def _draw_monthly_analysis_charts_page(canvas, scenario: ScenarioResult, *, widt
             canvas,
             month_df,
             label_col="Mois",
-            value_col="Solaire non valorise (MWh)",
+            value_col="Pertes ballon solaire (MWh)",
             x=right_x,
             y=top_y,
             width=chart_w,
             height=chart_h,
-            title=f"Solaire non valorisé - année {scenario.simulation_year_displayed}",
+            title=f"Pertes ballon solaire - année {scenario.simulation_year_displayed}",
             y_label="MWh/mois",
             color=(0.74, 0.77, 0.82),
             max_items=12,
@@ -813,12 +965,175 @@ def _draw_economic_chart(canvas, scenario: ScenarioResult, *, x: float, y: float
     )
 
 
+def _economic_row_from_candidates(df: pd.DataFrame, names: list[str]) -> pd.Series | None:
+    for name in names:
+        row = _economic_row(df, name)
+        if row is not None:
+            return row
+    if df.empty:
+        return None
+    if "Scenario" in df:
+        non_reference = df[~df["Scenario"].astype(str).str.contains("reference", case=False, na=False)]
+        if not non_reference.empty:
+            return non_reference.iloc[0]
+    return df.iloc[0]
+
+
+def _economic_components_eur_mwh(row: pd.Series | None, delivered_mwh: float) -> dict[str, float]:
+    if row is None or delivered_mwh <= 0:
+        return {"P1": 0.0, "P2": 0.0, "P4": 0.0}
+    return {
+        "P1": float(_row_float(row, "P1 annuel (EUR/an)", 0.0) or 0.0) / delivered_mwh,
+        "P2": float(_row_float(row, "P2 annuel (EUR/an)", 0.0) or 0.0) / delivered_mwh,
+        "P4": float(_row_float(row, "P4 annuel (EUR/an)", 0.0) or 0.0) / delivered_mwh,
+    }
+
+
+def _draw_solar_gas_heat_cost_chart(canvas, scenario: ScenarioResult, *, x: float, y: float, width: float, height: float) -> None:
+    df = scenario.economic_comparison_df
+    delivered_mwh = max(1e-9, float(scenario.total_ht_kwh or 0.0) / 1000.0)
+    solar_row = _economic_row_from_candidates(
+        df,
+        ["Geothermie + solaire meme sondes", "Solaire thermique + appoint gaz", "Mix ENR"],
+    )
+    reference_row = _economic_row_from_candidates(df[df["Scenario"].astype(str).str.contains("Reference", case=False, na=False)] if not df.empty and "Scenario" in df else pd.DataFrame(), ["Reference 100 % gaz", "Reference 100% gaz"])
+    solar_parts = _economic_components_eur_mwh(solar_row, delivered_mwh)
+    reference_parts = _economic_components_eur_mwh(reference_row, delivered_mwh)
+    if reference_row is not None:
+        ref_cost = _row_float(reference_row, "Cout chaleur global (EUR/MWh)")
+        if ref_cost is not None and sum(reference_parts.values()) <= 0:
+            reference_parts["P1"] = float(ref_cost)
+    if solar_row is not None:
+        solar_cost = _row_float(solar_row, "Cout chaleur global (EUR/MWh)")
+        if solar_cost is not None and sum(solar_parts.values()) <= 0:
+            solar_parts["P4"] = float(solar_cost)
+
+    labels = ["Solaire + gaz", "Référence gaz"]
+    stacks = [solar_parts, reference_parts]
+    colors = {
+        "P1": (0.02, 0.42, 0.78),
+        "P2": (0.46, 0.74, 0.94),
+        "P4": (0.98, 0.80, 0.08),
+    }
+    totals = [sum(parts.values()) for parts in stacks]
+    if max(totals or [0.0]) <= 0:
+        _draw_no_data(canvas, x=x, y=y, width=width, height=height, title="Coût de chaleur solaire thermique / gaz")
+        return
+
+    canvas.setFillColorRGB(0.18, 0.19, 0.25)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(x, y + height - 10, "Coût de chaleur : solaire thermique + gaz vs référence gaz")
+    plot_x = x + 52
+    plot_y = y + 34
+    plot_w = width - 130
+    plot_h = height - 72
+    y_max = max(totals) * 1.18
+    canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
+    for i in range(6):
+        gy = plot_y + plot_h * i / 5
+        canvas.line(plot_x, gy, plot_x + plot_w, gy)
+        canvas.setFillColorRGB(0.42, 0.45, 0.53)
+        canvas.setFont("Helvetica", 6.5)
+        canvas.drawRightString(plot_x - 5, gy - 2, _fmt_number(y_max * i / 5, 0))
+    bar_w = min(72.0, plot_w / 4)
+    for idx, parts in enumerate(stacks):
+        bx = plot_x + plot_w * (idx + 1) / 3 - bar_w / 2
+        bottom = plot_y
+        for poste in ("P1", "P2", "P4"):
+            value = max(0.0, float(parts.get(poste, 0.0)))
+            bh = value / y_max * plot_h
+            canvas.setFillColorRGB(*colors[poste])
+            canvas.rect(bx, bottom, bar_w, bh, fill=1, stroke=0)
+            bottom += bh
+        canvas.setFillColorRGB(0.35, 0.37, 0.45)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawCentredString(bx + bar_w / 2, plot_y - 10, labels[idx])
+        canvas.setFont("Helvetica-Bold", 7)
+        canvas.drawCentredString(bx + bar_w / 2, bottom + 4, _fmt_number(totals[idx], 1, "EUR/MWh"))
+    canvas.setFont("Helvetica", 7)
+    canvas.saveState()
+    canvas.translate(x + 10, plot_y + plot_h / 2)
+    canvas.rotate(90)
+    canvas.drawCentredString(0, 0, "EUR/MWh utile")
+    canvas.restoreState()
+    legend_y = plot_y + plot_h - 4
+    labels_postes = {"P1": "P1 énergie", "P2": "P2 maintenance", "P4": "P4 investissement"}
+    for poste in ("P1", "P2", "P4"):
+        canvas.setFillColorRGB(*colors[poste])
+        canvas.rect(plot_x + plot_w + 14, legend_y - 4, 8, 6, fill=1, stroke=0)
+        canvas.setFillColorRGB(0.35, 0.37, 0.45)
+        canvas.setFont("Helvetica", 7)
+        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, labels_postes[poste])
+        legend_y -= 12
+
+
+def _draw_solar_only_duration_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
+    _draw_header(canvas, title=f"{_product_title(scenario)} - monotone solaire", subtitle=subtitle, width=width, height=height)
+    duration_df = _solar_only_duration_dataframe(scenario)
+    _draw_line_chart(
+        canvas,
+        [
+            ("Besoin HT", duration_df, "Heure classee", "Besoin HT", (0.18, 0.19, 0.25)),
+            ("Solaire thermique", duration_df, "Heure classee", "Solaire thermique", ENERGY_COLORS["Solaire thermique"]),
+            ("Appoint gaz", duration_df, "Heure classee", "Appoint gaz", ENERGY_COLORS["Appoint gaz"]),
+        ],
+        x=34,
+        y=height - 92 - 330,
+        width=width - 68,
+        height=330,
+        title=f"Monotone horaire du besoin HT - année {scenario.simulation_year_displayed}",
+        x_label="Heures classées par besoin décroissant",
+        y_label="Puissance moyenne horaire (kW)",
+        max_points=500,
+    )
+    _draw_note(
+        canvas,
+        "La monotone classe les heures de l'année affichée par besoin haute température décroissant. "
+        "Elle permet de visualiser la part couverte par le solaire thermique et la part restant à l'appoint gaz.",
+        x=34,
+        y=82,
+        width=width - 68,
+    )
+
+
+def _draw_solar_only_economic_page(canvas, scenario: ScenarioResult, *, width: float, height: float, subtitle: str) -> None:
+    _draw_header(canvas, title=f"{_product_title(scenario)} - économie solaire thermique", subtitle=subtitle, width=width, height=height)
+    y = height - 92
+    econ_row = _economic_row_from_candidates(
+        scenario.economic_comparison_df,
+        ["Geothermie + solaire meme sondes", "Solaire thermique + appoint gaz", "Mix ENR"],
+    )
+    reference_row = _economic_row_from_candidates(
+        scenario.economic_comparison_df[
+            scenario.economic_comparison_df["Scenario"].astype(str).str.contains("Reference", case=False, na=False)
+        ]
+        if not scenario.economic_comparison_df.empty and "Scenario" in scenario.economic_comparison_df
+        else pd.DataFrame(),
+        ["Reference 100 % gaz", "Reference 100% gaz"],
+    )
+    y = _draw_section_title(canvas, "Synthèse économique", x=34, y=y)
+    y = _draw_kpi_grid(
+        canvas,
+        [
+            ("Coût solaire + gaz", _fmt_number(_row_float(econ_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
+            ("Référence gaz", _fmt_number(_row_float(reference_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
+            ("CAPEX net solaire", _fmt_number(_row_float(econ_row, "CAPEX net (EUR)"), 0, "EUR")),
+            ("Contexte référence", gas_reference_context_label(str(scenario.heat_costs.get("gas_reference_context", "")))),
+        ],
+        x=34,
+        y=y,
+        width=width - 68,
+    )
+    _draw_solar_gas_heat_cost_chart(canvas, scenario, x=34, y=72, width=width - 68, height=260)
+
+
 def build_heliostock_overview_pdf(
     scenario: ScenarioResult,
     *,
     calculation_id: str = "",
     calculated_at: str = "",
     gmi_context: dict[str, Any] | None = None,
+    architectural_context: dict[str, Any] | None = None,
 ) -> bytes:
     """Build a compact PDF export from the already-computed HelioDyn result."""
 
@@ -838,41 +1153,69 @@ def build_heliostock_overview_pdf(
 
     _draw_header(canvas, title=f"{product_title} - synthèse du calcul", subtitle=subtitle, width=page_width, height=page_height)
     y = page_height - 92
-    storage_m3 = scenario.config.collector.area_m2 * scenario.config.collector.daily_buffer_l_per_m2 / 1000.0
+    input_metrics = [
+        ("Surface solaire", _fmt_number(scenario.config.collector.area_m2, 0, "m²")),
+        ("Volume stockage solaire", _storage_value_for_pdf(scenario, has_geothermal=has_geothermal)),
+    ]
+    if has_geothermal:
+        input_metrics.extend(
+            [
+                ("Puissance PAC géothermie", _fmt_number(scenario.config.heat_pump.max_thermal_power_kw, 0, "kW")),
+                ("Linéaire sondes", _fmt_number(scenario.full_borefield_length_m, 0, "ml")),
+            ]
+        )
     y = _draw_section_title(canvas, "Données d'entrée principales", x=34, y=y)
     y = _draw_kpi_grid(
         canvas,
-        [
-            ("Surface solaire", _fmt_number(scenario.config.collector.area_m2, 0, "m²")),
-            ("Volume stockage solaire", _fmt_number(storage_m3, 0, "m³")),
-            ("Puissance PAC géothermie", _fmt_number(scenario.config.heat_pump.max_thermal_power_kw, 0, "kW")),
-            ("Linéaire sondes", _fmt_number(scenario.full_borefield_length_m, 0, "ml")),
-        ],
+        input_metrics,
         x=34,
         y=y,
         width=page_width - 68,
     )
     y -= 6
     y = _draw_section_title(canvas, "Besoins et production solaire", x=34, y=y)
-    y = _draw_kpi_grid(
-        canvas,
+    solar_metrics = [
+        ("Besoin total", _fmt_mwh_from_kwh(scenario.total_ht_kwh + scenario.total_bt_kwh)),
+        ("Besoin haute température", _fmt_mwh_from_kwh(scenario.total_ht_kwh)),
+    ]
+    if has_geothermal:
+        solar_metrics.extend(
+            [
+                ("Besoin basse température", _fmt_mwh_from_kwh(scenario.total_bt_kwh)),
+                ("Production solaire totale", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh + scenario.total_to_btes_kwh)),
+                ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
+                ("Production solaire injectée BTES", _fmt_mwh_from_kwh(scenario.total_to_btes_kwh)),
+            ]
+        )
+    else:
+        solar_metrics.extend(
+            [
+                ("Production solaire totale", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
+                ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
+                ("Pertes ballon solaire", _fmt_mwh_from_kwh(_solar_buffer_loss_kwh(scenario))),
+                ("Appoint gaz HT", _fmt_mwh_from_kwh(scenario.total_backup_ht_kwh)),
+            ]
+        )
+    solar_metrics.extend(
         [
-            ("Besoin total", _fmt_mwh_from_kwh(scenario.total_ht_kwh + scenario.total_bt_kwh)),
-            ("Besoin haute température", _fmt_mwh_from_kwh(scenario.total_ht_kwh)),
-            ("Besoin basse température", _fmt_mwh_from_kwh(scenario.total_bt_kwh)),
-            ("Production solaire totale", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh + scenario.total_to_btes_kwh)),
-            ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
-            ("Production solaire injectée BTES", _fmt_mwh_from_kwh(scenario.total_to_btes_kwh)),
+            ("Épisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
             ("Heures palier haut ballon", _fmt_number(_solar_buffer_at_max_hours(scenario), 0, "h")),
             ("Couverture solaire HT", _fmt_number(scenario.annual_ht_solar_coverage * 100.0, 0, "%")),
             ("Productivité solaire valorisée", _fmt_number(scenario.solar_productivity_valued_kwh_m2_year, 0, "kWh/m².an")),
-        ],
+        ]
+    )
+    y = _draw_kpi_grid(
+        canvas,
+        solar_metrics,
         x=34,
         y=y,
         width=page_width - 68,
     )
     y -= 6
-    _draw_gmi_conclusion(canvas, gmi_context, x=34, y=y, width=page_width - 68)
+    if has_geothermal:
+        _draw_gmi_conclusion(canvas, gmi_context, x=34, y=y, width=page_width - 68)
+    else:
+        _draw_architectural_conclusion(canvas, architectural_context, x=34, y=y, width=page_width - 68)
     page_number = 1
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
@@ -897,9 +1240,10 @@ def build_heliostock_overview_pdf(
             canvas,
             [
                 ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
-                ("Pertes ballon solaire", _fmt_mwh_from_kwh(getattr(scenario, "solar_buffer_loss_kwh", 0.0))),
+                ("Pertes ballon solaire", _fmt_mwh_from_kwh(_solar_buffer_loss_kwh(scenario))),
                 ("Couverture solaire HT", _fmt_number(scenario.annual_ht_solar_coverage * 100.0, 0, "%")),
                 ("Appoint gaz HT", _fmt_mwh_from_kwh(scenario.total_backup_ht_kwh)),
+                ("Épisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
             ],
             x=34,
             y=y,
@@ -908,6 +1252,22 @@ def build_heliostock_overview_pdf(
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
     page_number += 1
+
+    if not has_geothermal:
+        _draw_header(canvas, title=f"{product_title} - localisation et contraintes", subtitle=subtitle, width=page_width, height=page_height)
+        y = page_height - 92
+        y = _draw_architectural_conclusion(canvas, architectural_context, x=34, y=y, width=page_width - 68)
+        _draw_architectural_map(
+            canvas,
+            architectural_context,
+            x=34,
+            y=76,
+            width=page_width - 68,
+            height=max(180, min(320, y - 96)),
+        )
+        _draw_footer(canvas, page_number=page_number, width=page_width)
+        canvas.showPage()
+        page_number += 1
 
     if has_geothermal:
         _draw_multiyear_charts_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
@@ -924,6 +1284,12 @@ def build_heliostock_overview_pdf(
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
     page_number += 1
+
+    if not has_geothermal:
+        _draw_solar_only_duration_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
+        _draw_footer(canvas, page_number=page_number, width=page_width)
+        canvas.showPage()
+        page_number += 1
 
     if has_geothermal:
         _draw_header(canvas, title=f"{product_title} - économie multiannuelle", subtitle=subtitle, width=page_width, height=page_height)
@@ -948,6 +1314,9 @@ def build_heliostock_overview_pdf(
             width=chart_w,
             cols=2,
         )
+        _draw_footer(canvas, page_number=page_number, width=page_width)
+    else:
+        _draw_solar_only_economic_page(canvas, scenario, width=page_width, height=page_height, subtitle=subtitle)
         _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.save()
     return buffer.getvalue()

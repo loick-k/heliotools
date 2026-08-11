@@ -28,6 +28,7 @@ from .economic_scenarios import (
     _zero_solar_economics,
 )
 from .engine import MonthlyDemand, SimulationConfig
+from .gas_reference import includes_gas_boiler_fixed_costs
 from .hourly_engine import HourlyResult, HourlyWeather, simulate_hourly
 from .parametric_pac import pac_power_parametric_study
 from .parametric_solar import solar_surface_parametric_study
@@ -930,6 +931,52 @@ def run_hourly_scenario(
             economic_comparison_df.loc[index, "Heures hors GMI annee finale"] = (
                 float(final_row.get("Heures sous Tmin GMI", 0.0)) + float(final_row.get("Heures sur Tmax GMI", 0.0))
             )
+    if not run_geo_only and not includes_gas_boiler_fixed_costs(economics.gas_reference_context):
+        years = max(1, len(same_trajectory_df))
+        delivered_cumulative_mwh = float(same_trajectory_df["E utile totale (MWh)"].sum()) if "E utile totale (MWh)" in same_trajectory_df else reference_heat_mwh * years
+        useful_reference_p1 = (
+            max(0.0, float(economics.reference_energy_cost_eur_mwh))
+            / max(1e-9, float(economics.eta_appoint_eco))
+            * annuity_average_factor(float(economics.reference_energy_inflation_pct) / 100.0, years)
+        )
+        reference_mask = economic_comparison_df["Scenario"].astype(str).eq("Reference 100 % gaz")
+        economic_comparison_df.loc[reference_mask, "Cout chaleur global (EUR/MWh)"] = useful_reference_p1
+        economic_comparison_df.loc[reference_mask, "CAPEX net (EUR)"] = 0.0
+        economic_comparison_df.loc[reference_mask, "P1 annuel (EUR/an)"] = useful_reference_p1 * reference_heat_mwh
+        economic_comparison_df.loc[reference_mask, "P1 appoint gaz (EUR/an)"] = useful_reference_p1 * reference_heat_mwh
+        for column in [
+            "P2 annuel (EUR/an)",
+            "P2 solaire (EUR/an)",
+            "P2 geothermie (EUR/an)",
+            "P2 appoint gaz (EUR/an)",
+            "P4 annuel (EUR/an)",
+            "P4 solaire (EUR/an)",
+            "P4 geothermie (EUR/an)",
+            "P4 appoint gaz (EUR/an)",
+            "P2 cumule (EUR)",
+            "P4 cumule (EUR)",
+        ]:
+            economic_comparison_df.loc[reference_mask, column] = 0.0
+        economic_comparison_df.loc[reference_mask, "P1 cumule (EUR)"] = useful_reference_p1 * delivered_cumulative_mwh
+
+        solar_mask = economic_comparison_df["Scenario"].astype(str).eq("Geothermie + solaire meme sondes")
+        solar_capex = _capex_net_total(same_borefield_heat_costs, ["Solaire thermique"])
+        solar_p2_annual = economic_comparison_df.loc[solar_mask, "P2 solaire (EUR/an)"].astype(float)
+        solar_p4_annual = solar_capex / years
+        p1_cumulative = economic_comparison_df.loc[solar_mask, "P1 cumule (EUR)"].astype(float)
+        p2_cumulative = solar_p2_annual * years
+        p4_cumulative = solar_capex
+        economic_comparison_df.loc[solar_mask, "CAPEX net (EUR)"] = solar_capex
+        economic_comparison_df.loc[solar_mask, "P2 annuel (EUR/an)"] = solar_p2_annual
+        economic_comparison_df.loc[solar_mask, "P2 appoint gaz (EUR/an)"] = 0.0
+        economic_comparison_df.loc[solar_mask, "P4 annuel (EUR/an)"] = solar_p4_annual
+        economic_comparison_df.loc[solar_mask, "P4 solaire (EUR/an)"] = solar_p4_annual
+        economic_comparison_df.loc[solar_mask, "P4 appoint gaz (EUR/an)"] = 0.0
+        economic_comparison_df.loc[solar_mask, "P2 cumule (EUR)"] = p2_cumulative
+        economic_comparison_df.loc[solar_mask, "P4 cumule (EUR)"] = p4_cumulative
+        economic_comparison_df.loc[solar_mask, "Cout chaleur global (EUR/MWh)"] = (
+            p1_cumulative + p2_cumulative + p4_cumulative
+        ) / max(1e-9, delivered_cumulative_mwh)
     economic_comparison_df["Méthode coût chaleur"] = "Multiannuel nominal" if run_multiyear else "Annuel nominal"
     economic_comparison_chart_df = economic_comparison_df.melt(
         id_vars=["Scenario"],

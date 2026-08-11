@@ -4,6 +4,8 @@ import math
 
 import pandas as pd
 
+from .gas_reference import GAS_REFERENCE_EXISTING_BOILER, includes_gas_boiler_fixed_costs
+
 
 def annuity_average_factor(rate: float, years: int) -> float:
     if years <= 0:
@@ -299,6 +301,7 @@ def compute_heat_costs(
     backup_p1_eur_mwh: float = 70.0,
     backup_p2_eur_kw_year: float = 10.0,
     backup_capex_eur_kw: float = 200.0,
+    gas_reference_context: str = GAS_REFERENCE_EXISTING_BOILER,
 ) -> dict[str, float | pd.DataFrame]:
     years = max(1, int(analysis_years))
     solar_mwh = max(0.0, annual_solar_mwh)
@@ -352,7 +355,8 @@ def compute_heat_costs(
     geo_p2 = geo_p2_annual / pac_heat_mwh if pac_heat_mwh > 0.0 else 0.0
     geo_p4 = geo_p4_annual / pac_heat_mwh if pac_heat_mwh > 0.0 else 0.0
 
-    backup_capex = backup_capex_eur_kw * backup_kw
+    include_gas_fixed_costs = includes_gas_boiler_fixed_costs(gas_reference_context)
+    backup_capex = backup_capex_eur_kw * backup_kw if include_gas_fixed_costs else 0.0
     # The Mix ENR backup boiler is the same gas energy vector as the 100% gas
     # reference. Its P1 must therefore use the same useful heat cost, including
     # boiler efficiency and gas-price inflation over the analysis period.
@@ -360,7 +364,7 @@ def compute_heat_costs(
     # longer used by the default Streamlit workflow.
     backup_useful_p1 = gas_useful_p1
     backup_p1_annual = backup_heat_mwh * backup_useful_p1
-    backup_p2_annual = backup_kw * max(0.0, float(backup_p2_eur_kw_year))
+    backup_p2_annual = backup_kw * max(0.0, float(backup_p2_eur_kw_year)) if include_gas_fixed_costs else 0.0
     backup_p4_annual = backup_capex / years
     backup_p1 = backup_p1_annual / backup_heat_mwh if backup_heat_mwh > 0.0 else 0.0
     backup_p2 = backup_p2_annual / backup_heat_mwh if backup_heat_mwh > 0.0 else 0.0
@@ -375,8 +379,8 @@ def compute_heat_costs(
     mix_p4 = (solar_mwh * solar_p4 + pac_heat_mwh * geo_p4 + backup_heat_mwh * backup_p4) / delivered_heat_mwh
     combined_cost = mix_p1 + mix_p2 + mix_p4
 
-    reference_capex = backup_capex_eur_kw * reference_kw
-    reference_p2_annual = reference_kw * max(0.0, float(backup_p2_eur_kw_year))
+    reference_capex = backup_capex_eur_kw * reference_kw if include_gas_fixed_costs else 0.0
+    reference_p2_annual = reference_kw * max(0.0, float(backup_p2_eur_kw_year)) if include_gas_fixed_costs else 0.0
     reference_p1 = gas_useful_p1
     reference_p2 = reference_p2_annual / reference_mwh if reference_mwh > 0.0 else 0.0
     reference_p4 = reference_capex / (reference_mwh * years) if reference_mwh > 0.0 else 0.0
@@ -509,6 +513,7 @@ def compute_heat_costs(
         "heat_cost_summary": heat_cost_summary,
         "capex_summary": capex_summary,
         "summary": summary,
+        "gas_reference_context": gas_reference_context,
         "combined_heat_cost_eur_mwh": combined_cost,
         "geo_heat_cost_eur_mwh": geo_p1 + geo_p2 + geo_p4,
         "backup_heat_cost_eur_mwh": backup_p1 + backup_p2 + backup_p4,
