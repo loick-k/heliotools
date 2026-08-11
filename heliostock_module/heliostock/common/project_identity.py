@@ -278,6 +278,18 @@ def _render_weather_identity_fields(key_prefix: str, options: ProjectIdentityOpt
     )
 
     region_key = _key(key_prefix, "weather_region")
+    station_key = _key(key_prefix, "weather_station")
+    location_signature_key = _key(key_prefix, "weather_auto_location_signature")
+    location_signature = f"{identity.latitude:.6f}:{identity.longitude:.6f}"
+    if (
+        options.auto_select_nearest_weather
+        and nearest is not None
+        and st.session_state.get(location_signature_key) != location_signature
+    ):
+        st.session_state[region_key] = nearest[0]
+        st.session_state[station_key] = nearest[1]
+        st.session_state[location_signature_key] = location_signature
+
     if st.session_state.get(region_key) not in region_names:
         default_region = identity.weather_region if identity.weather_region in region_names else None
         if nearest is not None:
@@ -290,7 +302,6 @@ def _render_weather_identity_fields(key_prefix: str, options: ProjectIdentityOpt
         selected_region = st.selectbox("Région météo", options=region_names, key=region_key)
         stations_by_label = weather_regions[selected_region]
         station_labels = list(stations_by_label.keys())
-        station_key = _key(key_prefix, "weather_station")
         current_station = _normalise_weather_station_label(str(st.session_state.get(station_key) or ""), options.weather_station_aliases)
         if current_station not in station_labels:
             default_station = _normalise_weather_station_label(identity.weather_station, options.weather_station_aliases)

@@ -2,7 +2,7 @@ from datetime import date
 
 from heliostock.common.formatting import format_mwh_from_kwh, owner_slug, safe_slug
 from heliostock.common.project_context import project_context_to_payload
-from heliostock.common.project_identity import ProjectIdentity
+from heliostock.common.project_identity import ProjectIdentity, nearest_weather_station
 from heliostock.common.project_store import JsonProjectStore
 from heliostock.economics_core import compute_heat_costs
 from heliostock.project_store import JsonProjectStore as LegacyJsonProjectStore
@@ -87,3 +87,25 @@ def test_project_context_payload_preserves_app_specific_scope_and_weather_source
     assert context["geographic_scope"] == "France"
     assert context["weather"]["source"] == "PVGIS"
     assert context["extra"] == {"needs_mode": "ratio"}
+
+
+def test_nearest_weather_station_uses_project_coordinates():
+    weather_regions = {
+        "Region A": {
+            "Station loin": {"label": "Station loin", "latitude": 48.0, "longitude": -2.0},
+        },
+        "Region B": {
+            "Station proche": {"label": "Station proche", "latitude_deg": 47.218, "longitude_deg": -1.553},
+        },
+    }
+
+    nearest = nearest_weather_station(
+        latitude=47.2184,
+        longitude=-1.5536,
+        weather_regions=weather_regions,
+    )
+
+    assert nearest is not None
+    assert nearest[0] == "Region B"
+    assert nearest[1] == "Station proche"
+    assert nearest[2] < 1.0
