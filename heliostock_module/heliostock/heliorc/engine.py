@@ -69,6 +69,35 @@ DEFAULT_MONTHLY_NEEDS_MWH = [
     1790.0,
 ]
 
+def decentralized_branch_guard(total_monthly_needs: list[float], branch_monthly_needs: list[float]) -> list[str]:
+    total_values = [max(0.0, float(value)) for value in (total_monthly_needs + [0.0] * 12)[:12]]
+    branch_values = [max(0.0, float(value)) for value in (branch_monthly_needs + [0.0] * 12)[:12]]
+    annual_total = sum(total_values)
+    annual_branch = sum(branch_values)
+    messages: list[str] = []
+    if annual_total <= 0:
+        messages.append("Le besoin total du RCU doit être strictement positif.")
+        return messages
+    if annual_branch <= 0:
+        messages.append("Le besoin de la branche sélectionnée doit être strictement positif.")
+    if annual_branch >= annual_total:
+        messages.append(
+            "En installation décentralisée, le besoin annuel de la branche sélectionnée doit être strictement inférieur au besoin annuel total du RCU."
+        )
+    months_over_total = [
+        MONTHS_FR[index]
+        for index, (branch_value, total_value) in enumerate(zip(branch_values, total_values))
+        if branch_value > total_value
+    ]
+    if months_over_total:
+        messages.append(
+            "Le besoin de la branche ne peut pas dépasser le besoin total du RCU mois par mois : "
+            + ", ".join(months_over_total)
+            + "."
+        )
+    return messages
+
+
 # Cells H19:H30 in workbook NO_STH_RCU_v5.3. They are constants, not formulas.
 # They adjust the monthly irradiation profile for the seasonal efficiency of a
 # high-performance glazed flat-plate collector. The annual productivity is

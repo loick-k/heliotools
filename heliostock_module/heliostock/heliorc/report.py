@@ -86,19 +86,24 @@ def _header_footer(canvas: Any, doc: Any) -> None:
     canvas.restoreState()
 
 
-def _chart(monthly: pd.DataFrame) -> Drawing:
+def _chart(
+    monthly: pd.DataFrame,
+    *,
+    needs_col: str = "Besoins RCU (MWh)",
+    title: str = "Couverture mensuelle des besoins RCU",
+) -> Drawing:
     drawing = Drawing(500, 220)
     x0 = 45
     y0 = 35
     height = 145
     width = 410
-    needs = monthly["Besoins RCU (MWh)"].astype(float).tolist()
+    needs = monthly[needs_col].astype(float).tolist()
     solar = monthly["Production solaire (MWh)"].astype(float).tolist()
     solar_covered = [min(max(solar_value, 0.0), max(need, 0.0)) for need, solar_value in zip(needs, solar)]
     backup = [max(need - solar_value, 0.0) for need, solar_value in zip(needs, solar_covered)]
     y_max = max(needs) * 1.12 if max(needs) > 0 else 1.0
 
-    drawing.add(String(x0, 205, "Couverture mensuelle des besoins RCU", fontName="Helvetica-Bold", fontSize=10))
+    drawing.add(String(x0, 205, title, fontName="Helvetica-Bold", fontSize=10))
     drawing.add(String(x0, 187, "MWh/mois", fontName="Helvetica", fontSize=7, fillColor=GREY))
     drawing.add(Line(x0, y0, x0 + width, y0, strokeColor=colors.black, strokeWidth=0.8))
     drawing.add(Line(x0, y0, x0, y0 + height, strokeColor=colors.black, strokeWidth=0.8))
@@ -694,6 +699,15 @@ def build_opportunity_note(
     )
     story.append(Spacer(1, 0.15 * cm))
     story.append(_chart(monthly))
+    if "Besoins branche sélectionnée (MWh)" in monthly.columns:
+        story.append(Spacer(1, 0.12 * cm))
+        story.append(
+            _chart(
+                monthly,
+                needs_col="Besoins branche sélectionnée (MWh)",
+                title="Production solaire thermique sur besoins de la branche",
+            )
+        )
 
     economics = [
         ["CAPEX indicatif", _money(results.capex_eur)],
