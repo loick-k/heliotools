@@ -117,6 +117,23 @@ def _coerce_monthly_values(source: object) -> list[float]:
     return (values + [0.0] * 12)[:12]
 
 
+def _format_monthly_value_for_editor(value: object) -> str:
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return ""
+    if abs(numeric_value - round(numeric_value)) < 1e-9:
+        return f"{numeric_value:.0f}"
+    return f"{numeric_value:.1f}".replace(".", ",")
+
+
+def _editor_monthly_dataframe(frame: pd.DataFrame, value_col: str) -> pd.DataFrame:
+    display = frame.copy()
+    if value_col in display.columns:
+        display[value_col] = display[value_col].map(_format_monthly_value_for_editor)
+    return display
+
+
 def _normalise_manual_needs_dataframe(value: object, fallback: pd.DataFrame | None = None) -> pd.DataFrame:
     if isinstance(value, pd.DataFrame):
         frame = value.copy()
@@ -1092,7 +1109,10 @@ def render_heliorc_app() -> None:
             )
             with st.form("manual_needs_editor_form_container"):
                 edited = st.data_editor(
-                    _normalise_manual_needs_dataframe(st.session_state.manual_needs_df),
+                    _editor_monthly_dataframe(
+                        _normalise_manual_needs_dataframe(st.session_state.manual_needs_df),
+                        TOTAL_NEEDS_COL,
+                    ),
                     key="manual_needs_editor_form_v3",
                     hide_index=True,
                     width="stretch",
@@ -1172,7 +1192,10 @@ def render_heliorc_app() -> None:
             )
             with st.form("branch_needs_editor_form_container"):
                 branch_edited = st.data_editor(
-                    _normalise_branch_needs_dataframe(st.session_state.branch_needs_df),
+                    _editor_monthly_dataframe(
+                        _normalise_branch_needs_dataframe(st.session_state.branch_needs_df),
+                        BRANCH_NEEDS_COL,
+                    ),
                     key="branch_needs_editor_form_v3",
                     hide_index=True,
                     width="stretch",
