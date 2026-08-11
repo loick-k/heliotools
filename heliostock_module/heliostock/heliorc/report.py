@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import math
 from io import BytesIO
+from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 import pandas as pd
 from reportlab.graphics.charts.legends import Legend
@@ -19,10 +23,19 @@ from reportlab.platypus import (
     Spacer,
     Table,
     TableStyle,
+    Image,
 )
 
 from ..pdf_report import draw_report_footer, draw_report_header
-from .engine import CALCULATION_MODES, CalculationInputs, CalculationResults
+from ..ui_surface_orientation import GEOPORTAIL_ORTHO_WMTS
+from .engine import ADEME_REFERENCE_URL, ADEME_REFERENCE_VIGILANCES, CalculationInputs, CalculationResults
+
+try:  # pragma: no cover - optional rendering dependency
+    from PIL import Image as PILImage
+    from PIL import ImageDraw
+except ModuleNotFoundError:  # pragma: no cover
+    PILImage = None
+    ImageDraw = None
 
 
 TEAL = colors.HexColor("#0B6F70")
@@ -31,6 +44,8 @@ ORANGE = colors.HexColor("#E58A2A")
 SOLAR_YELLOW = colors.HexColor("#FCBF24")
 LIGHT = colors.HexColor("#EEF5F4")
 GREY = colors.HexColor("#667085")
+ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
+ADEME_LOGO = ASSETS_DIR / "Logo_ADEME.png"
 
 
 def _money(value: float) -> str:
@@ -51,6 +66,19 @@ def _header_footer(canvas: Any, doc: Any) -> None:
         width=width,
         height=height,
     )
+    if ADEME_LOGO.exists():
+        try:
+            canvas.drawImage(
+                str(ADEME_LOGO),
+                width - 260,
+                height - 58,
+                width=92,
+                height=42,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+        except Exception:
+            pass
     draw_report_footer(canvas, page_number=doc.page, width=width, footer_text="HelioTools - HelioRC")
     canvas.restoreState()
 
@@ -202,6 +230,205 @@ def _simple_key_value_table(rows: list[list[str]], styles: dict[str, Any]) -> Ta
     return table
 
 
+def _filtered_project_warnings(warnings: list[str]) -> list[str]:
+    hidden_fragments = (
+        "Mode strict",
+        "200 m/MW",
+    )
+    filtered: list[str] = []
+    for warning in warnings:
+        text = str(warning)
+        if any(fragment in text for fragment in hidden_fragments):
+            continue
+        filtered.append(text)
+    return filtered
+
+
+def _surface_drawings(surface_orientation: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(surface_orientation, dict):
+        return []
+    drawings = surface_orientation.get("drawings")
+    if isinstance(drawings, list):
+        return [feature for feature in drawings if isinstance(feature, dict)]
+    nested = surface_orientation.get("surface_orientation")
+    if isinstance(nested, dict) and isinstance(nested.get("drawings"), list):
+        return [feature for feature in nested["drawings"] if isinstance(feature, dict)]
+    return []
+
+
+def _feature_lon_lat_coordinates(feature: dict[str, Any]) -> list[list[float]]:
+    geometry = feature.get("geometry") or {}
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates") or []
+    if geometry_type == "Polygon":
+        if coordinates and isinstance(coordinates[0], list) and coordinates[0] and isinstance(coordinates[0][0], list):
+            coordinates = coordinates[0]
+    elif geometry_type != "LineString":
+        return []
+    parsed: list[list[float]] = []
+    for coordinate in coordinates:
+        if isinstance(coordinate, (list, tuple)) and len(coordinate) >= 2:
+            try:
+                parsed.append([float(coordinate[0]), float(coordinate[1])])
+            except (TypeError, ValueError):
+                continue
+    return parsed
+
+
+def _surface_polygon_and_line(drawings: list[dict[str, Any]]) -> tuple[list[list[float]], list[list[float]]]:
+    polygons = [
+        _feature_lon_lat_coordinates(feature)
+        for feature in drawings
+        if (feature.get("geometry") or {}).get("type") == "Polygon"
+    ]
+    lines = [
+        _feature_lon_lat_coordinates(feature)
+        for feature in drawings
+        if (feature.get("geometry") or {}).get("type") == "LineString"
+    ]
+    return (polygons[-1] if polygons else []), (lines[-1] if lines else [])
+
+
+def _lon_lat_to_pixel(lon: float, lat: float, zoom: int) -> tuple[float, float]:
+    lat = max(min(lat, 85.05112878), -85.05112878)
+    sin_lat = math.sin(math.radians(lat))
+    world_size = 256 * (2**zoom)
+    x = (lon + 180.0) / 360.0 * world_size
+    y = (0.5 - math.log((1 + sin_lat) / (1 - sin_lat)) / (4 * math.pi)) * world_size
+    return x, y
+
+
+def _choose_surface_zoom(coords: list[list[float]], width_px: int, height_px: int) -> int:
+    if len(coords) < 2:
+        return 18
+    margin_x = 100
+    margin_y = 70
+    for zoom in range(19, 11, -1):
+        pixels = [_lon_lat_to_pixel(lon, lat, zoom) for lon, lat in coords]
+        x_values = [point[0] for point in pixels]
+        y_values = [point[1] for point in pixels]
+        if max(x_values) - min(x_values) <= width_px - 2 * margin_x and max(y_values) - min(y_values) <= height_px - 2 * margin_y:
+            return zoom
+    return 12
+
+
+def _fetch_tile(z: int, x: int, y: int) -> Any | None:
+    if PILImage is None:
+        return None
+    url = GEOPORTAIL_ORTHO_WMTS.format(z=z, x=x, y=y)
+    request = Request(url, headers={"User-Agent": "HelioTools PDF export"})
+    try:
+        with urlopen(request, timeout=6) as response:
+            tile_bytes = response.read()
+    except (OSError, URLError, TimeoutError, ValueError):
+        return None
+    try:
+        return PILImage.open(BytesIO(tile_bytes)).convert("RGB")
+    except Exception:
+        return None
+
+
+def _render_surface_snapshot_png(
+    *,
+    surface_orientation: dict[str, Any] | None,
+    project: dict[str, Any],
+    width_px: int = 980,
+    height_px: int = 460,
+) -> bytes | None:
+    if PILImage is None or ImageDraw is None:
+        return None
+    polygon, line = _surface_polygon_and_line(_surface_drawings(surface_orientation))
+    focus_coords = polygon or line
+    if len(focus_coords) < 2:
+        return None
+
+    zoom = _choose_surface_zoom(focus_coords, width_px, height_px)
+    bbox_pixels = [_lon_lat_to_pixel(lon, lat, zoom) for lon, lat in focus_coords]
+    x_min = min(point[0] for point in bbox_pixels)
+    x_max = max(point[0] for point in bbox_pixels)
+    y_min = min(point[1] for point in bbox_pixels)
+    y_max = max(point[1] for point in bbox_pixels)
+    center_x = (x_min + x_max) / 2.0
+    center_y = (y_min + y_max) / 2.0
+    crop_left = center_x - width_px / 2.0
+    crop_top = center_y - height_px / 2.0
+    first_tile_x = math.floor(crop_left / 256)
+    first_tile_y = math.floor(crop_top / 256)
+    last_tile_x = math.floor((crop_left + width_px) / 256)
+    last_tile_y = math.floor((crop_top + height_px) / 256)
+
+    mosaic = PILImage.new("RGB", (width_px, height_px), "#E5E7EB")
+    fetched_tiles = 0
+    for tile_x in range(first_tile_x, last_tile_x + 1):
+        for tile_y in range(first_tile_y, last_tile_y + 1):
+            tile = _fetch_tile(zoom, tile_x, tile_y)
+            if tile is None:
+                continue
+            fetched_tiles += 1
+            paste_x = int(tile_x * 256 - crop_left)
+            paste_y = int(tile_y * 256 - crop_top)
+            mosaic.paste(tile, (paste_x, paste_y))
+    if fetched_tiles == 0:
+        return None
+
+    overlay = PILImage.new("RGBA", (width_px, height_px), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+
+    def to_image_xy(coord: list[float]) -> tuple[float, float]:
+        x, y = _lon_lat_to_pixel(float(coord[0]), float(coord[1]), zoom)
+        return x - crop_left, y - crop_top
+
+    if len(polygon) >= 3:
+        points = [to_image_xy(coord) for coord in polygon]
+        draw.polygon(points, fill=(34, 178, 166, 70), outline=(34, 178, 166, 255))
+        if hasattr(draw, "line"):
+            closed = points + [points[0]]
+            draw.line(closed, fill=(34, 178, 166, 255), width=4)
+    if len(line) >= 2:
+        draw.line([to_image_xy(coord) for coord in line], fill=(252, 191, 36, 255), width=7)
+
+    project_lat = _as_float(project.get("latitude") or project.get("project_latitude"))
+    project_lon = _as_float(project.get("longitude") or project.get("project_longitude"))
+    if project_lat is not None and project_lon is not None:
+        marker_x, marker_y = to_image_xy([project_lon, project_lat])
+        radius = 9
+        draw.ellipse(
+            (marker_x - radius, marker_y - radius, marker_x + radius, marker_y + radius),
+            fill=(231, 71, 61, 240),
+            outline=(255, 255, 255, 255),
+            width=3,
+        )
+
+    rendered = PILImage.alpha_composite(mosaic.convert("RGBA"), overlay).convert("RGB")
+    output = BytesIO()
+    rendered.save(output, format="PNG")
+    return output.getvalue()
+
+
+def _surface_snapshot_flowables(
+    *,
+    surface_orientation: dict[str, Any] | None,
+    project: dict[str, Any],
+    styles: dict[str, Any],
+) -> list[Any]:
+    if not _surface_drawings(surface_orientation):
+        return []
+    image_bytes = _render_surface_snapshot_png(surface_orientation=surface_orientation, project=project)
+    if image_bytes is None:
+        return [
+            Paragraph(
+                "Vue du terrain sélectionné : non disponible dans l'export. Les mesures chiffrées restent reportées ci-dessus.",
+                styles["SmallHelio"],
+            )
+        ]
+    image = Image(BytesIO(image_bytes), width=16.5 * cm, height=7.75 * cm)
+    return [
+        Paragraph("Vue du terrain sélectionné", styles["SectionHelio"]),
+        image,
+        Paragraph("Fond cartographique : Géoportail orthophotos / IGN. Emprise dessinée en bleu-vert, orientation en jaune.", styles["SmallHelio"]),
+    ]
+
+
 def build_opportunity_note(
     *,
     project: dict[str, Any],
@@ -277,6 +504,7 @@ def build_opportunity_note(
             styles["Heading3"],
         )
     )
+    story.append(Paragraph(f"Documentation de référence ADEME : {ADEME_REFERENCE_URL}", styles["SmallHelio"]))
     story.append(Spacer(1, 0.2 * cm))
 
     project_rows = [
@@ -308,39 +536,14 @@ def build_opportunity_note(
     story.append(table)
     story.append(Spacer(1, 0.35 * cm))
 
-    status_color = TEAL if "favorable" in results.opportunity_status.lower() else ORANGE
-    status_table = Table(
-        [
-            [Paragraph("Conclusion de premier niveau", styles["CenterKpi"]), Paragraph(results.opportunity_status, styles["CenterKpi"])],
-            [Paragraph("Domaine du modèle", styles["CenterKpi"]), Paragraph(results.scope_status, styles["CenterKpi"])],
-        ],
-        colWidths=[7.0 * cm, 9.5 * cm],
-    )
-    status_table.setStyle(
-        TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
-                ("BOX", (0, 0), (-1, -1), 1.1, status_color),
-                ("INNERGRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#D0D5DD")),
-                ("TEXTCOLOR", (1, 0), (1, 0), status_color),
-                ("FONTNAME", (1, 0), (1, 0), "Helvetica-Bold"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 8),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-            ]
-        )
-    )
-    story.append(status_table)
-
     story.append(Paragraph("1. Hypothèses principales", styles["SectionHelio"]))
     assumptions = [
-        ["Mode de calcul", CALCULATION_MODES[inputs.calculation_mode]],
         ["Régime moyen", f"{inputs.regime_label} - {inputs.mean_network_temperature_c:.0f} °C"],
         ["Dimensionnement au talon", f"{inputs.base_load_fraction:.0%}"],
         ["Besoins annuels du RCU", f"{_number(results.annual_need_mwh)} MWh/an"],
         ["Part des besoins mai-septembre", f"{results.summer_need_share:.1%}"],
         ["Gisement horizontal", f"{_number(results.annual_horizontal_irradiation_kwh_m2)} kWh/m².an"],
-        ["Zone d'aide", f"{inputs.zone}"],
+        ["Zone d'aide ADEME", f"{inputs.zone}"],
     ]
     assumptions_table = Table(assumptions, colWidths=[7.5 * cm, 9.0 * cm])
     assumptions_table.setStyle(
@@ -397,6 +600,14 @@ def build_opportunity_note(
             )
             + _architectural_conclusion(architectural_constraints),
             styles,
+        )
+    )
+    story.append(Spacer(1, 0.15 * cm))
+    story.extend(
+        _surface_snapshot_flowables(
+            surface_orientation=surface_orientation,
+            project=project,
+            styles=styles,
         )
     )
     story.append(Spacer(1, 0.15 * cm))
@@ -463,8 +674,15 @@ def build_opportunity_note(
 
     story.append(Paragraph("5. Vigilances et suites à donner", styles["SectionHelio"]))
     warning_flowables = []
-    for warning in results.warnings:
-        warning_flowables.append(Paragraph(f"• {warning}", styles["BodyText"]))
+    project_warnings = _filtered_project_warnings(results.warnings)
+    if project_warnings:
+        warning_flowables.append(Paragraph("Vigilances propres au projet", styles["Heading3"]))
+    for warning in project_warnings:
+        warning_flowables.append(Paragraph(f"- {warning}", styles["BodyText"]))
+        warning_flowables.append(Spacer(1, 0.08 * cm))
+    warning_flowables.append(Paragraph("Garde-fous issus de la documentation ADEME", styles["Heading3"]))
+    for warning in ADEME_REFERENCE_VIGILANCES:
+        warning_flowables.append(Paragraph(f"- {warning}", styles["BodyText"]))
         warning_flowables.append(Spacer(1, 0.08 * cm))
     warning_flowables.extend(
         [

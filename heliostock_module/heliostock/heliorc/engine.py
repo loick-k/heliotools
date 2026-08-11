@@ -43,6 +43,16 @@ CALCULATION_MODES = {
     "excel_v5_3": "Excel v5.3 - reproduction stricte",
 }
 
+ADEME_REFERENCE_URL = "https://www.solaire-collectif.fr/ftp/pgiArticle/STHRCU/Prsentation_Outil_NO_STH_RCU_outil.pdf"
+
+ADEME_REFERENCE_VIGILANCES = (
+    "L'outil fournit des premiers ordres de grandeur pour prioriser les réseaux à solariser et préparer les échanges avec l'exploitant ou la collectivité.",
+    "La documentation ADEME vise un écart technique cible inférieur à 20 % par rapport à une modélisation dynamique ; la partie économique doit rester interprétée avec prudence.",
+    "Le cadre de référence porte sur une centrale solaire thermique avec stockage journalier, capteurs plans vitrés haute performance, inclinaison fixe proche de 30°, champ supérieur à 100 m² et fraction solaire indicative de 10 à 30 %.",
+    "Les configurations avec capteurs sous vide, trackers, stockage intersaisonnier ou couplage géothermique avec recharge solaire sont hors du cadre de référence de cet outil.",
+    "L'étape suivante recommandée reste une étude de faisabilité par un bureau d'études compétent, avec modélisation dynamique lorsque l'opportunité est confirmée.",
+)
+
 DEFAULT_MONTHLY_NEEDS_MWH = [
     1890.0,
     1463.0,
@@ -346,13 +356,6 @@ def calculate_opportunity(inputs: CalculationInputs) -> tuple[CalculationResults
         warnings.append("Fraction solaire hors de la plage de calibration indicative de 10 à 30 %.")
     if collector_area < 150:
         warnings.append("Surface inférieure au premier seuil d'opportunité de 150 à 250 m².")
-    if collector_area > 1500:
-        warnings.append("Au-delà de 1 500 m², l'aide ADEME affichée est seulement indicative.")
-    warnings.append(
-        "Mode strict classeur : les pertes du réseau de chaleur et la distance maximum de raccordement conseillée "
-        "reproduisent les formules du classeur. Le ratio 200 m/MW n'est pas utilisé comme longueur de RCU."
-    )
-
     scope_ok = 100 <= collector_area and 0.10 <= solar_fraction <= 0.30
     if scope_ok:
         scope_status = "Dans le cadre de calibration"

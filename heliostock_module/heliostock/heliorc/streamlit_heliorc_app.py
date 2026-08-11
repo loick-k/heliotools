@@ -14,6 +14,8 @@ import streamlit as st
 
 from .data import load_locations
 from .engine import (
+    ADEME_REFERENCE_URL,
+    ADEME_REFERENCE_VIGILANCES,
     AID_FORFAITS,
     DEFAULT_MONTHLY_NEEDS_MWH,
     MONTHS_FR,
@@ -48,6 +50,8 @@ from ..ui_architectural_constraints import PROJECT_TYPES, render_architectural_c
 from .. import ui_portal
 
 APP_DIR = Path(__file__).resolve().parent
+ASSETS_DIR = APP_DIR.parents[1] / "assets"
+ADEME_LOGO = ASSETS_DIR / "Logo_ADEME.png"
 PROJECT_STORE = JsonProjectStore("heliorc", app_label="HelioRC")
 DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliorc_projects.json"
 PROJECTS_SESSION_CACHE_KEY = "heliorc_projects_cache"
@@ -949,19 +953,25 @@ def render_heliorc_app() -> None:
     _init_state()
     locations = load_locations()
 
-    st.markdown(
-        """
-        <div class="heliorc-banner">
-          <h1>HelioRC</h1>
-          <p>Note d'opportunité pour l'intégration du solaire thermique sur un réseau de chaleur urbain.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    title_col, logo_col = st.columns([0.78, 0.22], vertical_alignment="center")
+    with title_col:
+        st.markdown(
+            """
+            <div class="heliorc-banner">
+              <h1>HelioRC</h1>
+              <p>Note d'opportunité pour l'intégration du solaire thermique sur un réseau de chaleur urbain.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with logo_col:
+        if ADEME_LOGO.exists():
+            st.image(str(ADEME_LOGO), width=155)
 
     st.caption(
         "Reprise du moteur NO STH RCU v5.3 : prédimensionnement au talon estival, productivité paramétrique, stockage journalier, CAPEX, aide indicative et LCOH."
     )
+    st.caption(f"Documentation de référence ADEME : {ADEME_REFERENCE_URL}")
 
     _render_project_store_controls()
     st.divider()
@@ -1261,14 +1271,20 @@ def render_heliorc_app() -> None:
 
             st.markdown("### Première analyse économique")
             e1, e2, e3, e4 = st.columns(4)
-            e1.metric("CAPEX indicatif", f"{results.capex_eur / 1_000_000:.2f} M€ HT")
-            e2.metric("Aide ADEME indicative", f"{results.ademe_aid_eur / 1_000_000:.2f} M€")
-            e3.metric("Reste à charge", f"{results.remaining_cost_eur / 1_000_000:.2f} M€ HT")
+            e1.metric("CAPEX indicatif", f"{results.capex_eur / 1_000:,.0f} k€ HT".replace(",", " "))
+            with e2:
+                st.metric("Aide ADEME indicative", f"{results.ademe_aid_eur / 1_000:,.0f} k€".replace(",", " "))
+                if results.collector_area_m2 > 1500:
+                    st.warning("Au-delà de 1 500 m², l'aide ADEME affichée est seulement indicative.")
+            e3.metric("Reste à charge", f"{results.remaining_cost_eur / 1_000:,.0f} k€ HT".replace(",", " "))
             e4.metric("LCOH aidé", f"{results.lcoh_aided_eur_mwh:.1f} € HT/MWh")
 
             with st.expander("Vigilances identifiées", expanded=True):
                 for warning in results.warnings:
                     st.write(f"- {warning}")
+                st.markdown("**Points de vigilance issus de la documentation ADEME**")
+                for vigilance in ADEME_REFERENCE_VIGILANCES:
+                    st.write(f"- {vigilance}")
 
         with result_tabs[1]:
             needs_mwh = monthly["Besoins RCU (MWh)"].astype(float)
@@ -1363,15 +1379,6 @@ def render_heliorc_app() -> None:
             st.dataframe(monthly, hide_index=True, width="stretch")
 
         with result_tabs[3]:
-            export_payload = {
-                "format": "HelioRC-project-v1",
-                "project": project,
-                "inputs": asdict(inputs),
-                "sizing_context": sizing_context if isinstance(sizing_context, dict) else {},
-                "architectural_constraints": _current_heliorc_architectural_payload(),
-                "results": results.to_dict(),
-            }
-            json_bytes = json.dumps(export_payload, ensure_ascii=False, indent=2).encode("utf-8")
             csv_bytes = monthly.to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig")
             try:
                 pdf_bytes = build_opportunity_note(
@@ -1387,34 +1394,29 @@ def render_heliorc_app() -> None:
                 pdf_bytes = None
                 st.error(f"La note PDF n'a pas pu être générée : {exc}")
 
-            export_col_1, export_col_2, export_col_3 = st.columns(3)
+            export_slug = safe_slug(str(project.get("project_name") or "projet"), fallback="projet")
+            export_date = date.today().strftime("%Y%m%d")
+            export_basename = f"{export_slug}_HelioRC_{export_date}"
+            export_col_1, export_col_2 = st.columns(2)
             with export_col_1:
                 if pdf_bytes is not None:
                     st.download_button(
                         "Télécharger la note PDF",
                         data=pdf_bytes,
-                        file_name="HelioRC_note_opportunite.pdf",
+                        file_name=f"{export_basename}_note_opportunite.pdf",
                         mime="application/pdf",
                         width="stretch",
                     )
             with export_col_2:
                 st.download_button(
-                    "Télécharger le projet JSON",
-                    data=json_bytes,
-                    file_name="HelioRC_projet.json",
-                    mime="application/json",
-                    width="stretch",
-                )
-            with export_col_3:
-                st.download_button(
                     "Télécharger le détail CSV",
                     data=csv_bytes,
-                    file_name="HelioRC_resultats_mensuels.csv",
+                    file_name=f"{export_basename}_resultats_mensuels.csv",
                     mime="text/csv",
                     width="stretch",
                 )
             st.caption(
-                "Le JSON est un export technique du projet. Le PDF est une note de premier niveau et doit rester accompagné des limites du modèle."
+                "Le PDF est une note de premier niveau et doit rester accompagné des limites du modèle."
             )
 
         with result_tabs[4]:
@@ -1431,7 +1433,7 @@ def render_heliorc_app() -> None:
         avec $G$ le gisement horizontal annuel, $B_e$ la part des besoins de mai à septembre et $T_m$ la température moyenne du réseau.
 
         4. La surface est déduite de la production annuelle et de la productivité. Le stockage vaut environ **0,2 m³/m²**, l'emprise **2,5 m² de terrain par m² de capteur**.
-        5. Le CAPEX surfacique suit la courbe par morceaux du classeur. L'aide est forfaitaire sous 1 500 m² puis devient indicative. Le LCOH additionne P1', P2/P3 et le facteur de récupération du capital P4.
+        5. Le CAPEX surfacique suit la courbe par morceaux du classeur. Le LCOH additionne P1', P2/P3 et le facteur de récupération du capital P4.
 
         ### Cadre d'utilisation
 
@@ -1441,12 +1443,6 @@ def render_heliorc_app() -> None:
         - Hors cadre : stockage intersaisonnier, tracker, capteurs sous vide, recharge géothermique, raccordement complexe ou foncier atypique.
         - L'objectif est un ordre de grandeur technique ; l'économie reste particulièrement sensible aux hypothèses de CAPEX, d'aides, de financement et de raccordement.
 
-        ### Référentiel de calcul
-
-        HelioRC utilise uniquement le mode **Excel v5.3 - reproduction stricte**. Les pertes du réseau de chaleur,
-        la distance maximum de raccordement conseillée et les ratios de longueur de RCU ne sont pas mélangés.
-        Le ratio de 200 m/MW correspond à une recommandation de distance par MW solaire thermique installé,
-        pas à une formule de longueur de réseau par énergie fournie.
         """
             )
             st.info(

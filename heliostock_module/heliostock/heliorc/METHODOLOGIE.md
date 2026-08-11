@@ -23,7 +23,7 @@ La répartition du chauffage est proportionnelle à un proxy de degrés-jours co
 
 `1,10 ; 1,10 ; 1,10 ; 1,10 ; 1,10 ; 0,85 ; 0,75 ; 0,75 ; 0,90 ; 1,05 ; 1,10 ; 1,10`.
 
-HelioRC conserve uniquement le mode **Excel v5.3 - reproduction stricte**. Les pertes annuelles du réseau de chaleur sont calculées comme dans le classeur :
+Les pertes annuelles du réseau de chaleur sont calculées comme dans le classeur :
 
 `pertes = (chauffage + ECS) × (1 - rendement)`.
 
