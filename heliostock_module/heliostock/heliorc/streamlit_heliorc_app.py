@@ -1620,7 +1620,6 @@ def render_heliorc_app() -> None:
                     ),
                     hide_index=True,
                     width="stretch",
-                    height=520,
                 )
 
             if BRANCH_NEEDS_COL in monthly.columns:
@@ -1683,7 +1682,6 @@ def render_heliorc_app() -> None:
                         ),
                         hide_index=True,
                         width="stretch",
-                        height=520,
                     )
 
         with result_tabs[2]:

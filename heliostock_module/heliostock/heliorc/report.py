@@ -652,7 +652,7 @@ def build_opportunity_note(
     story.append(Paragraph("2. Résultats techniques", styles["SectionHelio"]))
     technical = [
         ["Surface de capteurs", f"{_number(results.collector_area_m2)} m²", "Production solaire", f"{_number(results.annual_solar_production_mwh)} MWh/an"],
-        ["Productivité", f"{_number(results.productivity_kwh_m2_year)} kWh/m².an", "Fraction solaire RCU global", f"{display_solar_fraction:.1%}"],
+        ["Productivité", f"{_number(results.productivity_kwh_m2_year)} kWh/m².an", "Fraction solaire RCU\nglobal", f"{display_solar_fraction:.1%}"],
         ["Stockage journalier", f"{_number(results.storage_volume_m3)} m³", "Emprise foncière", f"{results.land_area_ha:.2f} ha"],
         [
             Paragraph("Distance maximum<br/>de raccordement conseillée", styles["BodyText"]),
@@ -661,7 +661,7 @@ def build_opportunity_note(
             f"{results.panel_count_15m2}",
         ],
     ]
-    technical_table = Table(technical, colWidths=[4.2 * cm, 4.0 * cm, 4.2 * cm, 4.1 * cm])
+    technical_table = Table(technical, colWidths=[4.2 * cm, 3.8 * cm, 4.6 * cm, 3.9 * cm])
     technical_table.setStyle(
         TableStyle(
             [
@@ -745,7 +745,6 @@ def build_opportunity_note(
     )
 
     story.append(Spacer(1, 0.25 * cm))
-    story.append(Paragraph("4. Profil mensuel", styles["SectionHelio"]))
     monthly_rows = [["Mois", "Besoins RCU", "Production solaire", "Couverture"]]
     for _, row in monthly.iterrows():
         monthly_rows.append(
@@ -772,7 +771,14 @@ def build_opportunity_note(
             ]
         )
     )
-    story.append(KeepTogether([monthly_table]))
+    story.append(
+        KeepTogether(
+            [
+                Paragraph("4. Profil mensuel", styles["SectionHelio"]),
+                monthly_table,
+            ]
+        )
+    )
 
     story.append(Paragraph("5. Vigilances et suites à donner", styles["SectionHelio"]))
     warning_flowables = []
