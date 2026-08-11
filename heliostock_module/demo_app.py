@@ -42,7 +42,7 @@ elif selected_app == ui_portal.APP_HELIOSTOCK_LABEL:
 
             render_heliostock_hourly()
     except Exception:
-        _show_startup_error("HelioStock n'a pas pu démarrer.")
+        _show_startup_error("HelioDyn n'a pas pu démarrer.")
 
 elif selected_app == ui_portal.APP_DASHBOARD_LABEL:
     try:

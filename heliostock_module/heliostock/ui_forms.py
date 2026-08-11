@@ -433,7 +433,7 @@ def render_demand_form(hourly_weather: list[HourlyWeather]) -> DemandFormResult:
     )
 
 
-def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
+def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt") -> SolarFormResult:
     with _top_level_input_section("3) Champ solaire et ballon journalier", expanded=True):
         st.markdown("### Orientation et environnement capteurs")
         render_solar_weather_orientation_inputs()
@@ -455,7 +455,29 @@ def render_solar_form(*, process_ht_target_c: float) -> SolarFormResult:
         solar_fixed = FixedSolarAssumptions()
         c9, c10, c11 = st.columns(3)
         daily_buffer_ambient_temp_c = c9.number_input("T° ambiance ballon (°C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0, key="solar_daily_buffer_ambient_temp_c")
-        daily_buffer_max_temp_c = c10.number_input("Tmax ballon / bascule BTES (°C)", min_value=30.0, max_value=120.0, value=80.0, step=1.0, key="solar_daily_buffer_max_temp_c")
+        buffer_max_label = (
+            "Tmax ballon solaire (°C)"
+            if demand_scope == "ht_only"
+            else "Tmax ballon solaire / bascule BTES (°C)"
+        )
+        buffer_max_help = (
+            "Température maximale du ballon journalier. En solaire thermique seul, "
+            "si le ballon atteint souvent cette température, le surplus solaire est non valorisé."
+            if demand_scope == "ht_only"
+            else (
+                "Température maximale du ballon journalier. En mode couplé, le surplus solaire "
+                "peut être orienté vers le champ de sondes lorsque le ballon est saturé."
+            )
+        )
+        daily_buffer_max_temp_c = c10.number_input(
+            buffer_max_label,
+            min_value=30.0,
+            max_value=120.0,
+            value=80.0,
+            step=1.0,
+            key="solar_daily_buffer_max_temp_c",
+            help=buffer_max_help,
+        )
         daily_buffer_l_per_m2 = c11.number_input(
             "Ratio stockage solaire V/S (L/m²)",
             min_value=0.0,

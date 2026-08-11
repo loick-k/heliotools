@@ -280,7 +280,7 @@ def run_hourly_calculation(
     mark("param_solar:prepare", "Preparation de l'etude parametrique solaire")
     surfaces_m2, surface_warnings = (
         _range_points(request.solar_parametric, "Etude parametrique solaire")
-        if calculation_mode != CALCULATION_MODE_GEO_BT_ONLY
+        if calculation_mode == CALCULATION_MODE_GEO_SOLAR_BTES
         else ([], [])
     )
     warnings.extend(surface_warnings)

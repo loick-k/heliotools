@@ -822,6 +822,7 @@ def render_hourly_results(
             mean_cop=mean_cop,
             spf_pac_total=spf_pac_total,
             spf_system=spf_system,
+            demand_scope=normalized_demand_scope,
         )
 
     elif result_section.endswith("PAC"):

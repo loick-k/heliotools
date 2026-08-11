@@ -31,7 +31,7 @@ HELIOSTOCK_NOTICE = MODULE_DIR / "NOTICE_MODELE_HELIOSTOCK.md"
 HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
-HELIOSTOCK_PROJECT_STORE = JsonProjectStore("heliostock", app_label="HelioStock")
+HELIOSTOCK_PROJECT_STORE = JsonProjectStore("heliostock", app_label="HelioDyn")
 USERS_FILE = PROJECTS_DIR / "users.json"
 LOGIN_EVENTS_FILE = PROJECTS_DIR / "login_events.json"
 RESULT_SIDECAR_SUFFIX = "_resultat.pkl"
@@ -53,7 +53,8 @@ PROJECTS_SESSION_CACHE_KEY = "heliotools_projects_cache"
 GITHUB_BACKUP_TIMEOUT_SECONDS = 3
 FORBIDDEN_PROJECT_KEY_FRAGMENTS = ("token", "api_key", "apikey", "secret", "password")
 APP_HOME_LABEL = "Accueil HelioTools"
-APP_HELIOSTOCK_LABEL = "HelioStock"
+APP_HELIOSTOCK_LEGACY_LABEL = "HelioStock"
+APP_HELIOSTOCK_LABEL = "HelioDyn"
 APP_ADMIN_LABEL = "Administration HelioTools"
 APP_DASHBOARD_LABEL = "Dashboard solaire thermique"
 APP_OPPORTUNITY_LABEL = "HelioNOP"
@@ -516,6 +517,12 @@ def _default_app_access(role: str) -> list[str]:
     return [APP_HELIOSTOCK_LABEL]
 
 
+def _normalise_app_access_label(label: str) -> str:
+    if label == APP_HELIOSTOCK_LEGACY_LABEL:
+        return APP_HELIOSTOCK_LABEL
+    return label
+
+
 def _user_app_access(user: dict[str, Any] | None) -> list[str]:
     if not isinstance(user, dict):
         return []
@@ -524,7 +531,11 @@ def _user_app_access(user: dict[str, Any] | None) -> list[str]:
         return list(APP_ACCESS_LABELS)
     configured = user.get("app_access")
     if isinstance(configured, list):
-        allowed = [str(item) for item in configured if str(item) in APP_ACCESS_LABELS]
+        allowed = [
+            _normalise_app_access_label(str(item))
+            for item in configured
+            if _normalise_app_access_label(str(item)) in APP_ACCESS_LABELS
+        ]
         return allowed or [APP_HELIOSTOCK_LABEL]
     return _default_app_access(role)
 
@@ -1382,7 +1393,7 @@ def _render_app_access_admin(users: list[dict[str, Any]]) -> None:
 
 
 def _render_project_access_admin(users: list[dict[str, Any]]) -> None:
-    st.markdown("### Accès aux projets HelioStock")
+    st.markdown("### Accès aux projets HelioDyn")
     projects = _all_heliostock_project_files()
     user_by_email = {
         _email_normalise(str(user.get("email", ""))): user
@@ -1391,7 +1402,7 @@ def _render_project_access_admin(users: list[dict[str, Any]]) -> None:
     }
 
     if not projects:
-        st.info("Aucun projet HelioStock sauvegardé.")
+        st.info("Aucun projet HelioDyn sauvegardé.")
         return
 
     rows = []
@@ -1441,7 +1452,7 @@ def render_heliotools_home_page() -> None:
     role = str(user.get("role", "user"))
     st.caption(
         "HelioTools regroupe les applications de pré-dimensionnement, de suivi et de production "
-        "de livrables. HelioStock est désormais une application du portail."
+        "de livrables. HelioDyn est désormais une application du portail."
     )
 
     st.markdown("### Applications disponibles")
@@ -1450,7 +1461,7 @@ def render_heliotools_home_page() -> None:
         (
             APP_HELIOSTOCK_LABEL,
             "Pré-dimensionnement solaire thermique, géothermie et recharge du champ de sondes.",
-            "Ouvrir HelioStock",
+            "Ouvrir HelioDyn",
         )
     ]
     optional_cards = [
@@ -1684,16 +1695,16 @@ def render_portal_sidebar() -> str:
 
 
 def render_heliostock_notice_page() -> None:
-    """Affiche la notice HelioStock en pleine page."""
+    """Affiche la notice HelioDyn en pleine page."""
 
     if not HELIOSTOCK_NOTICE.exists():
-        st.error("La notice HelioStock est introuvable dans le dépôt.")
+        st.error("La notice HelioDyn est introuvable dans le dépôt.")
         return
     notice_text = HELIOSTOCK_NOTICE.read_text(encoding="utf-8")
-    st.title("Notice HelioStock")
+    st.title("Notice HelioDyn")
     solver_col, notice_col, spacer = st.columns([1, 1, 4])
     if solver_col.button(
-        "Solveur HelioStock",
+        "Solveur HelioDyn",
         key="heliostock_notice_view_solver",
         type="secondary",
         width="stretch",
@@ -1701,7 +1712,7 @@ def render_heliostock_notice_page() -> None:
         st.session_state["heliostock_view"] = "solver"
         st.rerun()
     notice_col.button(
-        "Notice HelioStock",
+        "Notice HelioDyn",
         key="heliostock_notice_view_notice",
         type="primary",
         width="stretch",

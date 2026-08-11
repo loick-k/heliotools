@@ -11,6 +11,7 @@ from .calculation_snapshot import build_calculation_snapshot, bytes_hash, stable
 from .ui_formatting import display_dataframe
 from .ui_architectural_constraints import render_architectural_constraints_test
 from .ui_forms import (
+    ParametricRange,
     ParametricFormsResult,
     render_demand_form,
     render_economics_form,
@@ -28,6 +29,15 @@ from .ui_project import render_heliostock_project_form
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
+
+
+def _current_demand_scope_from_state() -> str:
+    label = str(st.session_state.get("demand_scope_label", ""))
+    if "Solaire thermique seul" in label:
+        return "ht_only"
+    if "Géothermie seule" in label:
+        return "bt_only"
+    return "ht_bt"
 
 
 def render_heliostock_view_switch() -> str:
@@ -140,20 +150,20 @@ def render_heliostock_hourly() -> pd.DataFrame:
         render_heliostock_project_controls()
 
     st.session_state["heliostock_input_tabs_enabled"] = True
-    input_tabs = st.tabs(
-        [
-            "1. Projet",
-            "2. Besoins process",
-            "3. Solaire thermique",
-            "4. Contraintes architecturales",
-            "5. PAC géothermie",
-            "6. Vérification GMI",
-            "7. Économie",
-            "8. Paramétrique PAC",
-            "9. Paramétrique solaire",
-            "10. Calcul et résultats",
-        ]
-    )
+    show_parametric_tabs = _current_demand_scope_from_state() != "ht_only"
+    tab_labels = [
+        "1. Projet",
+        "2. Besoins process",
+        "3. Solaire thermique",
+        "4. Contraintes architecturales",
+        "5. PAC géothermie",
+        "6. Vérification GMI",
+        "7. Économie",
+    ]
+    if show_parametric_tabs:
+        tab_labels.extend(["8. Paramétrique PAC", "9. Paramétrique solaire"])
+    tab_labels.append(f"{len(tab_labels) + 1}. Calcul et résultats")
+    input_tabs = st.tabs(tab_labels)
 
     with input_tabs[0]:
         project_form = render_heliostock_project_form()
@@ -164,7 +174,10 @@ def render_heliostock_hourly() -> pd.DataFrame:
         return pd.DataFrame()
 
     with input_tabs[2]:
-        solar_form = render_solar_form(process_ht_target_c=demand_form.process_ht_target_c)
+        solar_form = render_solar_form(
+            process_ht_target_c=demand_form.process_ht_target_c,
+            demand_scope=demand_form.demand_scope,
+        )
     with input_tabs[3]:
         render_architectural_constraints_test(state_prefix="heliostock", show_address_inputs=False, show_map=True)
     with input_tabs[4]:
@@ -195,15 +208,19 @@ def render_heliostock_hourly() -> pd.DataFrame:
         recharge_credit=geothermal_form.recharge_credit,
         reduced_borefield_safety_factor=geothermal_form.reduced_borefield_safety_factor,
     )
-    with input_tabs[7]:
-        pac_parametric_form = render_pac_parametric_form()
-    with input_tabs[8]:
-        solar_parametric_form = render_solar_parametric_form(solar_form.inputs.area_m2)
+    if demand_form.demand_scope == "ht_only":
+        pac_parametric_form = ParametricRange(False, 50.0, 100.0, 10.0)
+        solar_parametric_form = ParametricRange(False, max(0.0, float(solar_form.inputs.area_m2) * 0.5), max(50.0, float(solar_form.inputs.area_m2) * 1.5), 250.0)
+    else:
+        with input_tabs[7]:
+            pac_parametric_form = render_pac_parametric_form()
+        with input_tabs[8]:
+            solar_parametric_form = render_solar_parametric_form(solar_form.inputs.area_m2)
     parametric_forms = ParametricFormsResult(
         pac=pac_parametric_form,
         solar=solar_parametric_form,
     )
-    with input_tabs[9]:
+    with input_tabs[-1]:
         current_snapshot, current_snapshot_hash = _snapshot_from_forms(
             project_form=project_form,
             weather_form=weather_form,

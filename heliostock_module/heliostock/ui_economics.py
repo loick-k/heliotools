@@ -10,6 +10,67 @@ from .charts import _heat_cost_vector_chart
 from .ui_formatting import display_dataframe, round_display_df
 
 
+SOLAR_ONLY_SCENARIO_LABELS = {
+    "Reference 100 % gaz": "Référence 100 % gaz",
+    "Geothermie + solaire meme sondes": "Solaire thermique + appoint gaz",
+}
+
+SOLAR_ONLY_SCENARIOS = tuple(SOLAR_ONLY_SCENARIO_LABELS)
+
+GEOTHERMAL_ECONOMIC_COLUMNS = [
+    "Lineaire sondes (ml)",
+    "Saved borefield length (ml)",
+    "Electricite PAC (MWh/an)",
+    "Electricite PAC cumulee (MWh)",
+    "COP annee finale",
+    "Couverture PAC BT annee finale (%)",
+    "T source min annee finale (C)",
+    "Heures limite source annee finale",
+    "Conformite GMI annee finale",
+    "Heures hors GMI annee finale",
+]
+
+
+def _is_solar_ht_only(demand_scope: str) -> bool:
+    return str(demand_scope or "").lower() == "ht_only"
+
+
+def _filter_solar_only_scenarios(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "Scenario" not in df.columns:
+        return df
+    filtered = df[df["Scenario"].astype(str).isin(SOLAR_ONLY_SCENARIOS)].copy()
+    filtered["Scenario"] = filtered["Scenario"].astype(str).replace(SOLAR_ONLY_SCENARIO_LABELS)
+    return filtered
+
+
+def _solar_only_comparison_table(economic_comparison_df: pd.DataFrame) -> pd.DataFrame:
+    filtered = _filter_solar_only_scenarios(economic_comparison_df)
+    if filtered.empty:
+        return filtered
+    return filtered.drop(columns=[col for col in GEOTHERMAL_ECONOMIC_COLUMNS if col in filtered.columns])
+
+
+def _solar_only_comparison_chart_df(economic_comparison_chart_df: pd.DataFrame) -> pd.DataFrame:
+    filtered = _filter_solar_only_scenarios(economic_comparison_chart_df)
+    if filtered.empty or "Indicateur" not in filtered.columns:
+        return filtered
+    geothermal_indicators = {"Lineaire sondes (ml)", "Electricite PAC (MWh/an)"}
+    return filtered[~filtered["Indicateur"].astype(str).isin(geothermal_indicators)].copy()
+
+
+def _solar_only_heat_costs(heat_costs: dict[str, float | pd.DataFrame]) -> dict[str, float | pd.DataFrame]:
+    filtered = dict(heat_costs)
+    keep_generators = {"Solaire thermique", "Appoint gaz", "Mix ENR", "Reference 100% gaz"}
+    for key in ("capex_summary", "p1_p2_p4"):
+        value = filtered.get(key)
+        if isinstance(value, pd.DataFrame) and "Generateur" in value.columns:
+            filtered[key] = value[value["Generateur"].astype(str).isin(keep_generators)].copy()
+    cost_bars = filtered.get("cost_bars")
+    if isinstance(cost_bars, pd.DataFrame) and "Vecteur" in cost_bars.columns:
+        filtered["cost_bars"] = cost_bars[cost_bars["Vecteur"].astype(str).isin(keep_generators)].copy()
+    return filtered
+
+
 def _scenario_comparison_chart(chart_df: pd.DataFrame, *, title: str) -> alt.Chart:
     return (
         alt.Chart(chart_df)
@@ -87,51 +148,78 @@ def render_economics_tab(
     mean_cop: float,
     spf_pac_total: float,
     spf_system: float,
+    demand_scope: str = "ht_bt",
 ) -> None:
-    st.markdown("### Comparaison économique des 4 scénarios")
-    st.caption(
-        "Lecture type Dim A / Dim B / Dim C : référence gaz, géothermie seule, géothermie + solaire à linéaire "
-        "constant, puis géothermie + solaire avec linéaire réduit. La recharge solaire est analysée comme un "
-        "service rendu au champ de sondes, sans économie P2 proportionnelle aux ml économisés. Les coûts variables "
-        "sont calculés sur une trajectoire physique multiannuelle nominale."
+    solar_only = _is_solar_ht_only(demand_scope)
+    comparison_df = _solar_only_comparison_table(economic_comparison_df) if solar_only else economic_comparison_df
+    comparison_chart_df = (
+        _solar_only_comparison_chart_df(economic_comparison_chart_df) if solar_only else economic_comparison_chart_df
     )
-    st.dataframe(display_dataframe(economic_comparison_df), width="stretch", hide_index=True)
+    trajectory_df = _filter_solar_only_scenarios(economic_trajectory_df) if solar_only else economic_trajectory_df
+    heat_costs_to_display = _solar_only_heat_costs(heat_costs) if solar_only else heat_costs
 
-    chart_cols = st.columns(4)
+    if solar_only:
+        st.markdown("### Analyse économique solaire thermique seul")
+        st.caption(
+            "Lecture : comparaison entre une référence 100 % appoint gaz et le scénario solaire thermique haute "
+            "température avec appoint gaz en complément. Les coûts sont calculés sans PAC géothermique, sans champ "
+            "de sondes et sans recharge BTES."
+        )
+    else:
+        st.markdown("### Comparaison économique des 4 scénarios")
+        st.caption(
+            "Lecture type Dim A / Dim B / Dim C : référence gaz, géothermie seule, géothermie + solaire à linéaire "
+            "constant, puis géothermie + solaire avec linéaire réduit. La recharge solaire est analysée comme un "
+            "service rendu au champ de sondes, sans économie P2 proportionnelle aux ml économisés. Les coûts variables "
+            "sont calculés sur une trajectoire physique multiannuelle nominale."
+        )
+    st.dataframe(display_dataframe(comparison_df), width="stretch", hide_index=True)
+
     chart_titles = {
         "Cout chaleur global (EUR/MWh)": "Coût chaleur",
         "Taux EnR global (%)": "Taux EnR",
         "Lineaire sondes (ml)": "Linéaire sondes",
         "Electricite PAC (MWh/an)": "Électricité PAC",
     }
-    for col, indicator in zip(chart_cols, chart_titles):
-        chart_df = economic_comparison_chart_df[economic_comparison_chart_df["Indicateur"] == indicator]
-        col.altair_chart(_scenario_comparison_chart(chart_df, title=chart_titles[indicator]), width="stretch")
+    active_chart_titles = [
+        (indicator, title)
+        for indicator, title in chart_titles.items()
+        if not solar_only or indicator not in {"Lineaire sondes (ml)", "Electricite PAC (MWh/an)"}
+    ]
+    chart_cols = st.columns(len(active_chart_titles))
+    for col, (indicator, title) in zip(chart_cols, active_chart_titles):
+        chart_df = comparison_chart_df[comparison_chart_df["Indicateur"] == indicator]
+        if not chart_df.empty:
+            col.altair_chart(_scenario_comparison_chart(chart_df, title=title), width="stretch")
 
-    st.markdown("### Valeur économique de la recharge solaire")
-    if not bool(recharge_value["applicable"]):
-        st.info("Recharge solaire non applicable : aucune énergie solaire injectée au BTES.")
-    elif str(recharge_value["status"]) == "desactive":
-        st.info("Optimisation par recharge solaire non lancée.")
-    elif str(recharge_value["status"]) == "non determine":
-        st.warning("Gain de linéaire non déterminé : le solveur n'a pas trouvé de réduction équivalente robuste.")
+    if not solar_only:
+        st.markdown("### Valeur économique de la recharge solaire")
+        if not bool(recharge_value["applicable"]):
+            st.info("Recharge solaire non applicable : aucune énergie solaire injectée au BTES.")
+        elif str(recharge_value["status"]) == "desactive":
+            st.info("Optimisation par recharge solaire non lancée.")
+        elif str(recharge_value["status"]) == "non determine":
+            st.warning("Gain de linéaire non déterminé : le solveur n'a pas trouvé de réduction équivalente robuste.")
 
-    st.caption(
-        "`Coût annuel solaire recharge` = annuité de la part de CAPEX solaire affectée à la recharge "
-        "+ P2 solaire recharge + P4 solaire recharge. `Bilan net recharge` = gains annuels de recharge "
-        "(économie CAPEX sondes nette annualisée + économie électricité PAC) - coût annuel solaire recharge. "
-        "L'économie nette tient compte de la baisse d'aide ADEME quand le CAPEX sondes diminue."
-    )
-    st.dataframe(display_dataframe(_recharge_value_table(recharge_value)), width="stretch", hide_index=True)
-    st.caption("Aucune économie de P2 n'est appliquée au linéaire de sondes économisé.")
+        st.caption(
+            "`Coût annuel solaire recharge` = annuité de la part de CAPEX solaire affectée à la recharge "
+            "+ P2 solaire recharge + P4 solaire recharge. `Bilan net recharge` = gains annuels de recharge "
+            "(économie CAPEX sondes nette annualisée + économie électricité PAC) - coût annuel solaire recharge. "
+            "L'économie nette tient compte de la baisse d'aide ADEME quand le CAPEX sondes diminue."
+        )
+        st.dataframe(display_dataframe(_recharge_value_table(recharge_value)), width="stretch", hide_index=True)
+        st.caption("Aucune économie de P2 n'est appliquée au linéaire de sondes économisé.")
 
     st.markdown("### Détail économique par générateur")
-    st.dataframe(display_dataframe(_generator_economic_table(heat_costs)), width="stretch", hide_index=True)
-    st.altair_chart(_heat_cost_vector_chart(heat_costs["cost_bars"]), width="stretch")
+    st.dataframe(display_dataframe(_generator_economic_table(heat_costs_to_display)), width="stretch", hide_index=True)
+    st.altair_chart(_heat_cost_vector_chart(heat_costs_to_display["cost_bars"]), width="stretch")
 
-    st.markdown("### Trajectoire annuelle utilisée pour l'économie")
+    if solar_only:
+        st.markdown("### Trajectoire annuelle solaire thermique + appoint gaz")
+    else:
+        st.markdown("### Trajectoire annuelle utilisée pour l'économie")
     st.caption(
         "Si l'horizon économique dépasse les années simulées, la dernière année simulée est répétée comme année stabilisée."
     )
-    st.dataframe(display_dataframe(economic_trajectory_df), width="stretch", hide_index=True)
+    st.dataframe(display_dataframe(trajectory_df), width="stretch", hide_index=True)
 
