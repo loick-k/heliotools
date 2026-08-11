@@ -46,6 +46,8 @@ LIGHT = colors.HexColor("#EEF5F4")
 GREY = colors.HexColor("#667085")
 ASSETS_DIR = Path(__file__).resolve().parents[2] / "assets"
 ADEME_LOGO = ASSETS_DIR / "Logo_ADEME.png"
+CHATEAUBRIANT_RCU_PHOTO = ASSETS_DIR / "heliorc_chateaubriant_rcu.jpg"
+CHATEAUBRIANT_RCU_CAPTION = "Installation solaire thermique du RCU de Chateaubriant (44)"
 
 
 def _money(value: float) -> str:
@@ -505,6 +507,10 @@ def build_opportunity_note(
         )
     )
     story.append(Paragraph(f"Documentation de référence ADEME : {ADEME_REFERENCE_URL}", styles["SmallHelio"]))
+    if CHATEAUBRIANT_RCU_PHOTO.exists():
+        story.append(Spacer(1, 0.15 * cm))
+        story.append(Image(str(CHATEAUBRIANT_RCU_PHOTO), width=8.2 * cm, height=3.9 * cm, kind="proportional"))
+        story.append(Paragraph(CHATEAUBRIANT_RCU_CAPTION, styles["SmallHelio"]))
     story.append(Spacer(1, 0.2 * cm))
 
     project_rows = [
@@ -698,7 +704,7 @@ def build_opportunity_note(
     story.append(Spacer(1, 0.35 * cm))
     story.append(
         Paragraph(
-            "Méthode reprise du classeur NO_STH_RCU v5.3 et de sa présentation ADEME. Cadre principal : capteurs plans vitrés haute performance, stockage journalier, champ supérieur à 100 m² et fraction solaire indicative de 10 à 30 %.",
+            "Méthode de prédimensionnement issue de la documentation ADEME. Plage de référence principale : capteurs plans vitrés haute performance, stockage journalier, surface de capteurs > 100 m² et fraction solaire entre 10 et 30 %. En dehors de ces valeurs, la précision attendue diminue et le résultat doit être confirmé par une étude de faisabilité.",
             styles["SmallHelio"],
         )
     )

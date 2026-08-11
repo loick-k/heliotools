@@ -202,6 +202,26 @@ def _drawings_center_lat_lon(drawings: list[dict[str, Any]]) -> tuple[float, flo
     return lat, lon
 
 
+def _drawings_bounds_lat_lon(drawings: list[dict[str, Any]]) -> list[list[float]]:
+    polygon_coords: list[list[float]] = []
+    fallback_coords: list[list[float]] = []
+    for feature in drawings:
+        coords = _feature_coordinates(feature)
+        if not coords:
+            continue
+        fallback_coords.extend(coords)
+        if _geometry_type(feature) == "Polygon":
+            polygon_coords.extend(coords)
+
+    coords = polygon_coords or fallback_coords
+    if not coords:
+        return []
+
+    latitudes = [float(coord[1]) for coord in coords]
+    longitudes = [float(coord[0]) for coord in coords]
+    return [[min(latitudes), min(longitudes)], [max(latitudes), max(longitudes)]]
+
+
 def _location_signature(address: str, latitude: float, longitude: float) -> str:
     return f"{float(latitude):.6f}|{float(longitude):.6f}|{address.strip()}"
 
@@ -420,6 +440,9 @@ def _measurement_map(
                 opacity=1.0,
                 tooltip="Ligne d'orientation solaire",
             ).add_to(map_object)
+        measurement_bounds = _drawings_bounds_lat_lon(drawings)
+        if len(measurement_bounds) == 2 and measurement_bounds[0] != measurement_bounds[1]:
+            map_object.fit_bounds(measurement_bounds, padding=(36, 36), max_zoom=21)
     Draw(
         export=False,
         position="topleft",

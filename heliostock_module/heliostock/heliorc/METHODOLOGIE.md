@@ -1,16 +1,17 @@
 # Méthodologie HelioRC
 
-Cette version reprend le classeur **NO_STH_RCU_v5.3**, daté du 16 décembre 2025, et les principes décrits dans la présentation ADEME **Solaire thermique sur RCU - Outil de prédimensionnement**.
+Cette version reprend les principes d?crits dans la documentation ADEME **Solaire thermique sur r?seau de chaleur - outil de pr?dimensionnement**.
 
 ## Domaine d'emploi
 
 - Centrale solaire avec stockage journalier.
 - Capteurs plans vitrés haute performance, inclinaison fixe.
-- Taille de champ supérieure à 100 m².
-- Fraction solaire indicative de 10 à 30 %.
+- Plage de r?f?rence : surface de capteurs sup?rieure ? 100 m? et fraction solaire entre 10 et 30 %.
 - Usage en pré-étude, avant une étude de faisabilité et une modélisation dynamique.
 
-Sont hors cadre : stockage intersaisonnier, tracker, capteurs plans sous vide, recharge géothermique, configurations hydrauliques complexes et implantations atypiques.
+Point de vigilance : lorsque la surface est inf?rieure ou ?gale ? 100 m?, ou lorsque la fraction solaire sort de la plage 10-30 %, la pr?cision attendue diminue. Le r?sultat reste un ordre de grandeur ? confirmer par une ?tude de faisabilit?.
+
+Les configurations suivantes doivent ?tre confirm?es par une ?tude d?di?e : stockage intersaisonnier, tracker, capteurs plans sous vide, recharge g?othermique, configurations hydrauliques complexes et implantations atypiques.
 
 ## Besoins mensuels
 

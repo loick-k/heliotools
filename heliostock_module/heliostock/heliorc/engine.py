@@ -48,7 +48,8 @@ ADEME_REFERENCE_URL = "https://www.solaire-collectif.fr/ftp/pgiArticle/STHRCU/Pr
 ADEME_REFERENCE_VIGILANCES = (
     "L'outil fournit des premiers ordres de grandeur pour prioriser les réseaux à solariser et préparer les échanges avec l'exploitant ou la collectivité.",
     "La documentation ADEME vise un écart technique cible inférieur à 20 % par rapport à une modélisation dynamique ; la partie économique doit rester interprétée avec prudence.",
-    "Le cadre de référence porte sur une centrale solaire thermique avec stockage journalier, capteurs plans vitrés haute performance, inclinaison fixe proche de 30°, champ supérieur à 100 m² et fraction solaire indicative de 10 à 30 %.",
+    "La plage de référence de la méthode correspond à une centrale solaire thermique avec stockage journalier, capteurs plans vitrés haute performance, inclinaison fixe proche de 30°, surface de capteurs supérieure à 100 m² et fraction solaire comprise entre 10 et 30 %.",
+    "Lorsque la surface est inférieure à 100 m² ou que la fraction solaire sort de la plage 10-30 %, le résultat reste exploitable comme ordre de grandeur, mais la précision attendue diminue et doit être confirmée par une étude de faisabilité.",
     "Les configurations avec capteurs sous vide, trackers, stockage intersaisonnier ou couplage géothermique avec recharge solaire sont hors du cadre de référence de cet outil.",
     "L'étape suivante recommandée reste une étude de faisabilité par un bureau d'études compétent, avec modélisation dynamique lorsque l'opportunité est confirmée.",
 )
@@ -350,17 +351,21 @@ def calculate_opportunity(inputs: CalculationInputs) -> tuple[CalculationResults
         warnings.append("Aucun foncier n'est identifié à ce stade.")
     if inputs.mean_network_temperature_c > 65:
         warnings.append("Régime élevé : un abaissement des températures du réseau est à étudier.")
-    if collector_area < 100:
-        warnings.append("Surface inférieure à 100 m² : hors du cadre de calibration de l'outil.")
+    if collector_area <= 100:
+        warnings.append(
+            "Point de vigilance précision : surface de capteurs ≤ 100 m². La méthode est surtout calée pour des champs > 100 m² ; le résultat doit être interprété comme un ordre de grandeur."
+        )
     if solar_fraction < 0.10 or solar_fraction > 0.30:
-        warnings.append("Fraction solaire hors de la plage de calibration indicative de 10 à 30 %.")
+        warnings.append(
+            "Point de vigilance précision : fraction solaire hors de la plage 10-30 %. La précision attendue diminue et une étude de faisabilité devra confirmer le résultat."
+        )
     if collector_area < 150:
         warnings.append("Surface inférieure au premier seuil d'opportunité de 150 à 250 m².")
     scope_ok = 100 <= collector_area and 0.10 <= solar_fraction <= 0.30
     if scope_ok:
-        scope_status = "Dans le cadre de calibration"
+        scope_status = "Plage de référence respectée : surface > 100 m² et fraction solaire entre 10 et 30 %"
     else:
-        scope_status = "Hors cadre ou à confirmer"
+        scope_status = "Point de vigilance précision : surface ≤ 100 m² ou fraction solaire hors 10-30 %"
 
     hard_stop = (not inputs.network_operates_summer) or inputs.summer_excess_enr
     if hard_stop:

@@ -90,8 +90,7 @@ def _render_styles() -> None:
             border-radius: 0.45rem;
             margin-bottom: 1rem;
           }
-          .heliorc-banner h1 {margin: 0; color: #17324d; font-size: 2.05rem;}
-          .heliorc-banner p {margin: 0.25rem 0 0 0; color: #475467;}
+          .heliorc-banner p {margin: 0; color: #475467;}
           .small-muted {color: #667085; font-size: 0.88rem;}
         </style>
         """,
@@ -955,10 +954,10 @@ def render_heliorc_app() -> None:
 
     title_col, logo_col = st.columns([0.78, 0.22], vertical_alignment="center")
     with title_col:
+        st.title("HelioRC")
         st.markdown(
             """
             <div class="heliorc-banner">
-              <h1>HelioRC</h1>
               <p>Note d'opportunité pour l'intégration du solaire thermique sur un réseau de chaleur urbain.</p>
             </div>
             """,
@@ -969,7 +968,7 @@ def render_heliorc_app() -> None:
             st.image(str(ADEME_LOGO), width=155)
 
     st.caption(
-        "Reprise du moteur NO STH RCU v5.3 : prédimensionnement au talon estival, productivité paramétrique, stockage journalier, CAPEX, aide indicative et LCOH."
+        "Méthode de prédimensionnement : talon estival, productivité paramétrique, stockage journalier, CAPEX, aide indicative et coût de chaleur."
     )
     st.caption(f"Documentation de référence ADEME : {ADEME_REFERENCE_URL}")
 
@@ -1422,7 +1421,7 @@ def render_heliorc_app() -> None:
         with result_tabs[4]:
             st.markdown(
                 r"""
-        ### Logique reprise du classeur v5.3
+        ### Méthode de calcul
 
         1. Le profil de production mensuel est obtenu à partir de l'irradiation sur le plan optimal, corrigée par les 12 coefficients saisonniers du classeur, puis normalisée sur son maximum.
         2. La production mensuelle vaut : **taux de talon × minimum mensuel des besoins × profil solaire normalisé**.
@@ -1438,9 +1437,10 @@ def render_heliorc_app() -> None:
         ### Cadre d'utilisation
 
         - Centrale avec stockage journalier et capteurs plans vitrés haute performance.
-        - Champ supérieur à 100 m² et fraction solaire indicative de 10 à 30 %.
+        - Plage de référence : surface de capteurs > 100 m² et fraction solaire entre 10 et 30 %.
         - Outil de priorisation et de discussion en amont d'une étude de faisabilité.
-        - Hors cadre : stockage intersaisonnier, tracker, capteurs sous vide, recharge géothermique, raccordement complexe ou foncier atypique.
+        - Point de vigilance : si la surface est ≤ 100 m² ou si la fraction solaire sort de 10-30 %, la précision attendue diminue et le résultat doit être confirmé par une étude de faisabilité.
+        - Configurations particulières à confirmer par une étude dédiée : stockage intersaisonnier, tracker, capteurs sous vide, recharge géothermique, raccordement complexe ou foncier atypique.
         - L'objectif est un ordre de grandeur technique ; l'économie reste particulièrement sensible aux hypothèses de CAPEX, d'aides, de financement et de raccordement.
 
         """
