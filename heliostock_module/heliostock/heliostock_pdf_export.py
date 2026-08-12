@@ -115,6 +115,51 @@ def _storage_value_for_pdf(scenario: ScenarioResult, *, has_geothermal: bool) ->
 
 def _monthly_with_solar_losses(scenario: ScenarioResult) -> pd.DataFrame:
     month_df = scenario.hourly_by_month_df.copy()
+    if "month" not in month_df.columns and "Mois" in month_df.columns:
+        month_lookup = {
+            "jan": 1,
+            "janvier": 1,
+            "feb": 2,
+            "fév": 2,
+            "fev": 2,
+            "février": 2,
+            "fevrier": 2,
+            "mar": 3,
+            "mars": 3,
+            "apr": 4,
+            "avr": 4,
+            "avril": 4,
+            "may": 5,
+            "mai": 5,
+            "jun": 6,
+            "juin": 6,
+            "jul": 7,
+            "juil": 7,
+            "juillet": 7,
+            "aug": 8,
+            "aoû": 8,
+            "aou": 8,
+            "août": 8,
+            "aout": 8,
+            "sep": 9,
+            "sept": 9,
+            "septembre": 9,
+            "oct": 10,
+            "octobre": 10,
+            "nov": 11,
+            "novembre": 11,
+            "dec": 12,
+            "déc": 12,
+            "décembre": 12,
+            "decembre": 12,
+        }
+        month_df["month"] = (
+            month_df["Mois"]
+            .astype(str)
+            .str.strip()
+            .str.lower()
+            .map(month_lookup)
+        )
     if month_df.empty:
         hourly_df = scenario.hourly_df
         if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty or "month" not in hourly_df.columns:

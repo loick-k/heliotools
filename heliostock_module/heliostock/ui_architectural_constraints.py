@@ -72,6 +72,37 @@ def _ensure_default_state(prefix: str) -> None:
         st.session_state.setdefault(_state_key(prefix, name), value)
 
 
+def current_architectural_constraints_payload(prefix: str) -> dict[str, Any]:
+    """Return a JSON-serialisable snapshot of the patrimony analysis state."""
+
+    _ensure_default_state(prefix)
+    return {
+        "selected_address": str(st.session_state.get(_state_key(prefix, "selected_address")) or ""),
+        "latitude": float(st.session_state.get(_state_key(prefix, "latitude"), DEFAULT_LATITUDE)),
+        "longitude": float(st.session_state.get(_state_key(prefix, "longitude"), DEFAULT_LONGITUDE)),
+        "project_type": str(st.session_state.get(_state_key(prefix, "project_type")) or PROJECT_TYPES[0]),
+        "result": st.session_state.get(_state_key(prefix, "result")),
+    }
+
+
+def restore_architectural_constraints_payload(prefix: str, payload: dict[str, Any] | None) -> None:
+    """Restore a previously saved patrimony analysis state."""
+
+    _ensure_default_state(prefix)
+    if not isinstance(payload, dict):
+        return
+    if payload.get("selected_address") is not None:
+        st.session_state[_state_key(prefix, "selected_address")] = str(payload.get("selected_address") or "")
+    if payload.get("latitude") is not None:
+        st.session_state[_state_key(prefix, "latitude")] = float(payload.get("latitude") or DEFAULT_LATITUDE)
+    if payload.get("longitude") is not None:
+        st.session_state[_state_key(prefix, "longitude")] = float(payload.get("longitude") or DEFAULT_LONGITUDE)
+    if payload.get("project_type") in PROJECT_TYPES:
+        st.session_state[_state_key(prefix, "project_type")] = str(payload.get("project_type"))
+    result = payload.get("result")
+    st.session_state[_state_key(prefix, "result")] = result if isinstance(result, dict) else None
+
+
 def _coordinates_changed(prefix: str) -> None:
     st.session_state[_state_key(prefix, "selected_address")] = ""
     st.session_state[_state_key(prefix, "result")] = None
@@ -323,8 +354,6 @@ def render_architectural_constraints_test(
                 )
         except (PatrimoineServiceError, ValueError) as exc:
             st.error(str(exc))
-        else:
-            st.rerun()
 
     result = st.session_state.get(_state_key(state_prefix, "result"))
     if isinstance(result, dict):

@@ -23,6 +23,10 @@ import pandas as pd
 
 from .common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from .common.project_context import project_context_to_payload
+from .ui_architectural_constraints import (
+    current_architectural_constraints_payload,
+    restore_architectural_constraints_payload,
+)
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -1144,6 +1148,15 @@ def _load_local_result_json(path: Path) -> Any:
 def _jsonable(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    if hasattr(value, "item"):
+        try:
+            return _jsonable(value.item())
+        except Exception:
+            pass
     return str(value)
 
 
@@ -1194,6 +1207,7 @@ def _project_payload(name: str) -> dict[str, Any]:
             geographic_scope="Bretagne et Pays de la Loire",
             weather_source="EPW / TMYx",
         ),
+        "architectural_constraints": current_architectural_constraints_payload("heliostock"),
         "widget_values": widget_values,
         "shared_with_emails": sorted({_email_normalise(str(email)) for email in current_shared if _email_normalise(str(email))}),
         "has_demand_excel": bool(st.session_state.get("heliostock_demand_file_bytes")),
@@ -1217,6 +1231,7 @@ def _load_project(path: Path) -> None:
     for key, value in values.items():
         if key in SAVEABLE_WIDGET_KEYS:
             st.session_state[key] = value
+    restore_architectural_constraints_payload("heliostock", data.get("architectural_constraints"))
     st.session_state["heliostock_current_project_name"] = str(data.get("name") or path.stem)
     st.session_state["heliostock_current_project_id"] = str(data.get("project_id") or path.with_suffix("").name)
     st.session_state["heliostock_current_project_shared_with"] = _project_shared_emails(path)
