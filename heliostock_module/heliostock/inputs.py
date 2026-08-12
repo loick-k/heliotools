@@ -35,7 +35,7 @@ class SolarInputs:
     daily_buffer_tank_count: int = 1
     daily_buffer_insulation_thickness_cm: float = 10.0
     daily_buffer_insulation_lambda_w_m_k: float = 0.035
-    daily_buffer_model: str = "mixed"
+    daily_buffer_model: str = "stratified_3_nodes"
     daily_buffer_stratified_fraction_bottom: float = 0.35
     daily_buffer_stratified_fraction_middle: float = 0.30
     daily_buffer_stratified_fraction_top: float = 0.35

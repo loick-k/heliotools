@@ -9,7 +9,7 @@ from reportlab.lib.utils import ImageReader
 
 from .architectural_patrimony_service import CATEGORY_CONFIG
 from .architectural_static_map import StaticMapError, render_static_map
-from .common.pdf import _safe_text, draw_report_footer, draw_report_header
+from .common.pdf import draw_report_footer, draw_report_header, safe_pdf_text as _safe_text
 from .gas_reference import gas_reference_context_label
 from .scenario_outputs import ScenarioResult
 

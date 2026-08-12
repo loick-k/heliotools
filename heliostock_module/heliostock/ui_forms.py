@@ -496,18 +496,9 @@ def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt"
         )
         solar_preheat_target_ht_c = float(process_ht_target_c)
         st.caption("Ratio stockage solaire V/S : par défaut 60 L/m².")
-        storage_model_label = st.selectbox(
-            "Modèle ballon solaire",
-            options=["Ballon mélangé actuel", "Ballon stratifié 3 nœuds"],
-            index=0,
-            key="solar_daily_buffer_model_label",
-            help=(
-                "Le modèle mélangé conserve le comportement historique. "
-                "Le modèle stratifié représente le bas, le milieu et le haut du ballon."
-            ),
-        )
-        daily_buffer_model = "stratified_3_nodes" if storage_model_label == "Ballon stratifié 3 nœuds" else "mixed"
-        with st.expander("Hypothèses avancées ballon stratifié", expanded=daily_buffer_model == "stratified_3_nodes"):
+        daily_buffer_model = "stratified_3_nodes"
+        st.caption("Modèle ballon solaire : stratifié 3 nœuds (bas, milieu, haut).")
+        with st.expander("Hypothèses avancées ballon stratifié", expanded=False):
             st.caption(
                 "Modèle 1D simplifié : chaque nœud est parfaitement mélangé, les inversions de température "
                 "sont corrigées par mélange conservatif. UA = 0 utilise l'estimation SOLO2018 des pertes."
