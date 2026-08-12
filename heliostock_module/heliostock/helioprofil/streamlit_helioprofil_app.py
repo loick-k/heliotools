@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from .profile_generator import (
+    DEFAULT_L_60C_PER_VEHICLE,
     GeneratorConfig,
     MONTHS_FR,
     build_excel_bytes,
@@ -22,14 +23,24 @@ APP_DIR = Path(__file__).resolve().parent
 PROFILE_LIBRARY = {
     "Station de lavage poids lourds": APP_DIR / "profiles" / "station_lavage_poids_lourds.csv",
 }
+PROFILE_THEMES_COMING_SOON = [
+    "Logement",
+    "Hébergement collectif",
+    "Établissement de santé",
+    "Équipement sportif",
+    "Restauration collective",
+    "Industrie avec besoin process",
+]
 
-SIMSOL_BLUE = "#7fb2f0"
-SIMSOL_BLUE_LINE = "#2f5597"
-SIMSOL_GREEN_GRID = "#16a34a"
-SIMSOL_YELLOW = "#fff200"
+PROFILE_BAR_COLOR = "#22B2A6"
+PROFILE_BAR_LINE = "#486DAC"
+PROFILE_GRID_COLOR = "#D9E1EF"
+PROFILE_LABEL_BG = "#F8FAFC"
+PROFILE_LABEL_BORDER = "#22B2A6"
+PROFILE_FONT_FAMILY = "PF Beau Sans Pro, Inter, Segoe UI, Arial, sans-serif"
 
 
-def _simsol_bar_layout(fig: go.Figure, *, title: str, x_title: str, y_title: str, height: int = 440) -> go.Figure:
+def _profile_bar_layout(fig: go.Figure, *, title: str, x_title: str, y_title: str, height: int = 440) -> go.Figure:
     fig.update_layout(
         title={"text": title, "x": 0.5, "xanchor": "center"},
         height=height,
@@ -37,14 +48,14 @@ def _simsol_bar_layout(fig: go.Figure, *, title: str, x_title: str, y_title: str
         plot_bgcolor="white",
         paper_bgcolor="white",
         showlegend=False,
-        font={"family": "Arial", "size": 13, "color": "#111827"},
+        font={"family": PROFILE_FONT_FAMILY, "size": 13, "color": "#111827"},
     )
     fig.update_xaxes(
         title=x_title,
         tickmode="linear",
         showline=True,
-        linecolor="#111827",
-        gridcolor=SIMSOL_GREEN_GRID,
+        linecolor="#64748B",
+        gridcolor=PROFILE_GRID_COLOR,
         gridwidth=0.7,
         griddash="dash",
     )
@@ -52,15 +63,15 @@ def _simsol_bar_layout(fig: go.Figure, *, title: str, x_title: str, y_title: str
         title=y_title,
         rangemode="tozero",
         showline=True,
-        linecolor="#111827",
-        gridcolor=SIMSOL_GREEN_GRID,
+        linecolor="#64748B",
+        gridcolor=PROFILE_GRID_COLOR,
         gridwidth=0.7,
         griddash="dash",
     )
     return fig
 
 
-def _add_yellow_value_labels(fig: go.Figure, rows: pd.DataFrame, *, x_col: str, y_col: str, text_col: str | None = None) -> None:
+def _add_profile_value_labels(fig: go.Figure, rows: pd.DataFrame, *, x_col: str, y_col: str, text_col: str | None = None) -> None:
     ymax = max(float(rows[y_col].max() or 0.0), 1.0)
     for _, row in rows.iterrows():
         value = float(row[y_col])
@@ -73,15 +84,15 @@ def _add_yellow_value_labels(fig: go.Figure, rows: pd.DataFrame, *, x_col: str, 
             text=f"{float(label_value):.2g}",
             showarrow=False,
             textangle=-90 if len(str(row[x_col])) <= 2 else 0,
-            font={"size": 11, "color": "#111827"},
-            bgcolor=SIMSOL_YELLOW,
-            bordercolor="#d4b106",
+            font={"family": PROFILE_FONT_FAMILY, "size": 11, "color": "#111827"},
+            bgcolor=PROFILE_LABEL_BG,
+            bordercolor=PROFILE_LABEL_BORDER,
             borderwidth=0.5,
             borderpad=2,
         )
 
 
-def _daily_profile_simsol_chart(hourly_norm: pd.DataFrame, *, profile_name: str) -> go.Figure:
+def _daily_profile_chart(hourly_norm: pd.DataFrame, *, profile_name: str) -> go.Figure:
     rows = hourly_norm.copy()
     rows["hour_label"] = rows["hour"].astype(int).astype(str)
     fig = go.Figure(
@@ -89,13 +100,13 @@ def _daily_profile_simsol_chart(hourly_norm: pd.DataFrame, *, profile_name: str)
             go.Bar(
                 x=rows["hour_label"],
                 y=rows["part_journaliere_pct"],
-                marker={"color": SIMSOL_BLUE, "line": {"color": SIMSOL_BLUE_LINE, "width": 1}},
+                marker={"color": PROFILE_BAR_COLOR, "line": {"color": PROFILE_BAR_LINE, "width": 1}},
                 hovertemplate="Heure %{x} h<br>Coefficient horaire %{y:.2f}<extra></extra>",
             )
         ]
     )
-    _add_yellow_value_labels(fig, rows, x_col="hour_label", y_col="part_journaliere_pct")
-    fig = _simsol_bar_layout(
+    _add_profile_value_labels(fig, rows, x_col="hour_label", y_col="part_journaliere_pct")
+    fig = _profile_bar_layout(
         fig,
         title=f"Profil journalier : {profile_name}",
         x_title="Heures de la journée",
@@ -106,7 +117,7 @@ def _daily_profile_simsol_chart(hourly_norm: pd.DataFrame, *, profile_name: str)
     return fig
 
 
-def _monthly_profile_simsol_chart(monthly_df: pd.DataFrame) -> go.Figure:
+def _monthly_profile_chart(monthly_df: pd.DataFrame) -> go.Figure:
     rows = monthly_df.copy()
     rows["MWh"] = rows["E_total_generee_kWh"] / 1000.0
     mean_mwh = max(float(rows["MWh"].mean()), 1e-9)
@@ -116,14 +127,14 @@ def _monthly_profile_simsol_chart(monthly_df: pd.DataFrame) -> go.Figure:
             go.Bar(
                 x=rows["mois"],
                 y=rows["coef_multiplicateur"],
-                marker={"color": SIMSOL_BLUE, "line": {"color": SIMSOL_BLUE_LINE, "width": 1}},
+                marker={"color": PROFILE_BAR_COLOR, "line": {"color": PROFILE_BAR_LINE, "width": 1}},
                 hovertemplate="%{x}<br>Coefficient %{y:.2f}<br>%{customdata:.1f} MWh<extra></extra>",
                 customdata=rows["MWh"],
             )
         ]
     )
-    _add_yellow_value_labels(fig, rows, x_col="mois", y_col="coef_multiplicateur")
-    fig = _simsol_bar_layout(
+    _add_profile_value_labels(fig, rows, x_col="mois", y_col="coef_multiplicateur")
+    fig = _profile_bar_layout(
         fig,
         title="Profil annuel : répartition mensuelle",
         x_title="Mois de l'année",
@@ -198,6 +209,23 @@ def _input_mode_from_label(label: str) -> str:
     }[label]
 
 
+def _input_columns_for_mode(input_mode: str) -> list[str]:
+    columns = ["mois_num", "mois"]
+    if input_mode in {"gaz_mensuel", "hybride"}:
+        columns.append("gaz_mesure")
+    if input_mode in {"vehicules_mensuels", "hybride"}:
+        columns.append("vehicules")
+    return columns
+
+
+def _merge_visible_input_table(previous: pd.DataFrame, edited_visible: pd.DataFrame) -> pd.DataFrame:
+    merged = previous.copy()
+    for column in edited_visible.columns:
+        if column in merged.columns:
+            merged[column] = edited_visible[column].values
+    return merged
+
+
 def render_helioprofil_app() -> None:
     """Render HelioProfil inside the HelioTools portal."""
 
@@ -211,8 +239,24 @@ def render_helioprofil_app() -> None:
 
     with left:
         st.subheader("Paramètres")
-        year = st.number_input("Année", min_value=2000, max_value=2100, value=2025, step=1)
+        year = st.number_input(
+            "Année calendrier de référence",
+            min_value=2000,
+            max_value=2100,
+            value=2025,
+            step=1,
+            help=(
+                "Sert uniquement à placer les jours de semaine, jours fériés et dates de fermeture "
+                "dans le profil 8760 h. Ce n'est pas une hypothèse météo."
+            ),
+        )
         profile_name = st.selectbox("Profil type", list(PROFILE_LIBRARY.keys()), index=0)
+        st.caption("Thématiques à venir, non disponibles dans cette version :")
+        for unavailable_profile in PROFILE_THEMES_COMING_SOON:
+            st.markdown(
+                f"<span style='color:#9ca3af;'>• {unavailable_profile} — indisponible</span>",
+                unsafe_allow_html=True,
+            )
         demand_temperature_c = st.number_input(
             "Température de besoin (°C)",
             min_value=20.0,
@@ -232,18 +276,56 @@ def render_helioprofil_app() -> None:
         )
         input_mode = _input_mode_from_label(mode_label)
 
-        gas_efficiency = st.number_input(
-            "Rendement gaz estimé",
-            min_value=0.1,
-            max_value=1.2,
-            value=0.75,
-            step=0.01,
-            format="%.2f",
-        )
-        gas_unit = st.selectbox("Unité des relevés gaz", ["kWh", "MWh", "m3 gaz"], index=0)
-        gas_conversion = st.number_input("Conversion m³ gaz vers kWh", min_value=5.0, max_value=15.0, value=11.2, step=0.1)
-        kwh_per_vehicle = st.number_input("kWh utile / véhicule", min_value=1.0, max_value=500.0, value=45.0, step=1.0)
-        vehicles_per_day = st.number_input("Véhicules / jour ouvert", min_value=0.0, max_value=500.0, value=13.0, step=0.5)
+        gas_conversion = float(GeneratorConfig().gas_conversion_kwh_per_m3)
+        gas_efficiency = 0.75
+        gas_unit = "kWh"
+        l_60c_per_vehicle = float(DEFAULT_L_60C_PER_VEHICLE)
+        vehicles_per_day = 13.0
+
+        uses_gas_readings = input_mode in {"gaz_mensuel", "hybride"}
+        uses_monthly_vehicles = input_mode in {"vehicules_mensuels", "hybride"}
+        uses_daily_vehicles = input_mode == "vehicules_annuels"
+        uses_vehicle_ratio = uses_monthly_vehicles or uses_daily_vehicles
+
+        if uses_gas_readings:
+            st.markdown("**Recalage par relevés gaz**")
+            gas_efficiency = st.number_input(
+                "Rendement gaz estimé",
+                min_value=0.1,
+                max_value=1.2,
+                value=0.75,
+                step=0.01,
+                format="%.2f",
+            )
+            gas_unit = st.selectbox("Unité des relevés gaz", ["kWh", "MWh", "m3 gaz"], index=0)
+            st.caption(f"Hypothèse gaz : 1 m³ gaz = {gas_conversion:.1f} kWh PCI.")
+
+        if uses_vehicle_ratio:
+            st.markdown("**Recalage par véhicules lavés**")
+            l_60c_per_vehicle = st.number_input(
+                "Ratio ECS SOCOL (L équivalent 60 °C / véhicule)",
+                min_value=1.0,
+                max_value=5000.0,
+                value=float(DEFAULT_L_60C_PER_VEHICLE),
+                step=10.0,
+                help=(
+                    "Volume ECS équivalent à 60 °C par véhicule. La valeur par défaut est calibrée "
+                    "pour représenter environ 45 kWh utiles par véhicule avec une eau froide de référence à 15 °C."
+                ),
+            )
+            st.caption(
+                "Équivalent énergétique avec ce ratio : "
+                f"{GeneratorConfig(l_60c_per_vehicle=float(l_60c_per_vehicle)).kwh_per_vehicle:.1f} kWh utile/véhicule."
+            )
+
+        if uses_daily_vehicles:
+            vehicles_per_day = st.number_input(
+                "Véhicules / jour ouvert",
+                min_value=0.0,
+                max_value=500.0,
+                value=13.0,
+                step=0.5,
+            )
 
         with st.expander("Fermetures", expanded=False):
             close_weekends = st.checkbox("Week-ends fermés", value=True)
@@ -268,26 +350,47 @@ def render_helioprofil_app() -> None:
         if "helioprofil_input_table" not in st.session_state:
             st.session_state["helioprofil_input_table"] = _default_input_table()
 
-        input_table = st.data_editor(
-            st.session_state["helioprofil_input_table"],
-            num_rows="fixed",
-            width="stretch",
-            column_config={
-                "mois_num": st.column_config.NumberColumn("N°", disabled=True),
-                "mois": st.column_config.TextColumn("Mois", disabled=True),
-                "gaz_mesure": st.column_config.NumberColumn(
-                    "Gaz mesuré",
-                    help="Selon l'unité choisie dans les paramètres.",
-                    format="%.2f",
-                ),
-                "vehicules": st.column_config.NumberColumn(
-                    "Véhicules",
-                    help="Nombre mensuel de véhicules, si mode véhicules ou hybride.",
-                    format="%.2f",
-                ),
-            },
-            hide_index=True,
-        )
+        base_input_table = st.session_state["helioprofil_input_table"]
+        visible_columns = _input_columns_for_mode(input_mode)
+        visible_input_table = base_input_table[visible_columns].copy()
+        column_config = {
+            "mois_num": st.column_config.NumberColumn("N°", disabled=True),
+            "mois": st.column_config.TextColumn("Mois", disabled=True),
+        }
+        if "gaz_mesure" in visible_columns:
+            column_config["gaz_mesure"] = st.column_config.NumberColumn(
+                "Gaz mesuré",
+                help="Selon l'unité choisie dans les paramètres.",
+                format="%.2f",
+            )
+        if "vehicules" in visible_columns:
+            column_config["vehicules"] = st.column_config.NumberColumn(
+                "Véhicules",
+                help="Nombre mensuel de véhicules.",
+                format="%.2f",
+            )
+
+        if input_mode == "vehicules_annuels":
+            st.info(
+                "Ce mode utilise le nombre de véhicules par jour ouvert et le calendrier de fermetures. "
+                "Aucune saisie mensuelle n'est nécessaire."
+            )
+            st.dataframe(
+                visible_input_table,
+                width="stretch",
+                column_config=column_config,
+                hide_index=True,
+            )
+            input_table = base_input_table
+        else:
+            edited_visible_input_table = st.data_editor(
+                visible_input_table,
+                num_rows="fixed",
+                width="stretch",
+                column_config=column_config,
+                hide_index=True,
+            )
+            input_table = _merge_visible_input_table(base_input_table, edited_visible_input_table)
         st.session_state["helioprofil_input_table"] = input_table
 
     config = GeneratorConfig(
@@ -296,8 +399,8 @@ def render_helioprofil_app() -> None:
         demand_temperature_c=float(demand_temperature_c),
         gas_efficiency=float(gas_efficiency),
         gas_unit=gas_unit,
-        gas_conversion_kwh_per_m3=float(gas_conversion),
-        kwh_per_vehicle=float(kwh_per_vehicle),
+        gas_conversion_kwh_per_m3=gas_conversion,
+        l_60c_per_vehicle=float(l_60c_per_vehicle),
         vehicles_per_day=float(vehicles_per_day),
         input_mode=input_mode,
         close_weekends=bool(close_weekends),
@@ -359,7 +462,7 @@ def render_helioprofil_app() -> None:
             hourly_norm = normalized_hourly_profile(profile_type)
             chart_col, table_col = st.columns([2.6, 0.9], gap="large")
             with chart_col:
-                fig = _daily_profile_simsol_chart(hourly_norm, profile_name=profile_name)
+                fig = _daily_profile_chart(hourly_norm, profile_name=profile_name)
                 st.plotly_chart(fig, width="stretch")
             with table_col:
                 st.markdown("#### Coefficients horaires")
@@ -376,7 +479,7 @@ def render_helioprofil_app() -> None:
             bm["coef_multiplicateur"] = bm["MWh"] / mean_mwh
             chart_col, table_col = st.columns([2.2, 0.9], gap="large")
             with chart_col:
-                fig = _monthly_profile_simsol_chart(bm)
+                fig = _monthly_profile_chart(bm)
                 st.plotly_chart(fig, width="stretch")
             with table_col:
                 st.markdown("#### Coefficients mensuels")
@@ -412,10 +515,17 @@ def render_helioprofil_app() -> None:
                     y="MWh",
                     title="Répartition annuelle dans la semaine",
                     labels={"weekday_name": "Jour", "MWh": "Besoin utile annuel (MWh)"},
-                    color_discrete_sequence=[SIMSOL_BLUE],
+                    color_discrete_sequence=[PROFILE_BAR_COLOR],
                 )
-                fig.update_layout(height=430, showlegend=False, plot_bgcolor="white")
-                fig.update_yaxes(gridcolor=SIMSOL_GREEN_GRID, griddash="dash")
+                fig.update_layout(
+                    height=430,
+                    showlegend=False,
+                    plot_bgcolor="white",
+                    paper_bgcolor="white",
+                    font={"family": PROFILE_FONT_FAMILY, "size": 13, "color": "#111827"},
+                )
+                fig.update_xaxes(gridcolor=PROFILE_GRID_COLOR, griddash="dash")
+                fig.update_yaxes(gridcolor=PROFILE_GRID_COLOR, griddash="dash")
                 st.plotly_chart(fig, width="stretch")
             with table_col:
                 st.markdown("#### Profil hebdomadaire : année type")
@@ -432,7 +542,17 @@ def render_helioprofil_app() -> None:
                 y="MWh",
                 title="Besoin énergétique journalier",
                 labels={"date": "Date", "MWh": "Besoin utile (MWh/j)"},
+                color_discrete_sequence=[PROFILE_BAR_COLOR],
             )
+            fig1.update_layout(
+                height=430,
+                showlegend=False,
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                font={"family": PROFILE_FONT_FAMILY, "size": 13, "color": "#111827"},
+            )
+            fig1.update_xaxes(gridcolor=PROFILE_GRID_COLOR, griddash="dash")
+            fig1.update_yaxes(gridcolor=PROFILE_GRID_COLOR, griddash="dash")
             st.plotly_chart(fig1, width="stretch")
 
             sample = profile_df[["datetime", "E_total_kWh"]].copy()
@@ -444,6 +564,16 @@ def render_helioprofil_app() -> None:
                 title="Profil de puissance horaire moyenne",
                 labels={"datetime": "Date", "P_moy_horaire_kW": "Puissance moyenne horaire (kW)"},
             )
+            fig2.update_traces(line={"color": PROFILE_BAR_LINE, "width": 2})
+            fig2.update_layout(
+                height=430,
+                showlegend=False,
+                plot_bgcolor="white",
+                paper_bgcolor="white",
+                font={"family": PROFILE_FONT_FAMILY, "size": 13, "color": "#111827"},
+            )
+            fig2.update_xaxes(gridcolor=PROFILE_GRID_COLOR, griddash="dash")
+            fig2.update_yaxes(gridcolor=PROFILE_GRID_COLOR, griddash="dash")
             st.plotly_chart(fig2, width="stretch")
 
         st.subheader("Export Excel")

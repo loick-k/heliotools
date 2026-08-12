@@ -17,6 +17,13 @@ WEEKDAYS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dim
 
 InputMode = Literal["gaz_mensuel", "vehicules_mensuels", "vehicules_annuels", "hybride"]
 EnergyUnit = Literal["kWh", "MWh", "m3 gaz"]
+CP_WHLK = 1.163
+VEHICLE_COLD_WATER_REFERENCE_C = 15.0
+VEHICLE_ECS_REFERENCE_C = 60.0
+DEFAULT_KWH_PER_VEHICLE = 45.0
+DEFAULT_L_60C_PER_VEHICLE = DEFAULT_KWH_PER_VEHICLE * 1000.0 / (
+    CP_WHLK * (VEHICLE_ECS_REFERENCE_C - VEHICLE_COLD_WATER_REFERENCE_C)
+)
 
 
 @dataclass
@@ -27,7 +34,7 @@ class GeneratorConfig:
     gas_efficiency: float = 0.75
     gas_unit: EnergyUnit = "kWh"
     gas_conversion_kwh_per_m3: float = 11.2
-    kwh_per_vehicle: float = 45.0
+    l_60c_per_vehicle: float = DEFAULT_L_60C_PER_VEHICLE
     vehicles_per_day: float = 13.0
     input_mode: InputMode = "gaz_mensuel"
     close_weekends: bool = True
@@ -35,6 +42,11 @@ class GeneratorConfig:
     compensate_closed_days: bool = True
     remove_feb_29: bool = True
     output_all_in_ht: bool = True
+
+    @property
+    def kwh_per_vehicle(self) -> float:
+        delta_t = max(0.0, VEHICLE_ECS_REFERENCE_C - VEHICLE_COLD_WATER_REFERENCE_C)
+        return max(0.0, float(self.l_60c_per_vehicle)) * CP_WHLK * delta_t / 1000.0
 
 
 def easter_date(year: int) -> date:
@@ -372,6 +384,8 @@ def build_excel_bytes(
         ["Mode d'entrée", config.input_mode],
         ["Unité gaz", config.gas_unit],
         ["Coefficient m3 gaz", config.gas_conversion_kwh_per_m3],
+        ["Ratio ECS véhicule", f"{config.l_60c_per_vehicle:.0f} L équivalent 60 °C/véhicule"],
+        ["Équivalent énergétique véhicule", f"{config.kwh_per_vehicle:.1f} kWh utile/véhicule"],
         ["Week-ends fermés", config.close_weekends],
         ["Jours fériés France fermés", config.close_french_holidays],
         ["Fermetures compensées", config.compensate_closed_days],
