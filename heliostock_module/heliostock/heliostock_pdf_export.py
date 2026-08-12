@@ -983,21 +983,6 @@ def _draw_monthly_analysis_charts_page(canvas, scenario: ScenarioResult, *, widt
             title=f"Couverture PAC géothermie BT - scénario B, année {scenario.simulation_year_displayed}",
             y_label="MWh/mois",
         )
-    else:
-        _draw_simple_bar_chart(
-            canvas,
-            month_df,
-            label_col="Mois",
-            value_col="Pertes ballon solaire (MWh)",
-            x=right_x,
-            y=top_y,
-            width=chart_w,
-            height=chart_h,
-            title=f"Pertes ballon solaire - année {scenario.simulation_year_displayed}",
-            y_label="MWh/mois",
-            color=(0.74, 0.77, 0.82),
-            max_items=12,
-        )
     _draw_grouped_bar_chart(
         canvas,
         month_df,
@@ -1285,6 +1270,14 @@ def build_heliostock_overview_pdf(
                 ("Appoint gaz HT", _fmt_mwh_from_kwh(scenario.total_backup_ht_kwh)),
             ]
         )
+    if abs(float(scenario.total_ht_kwh + scenario.total_bt_kwh) - float(scenario.total_ht_kwh)) <= 1e-6:
+        solar_metrics = [
+            metric for metric in solar_metrics if not str(metric[0]).startswith("Besoin haute")
+        ]
+    if not has_geothermal:
+        solar_metrics = [
+            metric for metric in solar_metrics if str(metric[0]) != "Production solaire ECS"
+        ]
     solar_metrics.extend(
         [
             ("Épisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
@@ -1303,16 +1296,14 @@ def build_heliostock_overview_pdf(
     y -= 6
     if has_geothermal:
         _draw_gmi_conclusion(canvas, gmi_context, x=34, y=y, width=page_width - 68)
-    else:
-        _draw_architectural_conclusion(canvas, architectural_context, x=34, y=y, width=page_width - 68)
     page_number = 1
     _draw_footer(canvas, page_number=page_number, width=page_width)
     canvas.showPage()
     page_number += 1
 
-    _draw_header(canvas, title=f"{product_title} - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
-    y = page_height - 92
     if has_geothermal:
+        _draw_header(canvas, title=f"{product_title} - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
+        y = page_height - 92
         for label, scenario_name in SCENARIOS:
             y = _draw_section_title(canvas, label, x=34, y=y)
             y = _draw_kpi_grid(canvas, _scenario_metrics(scenario, scenario_name), x=34, y=y, width=page_width - 68)
@@ -1323,24 +1314,9 @@ def build_heliostock_overview_pdf(
                 page_number += 1
                 _draw_header(canvas, title=f"{product_title} - scénarios techniques", subtitle=subtitle, width=page_width, height=page_height)
                 y = page_height - 92
-    else:
-        y = _draw_section_title(canvas, "Solaire thermique seul", x=34, y=y)
-        y = _draw_kpi_grid(
-            canvas,
-            [
-                ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
-                ("Pertes ballon solaire", _fmt_mwh_from_kwh(_solar_buffer_loss_kwh(scenario))),
-                ("Couverture solaire HT", _fmt_number(scenario.annual_ht_solar_coverage * 100.0, 0, "%")),
-                ("Appoint gaz HT", _fmt_mwh_from_kwh(scenario.total_backup_ht_kwh)),
-                ("Épisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
-            ],
-            x=34,
-            y=y,
-            width=page_width - 68,
-        )
-    _draw_footer(canvas, page_number=page_number, width=page_width)
-    canvas.showPage()
-    page_number += 1
+        _draw_footer(canvas, page_number=page_number, width=page_width)
+        canvas.showPage()
+        page_number += 1
 
     if not has_geothermal:
         _draw_header(canvas, title=f"{product_title} - localisation et contraintes", subtitle=subtitle, width=page_width, height=page_height)
