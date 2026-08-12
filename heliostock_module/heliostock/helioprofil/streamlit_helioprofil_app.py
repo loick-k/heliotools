@@ -22,15 +22,22 @@ from .profile_generator import (
 APP_DIR = Path(__file__).resolve().parent
 PROFILE_LIBRARY = {
     "Station de lavage poids lourds": APP_DIR / "profiles" / "station_lavage_poids_lourds.csv",
+    "EHPAD cuisine ECS + lingerie": APP_DIR / "profiles" / "ehpad_cuisine_lingerie.csv",
 }
 PROFILE_THEMES_COMING_SOON = [
     "Logement",
     "Hébergement collectif",
-    "Établissement de santé",
     "Équipement sportif",
     "Restauration collective",
     "Industrie avec besoin process",
 ]
+PROFILE_NOTES = {
+    "EHPAD cuisine ECS + lingerie": (
+        "Profil horaire approché depuis la courbe ADEME/COSTIC au pas de 10 minutes pour un EHPAD "
+        "avec cuisine alimentée en ECS et lingerie. Les valeurs sont agrégées à l'heure pour produire "
+        "un profil 8760 h compatible HelioDyn."
+    ),
+}
 
 PROFILE_BAR_COLOR = "#22B2A6"
 PROFILE_BAR_LINE = "#486DAC"
@@ -251,6 +258,8 @@ def render_helioprofil_app() -> None:
             ),
         )
         profile_name = st.selectbox("Profil type", list(PROFILE_LIBRARY.keys()), index=0)
+        if profile_name in PROFILE_NOTES:
+            st.caption(PROFILE_NOTES[profile_name])
         st.caption("Thématiques à venir, non disponibles dans cette version :")
         for unavailable_profile in PROFILE_THEMES_COMING_SOON:
             st.markdown(
