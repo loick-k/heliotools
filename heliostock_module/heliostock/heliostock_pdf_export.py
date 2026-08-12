@@ -9,7 +9,7 @@ from reportlab.lib.utils import ImageReader
 
 from .architectural_patrimony_service import CATEGORY_CONFIG
 from .architectural_static_map import StaticMapError, render_static_map
-from .common.pdf import draw_report_footer, draw_report_header
+from .common.pdf import _safe_text, draw_report_footer, draw_report_header
 from .gas_reference import gas_reference_context_label
 from .scenario_outputs import ScenarioResult
 
@@ -89,6 +89,13 @@ def _sum_hourly_column_kwh(scenario: ScenarioResult, column: str) -> float:
     return float(pd.to_numeric(hourly_df[column], errors="coerce").fillna(0.0).sum())
 
 
+def _first_existing_column(df: pd.DataFrame, candidates: tuple[str, ...]) -> str | None:
+    for column in candidates:
+        if column in df.columns:
+            return column
+    return None
+
+
 def _solar_buffer_loss_kwh(scenario: ScenarioResult) -> float:
     direct = getattr(scenario, "solar_buffer_loss_kwh", None)
     try:
@@ -109,24 +116,57 @@ def _storage_value_for_pdf(scenario: ScenarioResult, *, has_geothermal: bool) ->
 def _monthly_with_solar_losses(scenario: ScenarioResult) -> pd.DataFrame:
     month_df = scenario.hourly_by_month_df.copy()
     if month_df.empty:
-        return month_df
+        hourly_df = scenario.hourly_df
+        if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty or "month" not in hourly_df.columns:
+            return month_df
+        month_df = (
+            pd.DataFrame({"month": list(range(1, 13))})
+            .assign(Mois=lambda df: df["month"].map({i: name for i, name in enumerate(
+                ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            )}))
+        )
     if "Pertes ballon solaire (MWh)" not in month_df.columns and "Pertes ballon HT (kWh)" in month_df.columns:
         month_df["Pertes ballon solaire (MWh)"] = (
             pd.to_numeric(month_df["Pertes ballon HT (kWh)"], errors="coerce").fillna(0.0) / 1000.0
         )
+    if "Pertes ballon solaire (MWh)" not in month_df.columns:
+        hourly_df = scenario.hourly_df
+        loss_col = _first_existing_column(
+            hourly_df if isinstance(hourly_df, pd.DataFrame) else pd.DataFrame(),
+            ("solar_ht_buffer_loss_kwh", "Q_losses_tank_kWh"),
+        )
+        if isinstance(hourly_df, pd.DataFrame) and not hourly_df.empty and loss_col and "month" in hourly_df.columns:
+            losses = (
+                hourly_df.assign(
+                    month=pd.to_numeric(hourly_df["month"], errors="coerce"),
+                    _loss_kwh=pd.to_numeric(hourly_df[loss_col], errors="coerce").fillna(0.0),
+                )
+                .dropna(subset=["month"])
+                .groupby("month", as_index=False)["_loss_kwh"]
+                .sum()
+            )
+            losses["month"] = losses["month"].astype(int)
+            losses["Pertes ballon solaire (MWh)"] = losses["_loss_kwh"] / 1000.0
+            month_df = month_df.merge(losses[["month", "Pertes ballon solaire (MWh)"]], on="month", how="left")
+            month_df["Pertes ballon solaire (MWh)"] = pd.to_numeric(
+                month_df["Pertes ballon solaire (MWh)"], errors="coerce"
+            ).fillna(0.0)
     return month_df
 
 
 def _solar_only_duration_dataframe(scenario: ScenarioResult) -> pd.DataFrame:
     hourly_df = scenario.hourly_df
-    required = {"demand_ht_kwh", "solar_ht_from_buffer_kwh", "backup_ht_kwh"}
-    if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty or not required.issubset(hourly_df.columns):
+    if not isinstance(hourly_df, pd.DataFrame) or hourly_df.empty:
+        return pd.DataFrame()
+    backup_col = _first_existing_column(hourly_df, ("unmet_ht_kwh", "backup_ht_kwh"))
+    required = {"demand_ht_kwh", "solar_ht_from_buffer_kwh"}
+    if backup_col is None or not required.issubset(hourly_df.columns):
         return pd.DataFrame()
     data = pd.DataFrame(
         {
             "Besoin HT": pd.to_numeric(hourly_df["demand_ht_kwh"], errors="coerce").fillna(0.0),
             "Solaire thermique": pd.to_numeric(hourly_df["solar_ht_from_buffer_kwh"], errors="coerce").fillna(0.0),
-            "Appoint gaz": pd.to_numeric(hourly_df["backup_ht_kwh"], errors="coerce").fillna(0.0),
+            "Appoint gaz": pd.to_numeric(hourly_df[backup_col], errors="coerce").fillna(0.0),
         }
     ).sort_values("Besoin HT", ascending=False)
     data = data.reset_index(drop=True)
@@ -262,7 +302,7 @@ def _has_geothermal_results(scenario: ScenarioResult) -> bool:
 def _draw_section_title(canvas, title: str, *, x: float, y: float) -> float:
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 12)
-    canvas.drawString(x, y, title)
+    canvas.drawString(x, y, _safe_text(title))
     return y - 18
 
 
@@ -270,7 +310,7 @@ def _draw_note(canvas, text: str, *, x: float, y: float, width: float) -> float:
     canvas.setFillColorRGB(0.48, 0.50, 0.58)
     canvas.setFont("Helvetica", 7)
     line = ""
-    for word in str(text).split():
+    for word in _safe_text(text).split():
         candidate = f"{line} {word}".strip()
         if line and canvas.stringWidth(candidate, "Helvetica", 7) > width:
             canvas.drawString(x, y, line)
@@ -360,13 +400,17 @@ def _nice_bounds(values: list[float]) -> tuple[float, float]:
 def _draw_no_data(canvas, *, x: float, y: float, width: float, height: float, title: str) -> None:
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 10)
-    canvas.drawString(x, y + height - 10, title)
+    canvas.drawString(x, y + height - 10, _safe_text(title))
     canvas.setFillColorRGB(0.96, 0.97, 0.99)
     canvas.setStrokeColorRGB(0.86, 0.89, 0.94)
     canvas.roundRect(x, y, width, height - 24, 5, fill=1, stroke=1)
     canvas.setFillColorRGB(0.50, 0.52, 0.58)
     canvas.setFont("Helvetica", 8)
-    canvas.drawCentredString(x + width / 2, y + (height - 24) / 2, "Données non disponibles dans ce résultat exporté.")
+    canvas.drawCentredString(
+        x + width / 2,
+        y + (height - 24) / 2,
+        _safe_text("Données non disponibles dans ce résultat exporté."),
+    )
 
 
 def _draw_line_chart(
@@ -402,7 +446,7 @@ def _draw_line_chart(
 
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 10)
-    canvas.drawString(x, y + height - 10, title)
+    canvas.drawString(x, y + height - 10, _safe_text(title))
 
     plot_x = x + 42
     plot_y = y + 34
@@ -434,11 +478,11 @@ def _draw_line_chart(
         canvas.drawRightString(plot_x - 5, plot_y + plot_h * i / 5 - 2, _fmt_number(yv, 1))
 
     canvas.setFont("Helvetica", 7)
-    canvas.drawCentredString(plot_x + plot_w / 2, y + 5, x_label)
+    canvas.drawCentredString(plot_x + plot_w / 2, y + 5, _safe_text(x_label))
     canvas.saveState()
     canvas.translate(x + 8, plot_y + plot_h / 2)
     canvas.rotate(90)
-    canvas.drawCentredString(0, 0, y_label)
+    canvas.drawCentredString(0, 0, _safe_text(y_label))
     canvas.restoreState()
 
     def project(px: float, py: float) -> tuple[float, float]:
@@ -465,7 +509,7 @@ def _draw_line_chart(
         canvas.rect(plot_x + plot_w + 14, legend_y - 4, 8, 3, fill=1, stroke=0)
         canvas.setFillColorRGB(0.35, 0.37, 0.45)
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, label[:28])
+        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, _safe_text(label)[:28])
         legend_y -= 12
 
 
@@ -496,7 +540,7 @@ def _draw_grouped_bar_chart(
 
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 10)
-    canvas.drawString(x, y + height - 10, title)
+    canvas.drawString(x, y + height - 10, _safe_text(title))
 
     plot_x = x + 42
     plot_y = y + 34
@@ -527,7 +571,7 @@ def _draw_grouped_bar_chart(
             bottom += bh
         canvas.setFillColorRGB(0.42, 0.45, 0.53)
         canvas.setFont("Helvetica", 5.5)
-        canvas.drawCentredString(bx + bar_w / 2, plot_y - 9, str(row[categories_col])[:5])
+        canvas.drawCentredString(bx + bar_w / 2, plot_y - 9, _safe_text(row[categories_col])[:5])
 
     canvas.setStrokeColorRGB(0.58, 0.62, 0.70)
     canvas.line(plot_x, plot_y, plot_x, plot_y + plot_h)
@@ -537,7 +581,7 @@ def _draw_grouped_bar_chart(
     canvas.saveState()
     canvas.translate(x + 8, plot_y + plot_h / 2)
     canvas.rotate(90)
-    canvas.drawCentredString(0, 0, y_label)
+    canvas.drawCentredString(0, 0, _safe_text(y_label))
     canvas.restoreState()
 
     legend_y = plot_y + plot_h - 6
@@ -546,7 +590,7 @@ def _draw_grouped_bar_chart(
         canvas.rect(plot_x + plot_w + 14, legend_y - 4, 8, 5, fill=1, stroke=0)
         canvas.setFillColorRGB(0.35, 0.37, 0.45)
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, label[:34])
+        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, _safe_text(label)[:34])
         legend_y -= 12
 
 
@@ -577,7 +621,7 @@ def _draw_simple_bar_chart(
 
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 10)
-    canvas.drawString(x, y + height - 10, title)
+    canvas.drawString(x, y + height - 10, _safe_text(title))
     plot_x = x + 48
     plot_y = y + 34
     plot_w = width - 68
@@ -603,12 +647,12 @@ def _draw_simple_bar_chart(
         canvas.rect(cx - bar_w / 2, plot_y, bar_w, bh, fill=1, stroke=0)
         canvas.setFillColorRGB(0.35, 0.37, 0.45)
         canvas.setFont("Helvetica", 6)
-        canvas.drawCentredString(cx, plot_y - 9, str(row[label_col])[:20])
+        canvas.drawCentredString(cx, plot_y - 9, _safe_text(row[label_col])[:20])
     canvas.setFont("Helvetica", 7)
     canvas.saveState()
     canvas.translate(x + 10, plot_y + plot_h / 2)
     canvas.rotate(90)
-    canvas.drawCentredString(0, 0, y_label)
+    canvas.drawCentredString(0, 0, _safe_text(y_label))
     canvas.restoreState()
 
 
@@ -628,10 +672,10 @@ def _draw_kpi_grid(canvas, metrics: list[tuple[str, str]], *, x: float, y: float
         canvas.roundRect(cx, cy - card_h, card_w, card_h, 6, fill=1, stroke=1)
         canvas.setFillColorRGB(0.45, 0.47, 0.53)
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(cx + 8, cy - 13, str(label)[:33])
+        canvas.drawString(cx + 8, cy - 13, _safe_text(label)[:33])
         canvas.setFillColorRGB(0.18, 0.19, 0.25)
         canvas.setFont("Helvetica-Bold", 12)
-        canvas.drawString(cx + 8, cy - 34, str(value)[:25])
+        canvas.drawString(cx + 8, cy - 34, _safe_text(value)[:25])
     rows = (len(metrics) + cols - 1) // cols
     return y - rows * (card_h + 8)
 
@@ -677,7 +721,7 @@ def _draw_economic_table(canvas, scenario: ScenarioResult, *, x: float, y: float
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     cx = x
     for _, label, col_w in cols:
-        canvas.drawString(cx, y, label)
+        canvas.drawString(cx, y, _safe_text(label))
         cx += col_w
     y -= 12
     canvas.setFont("Helvetica", 7)
@@ -686,7 +730,7 @@ def _draw_economic_table(canvas, scenario: ScenarioResult, *, x: float, y: float
         for source, _, col_w in cols:
             value = row.get(source, "")
             text = str(value)[:32] if source == "Scenario" else _fmt_number(value, 0)
-            canvas.drawString(cx, y, text)
+            canvas.drawString(cx, y, _safe_text(text))
             cx += col_w
         y -= 11
     return y
@@ -1022,7 +1066,7 @@ def _draw_solar_gas_heat_cost_chart(canvas, scenario: ScenarioResult, *, x: floa
 
     canvas.setFillColorRGB(0.18, 0.19, 0.25)
     canvas.setFont("Helvetica-Bold", 10)
-    canvas.drawString(x, y + height - 10, "Coût de chaleur : solaire thermique + gaz vs référence gaz")
+    canvas.drawString(x, y + height - 10, _safe_text("Coût de chaleur : solaire thermique + gaz vs référence gaz"))
     plot_x = x + 52
     plot_y = y + 34
     plot_w = width - 130
@@ -1047,14 +1091,14 @@ def _draw_solar_gas_heat_cost_chart(canvas, scenario: ScenarioResult, *, x: floa
             bottom += bh
         canvas.setFillColorRGB(0.35, 0.37, 0.45)
         canvas.setFont("Helvetica", 7)
-        canvas.drawCentredString(bx + bar_w / 2, plot_y - 10, labels[idx])
+        canvas.drawCentredString(bx + bar_w / 2, plot_y - 10, _safe_text(labels[idx]))
         canvas.setFont("Helvetica-Bold", 7)
         canvas.drawCentredString(bx + bar_w / 2, bottom + 4, _fmt_number(totals[idx], 1, "EUR/MWh"))
     canvas.setFont("Helvetica", 7)
     canvas.saveState()
     canvas.translate(x + 10, plot_y + plot_h / 2)
     canvas.rotate(90)
-    canvas.drawCentredString(0, 0, "EUR/MWh utile")
+    canvas.drawCentredString(0, 0, _safe_text("EUR/MWh utile"))
     canvas.restoreState()
     legend_y = plot_y + plot_h - 4
     labels_postes = {"P1": "P1 énergie", "P2": "P2 maintenance", "P4": "P4 investissement"}
@@ -1063,7 +1107,7 @@ def _draw_solar_gas_heat_cost_chart(canvas, scenario: ScenarioResult, *, x: floa
         canvas.rect(plot_x + plot_w + 14, legend_y - 4, 8, 6, fill=1, stroke=0)
         canvas.setFillColorRGB(0.35, 0.37, 0.45)
         canvas.setFont("Helvetica", 7)
-        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, labels_postes[poste])
+        canvas.drawString(plot_x + plot_w + 26, legend_y - 5, _safe_text(labels_postes[poste]))
         legend_y -= 12
 
 

@@ -226,13 +226,15 @@ def render_heliostock_hourly() -> pd.DataFrame:
         )
     with input_tabs_by_label[economy_tab_label]:
         economics_inputs = render_economics_form()
+    is_solar_ht_only = demand_form.demand_scope == "ht_only"
+    technical_years = 1 if is_solar_ht_only else 25
     calculation_selection = CalculationSelection(
         calculation_profile="calcul_final",
         quick_preview=False,
-        run_multiyear=True,
-        technical_simulation_years=25,
+        run_multiyear=not is_solar_ht_only,
+        technical_simulation_years=technical_years,
         display_year_mode="finale",
-        custom_display_year=25,
+        custom_display_year=technical_years,
         run_geo_only=True,
         run_reduced_borefield=demand_form.demand_scope == "ht_bt" and geothermal_form.run_reduced_borefield,
         savings_search_mode=geothermal_form.savings_search_mode if demand_form.demand_scope == "ht_bt" else "none",

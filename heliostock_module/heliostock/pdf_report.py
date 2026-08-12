@@ -43,7 +43,7 @@ CHART_COLORS = [
 
 
 def _register_report_fonts() -> None:
-    """Active PF Beau Sans Pro dans les rapports si les fichiers sont prÃ©sents."""
+    """Active PF Beau Sans Pro dans les rapports si les fichiers sont présents."""
     global PDF_FONT_REGULAR, PDF_FONT_BOLD, _REPORT_FONTS_REGISTERED
     if _REPORT_FONTS_REGISTERED:
         return
@@ -68,11 +68,18 @@ def _register_report_fonts() -> None:
 
 def _safe_text(value: Any) -> str:
     text = "" if value is None else str(value)
+    if any(marker in text for marker in ("Ã", "Â", "â")):
+        try:
+            text = text.encode("latin-1").decode("utf-8")
+        except UnicodeError:
+            pass
     return (
-        text.replace("â‚¬", "EUR")
-        .replace("Â²", "2")
-        .replace("Â³", "3")
+        text.replace("€", "EUR")
+        .replace("â‚¬", "EUR")
+        .replace("×", "x")
         .replace("Ã—", "x")
+        .replace("–", "-")
+        .replace("—", "-")
         .replace("â€“", "-")
         .replace("â€”", "-")
     )
@@ -104,7 +111,7 @@ def _short_label(value: object, max_chars: int = 26) -> str:
             return label if len(label) <= max_chars else f"{label[: max_chars - 1]}..."
     except (TypeError, ValueError):
         pass
-    label = str(value or "Non renseignÃ©")
+    label = _safe_text(value or "Non renseigné")
     return label if len(label) <= max_chars else f"{label[: max_chars - 1]}..."
 
 
@@ -139,7 +146,7 @@ def draw_report_footer(
     *,
     page_number: int,
     width: float,
-    footer_text: str = "HelioTools - document gÃ©nÃ©rÃ© automatiquement",
+    footer_text: str = "HelioTools - document généré automatiquement",
 ) -> None:
     _register_report_fonts()
     canvas.setFont(PDF_FONT_REGULAR, 8)
@@ -224,7 +231,7 @@ def draw_bar_chart(
     canvas.drawString(x, y + height + 16, _safe_text(title))
     if data.empty or label_col not in data or value_col not in data:
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+        canvas.drawString(x, y + height / 2, _safe_text("Aucune donnée."))
         return
     chart = data[[label_col, value_col]].copy().head(max_items)
     chart[value_col] = chart[value_col].map(_numeric)
@@ -266,12 +273,12 @@ def draw_line_chart(
     canvas.drawString(x, y + height + 16, _safe_text(title))
     if data.empty or x_col not in data or y_col not in data:
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+        canvas.drawString(x, y + height / 2, _safe_text("Aucune donnée."))
         return
     chart = data[[x_col, y_col]].dropna().copy()
     if chart.empty:
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+        canvas.drawString(x, y + height / 2, _safe_text("Aucune donnée."))
         return
     chart[x_col] = chart[x_col].map(_numeric)
     chart[y_col] = chart[y_col].map(_numeric)
@@ -322,7 +329,7 @@ def draw_pie_chart(
     canvas.drawString(x, y + radius * 2 + 16, _safe_text(title))
     if data.empty or label_col not in data or value_col not in data:
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawString(x, y + radius, "Aucune donnÃ©e.")
+        canvas.drawString(x, y + radius, _safe_text("Aucune donnée."))
         return
     chart = data[[label_col, value_col]].copy().head(max_items)
     chart[value_col] = chart[value_col].map(_numeric)
@@ -330,7 +337,7 @@ def draw_pie_chart(
     total = chart[value_col].sum()
     if total <= 0:
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawString(x, y + radius, "Aucune donnÃ©e.")
+        canvas.drawString(x, y + radius, _safe_text("Aucune donnée."))
         return
     start = 90
     for idx, row in chart.iterrows():
@@ -359,7 +366,7 @@ def draw_log_scatter_chart(
     width: float,
     height: float,
     title: str,
-    x_col: str = "Superficie (mÂ²)",
+    x_col: str = "Superficie (m²)",
     y_col: str = "Production annuelle (MWh)",
 ) -> None:
     canvas.setFillColorRGB(*TEXT_COLOR)
@@ -367,13 +374,13 @@ def draw_log_scatter_chart(
     canvas.drawString(x, y + height + 16, _safe_text(title))
     if data.empty or x_col not in data or y_col not in data:
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+        canvas.drawString(x, y + height / 2, _safe_text("Aucune donnée."))
         return
     chart = data.dropna(subset=[x_col, y_col]).copy()
     chart = chart[(chart[x_col].map(_numeric) > 0) & (chart[y_col].map(_numeric) > 0)].copy()
     if chart.empty:
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawString(x, y + height / 2, "Aucune donnÃ©e avec surface et production strictement positives.")
+        canvas.drawString(x, y + height / 2, _safe_text("Aucune donnée avec surface et production strictement positives."))
         return
     min_x = max(chart[x_col].map(_numeric).min(), 1.0)
     max_x = max(chart[x_col].map(_numeric).max(), min_x)
@@ -403,7 +410,7 @@ def draw_log_scatter_chart(
         canvas.circle(px, py, 2.4, fill=1, stroke=0)
     canvas.setFillColorRGB(0.38, 0.4, 0.48)
     canvas.setFont(PDF_FONT_REGULAR, 7)
-    canvas.drawCentredString(x + width / 2, y - 24, "Surface de capteurs installÃ©e (mÂ², axe logarithmique)")
+    canvas.drawCentredString(x + width / 2, y - 24, _safe_text("Surface de capteurs installée (m², axe logarithmique)"))
     canvas.drawString(x + 28, y + height + 3, "Production annuelle (MWh/an, axe logarithmique)")
     canvas.setFillColorRGB(0.5, 0.52, 0.58)
     canvas.drawString(x + 28, y - 36, "Axes log : comparaison lisible des petites, moyennes et grandes installations.")
@@ -429,7 +436,7 @@ def coordinate_points_for_pdf(df: pd.DataFrame) -> list[dict[str, object]]:
             {
                 "lat": lat,
                 "lon": lon,
-                "Secteur": row.get("Secteur") or "Non renseignÃ©",
+                "Secteur": row.get("Secteur") or "Non renseigné",
                 "Application": row.get("Application") or "Installation",
                 "Ville": row.get("Ville") or "",
             }
@@ -509,12 +516,12 @@ def build_static_osm_map_png(
             image.paste(tile, (paste_x, paste_y))
 
     draw = ImageDraw.Draw(image)
-    sectors = sorted({str(point.get("Secteur") or "Non renseignÃ©") for point in points})
+    sectors = sorted({str(point.get("Secteur") or "Non renseigné") for point in points})
     sector_colors = {sector: colors[index % len(colors)] for index, sector in enumerate(sectors)}
     for point in points:
         px = _lon_to_tile_x(float(point["lon"]), zoom) * 256 - top_left_x
         py = _lat_to_tile_y(float(point["lat"]), zoom) * 256 - top_left_y
-        color = sector_colors[str(point.get("Secteur") or "Non renseignÃ©")]
+        color = sector_colors[str(point.get("Secteur") or "Non renseigné")]
         radius = 6
         draw.ellipse((px - radius - 1, py - radius - 1, px + radius + 1, py + radius + 1), fill="#ffffff")
         draw.ellipse((px - radius, py - radius, px + radius, py + radius), fill=color, outline="#1f2937")
@@ -533,7 +540,7 @@ def draw_installation_map(
     width: float,
     height: float,
     colors: list[str],
-    title: str = "Carte des installations filtrÃ©es",
+    title: str = "Carte des installations filtrées",
 ) -> None:
     points = coordinate_points_for_pdf(df)
     canvas.setFillColorRGB(*TEXT_COLOR)
@@ -545,7 +552,7 @@ def draw_installation_map(
         canvas.roundRect(x, y, width, height, 5, fill=1, stroke=1)
         canvas.setFillColorRGB(*MUTED_COLOR)
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawCentredString(x + width / 2, y + height / 2, "Aucune coordonnÃ©e Latitude/Longitude disponible dans les donnÃ©es filtrÃ©es.")
+        canvas.drawCentredString(x + width / 2, y + height / 2, _safe_text("Aucune coordonnée Latitude/Longitude disponible dans les données filtrées."))
         return
 
     png_bytes = build_static_osm_map_png(points, colors=colors)
@@ -555,7 +562,7 @@ def draw_installation_map(
         canvas.roundRect(x, y, width, height, 5, fill=1, stroke=1)
         canvas.setFillColorRGB(*MUTED_COLOR)
         canvas.setFont(PDF_FONT_REGULAR, 9)
-        canvas.drawCentredString(x + width / 2, y + height / 2, "Carte non disponible pendant la gÃ©nÃ©ration du PDF.")
+        canvas.drawCentredString(x + width / 2, y + height / 2, _safe_text("Carte non disponible pendant la génération du PDF."))
         return
 
     from reportlab.lib.utils import ImageReader
@@ -563,14 +570,14 @@ def draw_installation_map(
     canvas.drawImage(ImageReader(BytesIO(png_bytes)), x, y, width=width, height=height, preserveAspectRatio=True, mask="auto")
     canvas.setFillColorRGB(*MUTED_COLOR)
     canvas.setFont(PDF_FONT_REGULAR, 7)
-    canvas.drawString(x, y - 12, f"Fond standard OpenStreetMap. Cadrage automatique sur {len(points)} installation(s) avec coordonnÃ©es.")
+    canvas.drawString(x, y - 12, _safe_text(f"Fond standard OpenStreetMap. Cadrage automatique sur {len(points)} installation(s) avec coordonnées."))
 
 
 class PdfReport:
     """Petit moteur PDF commun HelioTools.
 
-    Chaque application reste responsable de ses donnÃ©es mÃ©tier, mais dÃ©lÃ¨gue la
-    mise en page commune : en-tÃªte, pied de page, KPI cards, tableaux et graphiques.
+    Chaque application reste responsable de ses données métier, mais délègue la
+    mise en page commune : en-tête, pied de page, KPI cards, tableaux et graphiques.
     """
 
     def __init__(self, *, title: str, subtitle: str = "", landscape: bool = True) -> None:
@@ -677,7 +684,7 @@ class PdfReport:
         if not rows:
             self.canvas.setFillColorRGB(*MUTED_COLOR)
             self.canvas.setFont(PDF_FONT_REGULAR, 8)
-            self.canvas.drawString(x, y, "Aucune donnÃ©e.")
+            self.canvas.drawString(x, y, _safe_text("Aucune donnée."))
             return y - 14
         columns = columns or list(rows[0].keys())
         if col_weights and len(col_weights) == len(columns) and sum(col_weights) > 0:
@@ -705,7 +712,7 @@ class PdfReport:
             y -= row_height
         if len(rows) > max_rows:
             self.canvas.setFillColorRGB(*MUTED_COLOR)
-            self.canvas.drawString(x, y, f"... {len(rows) - max_rows} ligne(s) supplÃ©mentaire(s)")
+            self.canvas.drawString(x, y, _safe_text(f"... {len(rows) - max_rows} ligne(s) supplémentaire(s)"))
             y -= 11
         return y - 4
 
@@ -730,7 +737,7 @@ class PdfReport:
         self.canvas.drawString(x, y + height + 14, _safe_text(title))
         if not chart:
             self.canvas.setFont(PDF_FONT_REGULAR, 8)
-            self.canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+            self.canvas.drawString(x, y + height / 2, _safe_text("Aucune donnée."))
             return
         max_value = max(_numeric(row.get(value_col)) for row in chart) or 1.0
         plot_x = x + 30
@@ -810,7 +817,7 @@ class PdfReport:
         ]
         if not data or not series_values:
             self.canvas.setFont(PDF_FONT_REGULAR, 8)
-            self.canvas.drawString(x, y + height / 2, "Aucune donnÃ©e.")
+            self.canvas.drawString(x, y + height / 2, _safe_text("Aucune donnée."))
             return
         x_values = [_numeric(row.get(x_col)) for row in data]
         min_x, max_x = min(x_values), max(x_values)
