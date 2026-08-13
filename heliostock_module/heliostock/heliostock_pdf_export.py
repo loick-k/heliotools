@@ -46,6 +46,16 @@ def _fmt_number(value: Any, digits: int = 0, suffix: str = "") -> str:
     return f"{formatted} {suffix}".strip()
 
 
+def _fmt_payback_years(value: Any) -> str:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "Non atteint"
+    if pd.isna(numeric) or not math.isfinite(numeric):
+        return "Non atteint"
+    return _fmt_number(numeric, 1, "ans")
+
+
 def _fmt_mwh_from_kwh(value: Any, digits: int = 0) -> str:
     try:
         return _fmt_number(float(value) / 1000.0, digits, "MWh")
@@ -1193,13 +1203,17 @@ def _draw_solar_only_economic_page(canvas, scenario: ScenarioResult, *, width: f
         else pd.DataFrame(),
         ["Reference 100 % gaz", "Reference 100% gaz"],
     )
+    solar_capex_row = _capex_summary_row(scenario, "Solaire thermique")
     y = _draw_section_title(canvas, "Synthèse économique", x=34, y=y)
     y = _draw_kpi_grid(
         canvas,
         [
             ("Coût solaire + gaz", _fmt_number(_row_float(econ_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
             ("Référence gaz", _fmt_number(_row_float(reference_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
+            ("Investissement total", _fmt_number(_row_float(solar_capex_row, "CAPEX brut (EUR)"), 0, "EUR")),
+            ("Aide ADEME", _fmt_number(_row_float(solar_capex_row, "Aide ADEME (EUR)"), 0, "EUR")),
             ("CAPEX net solaire", _fmt_number(_row_float(econ_row, "CAPEX net (EUR)"), 0, "EUR")),
+            ("Temps retour brut", _fmt_payback_years(_row_float(econ_row, "Temps retour brut (ans)"))),
             ("Contexte référence", gas_reference_context_label(str(scenario.heat_costs.get("gas_reference_context", "")))),
         ],
         x=34,
