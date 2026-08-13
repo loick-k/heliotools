@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from .charts import _heat_cost_vector_chart
+from .gas_reference import includes_gas_boiler_fixed_costs
 from .ui_formatting import display_dataframe, round_display_df
 
 
@@ -40,6 +41,31 @@ def _format_payback_years(value: object) -> str:
     if pd.isna(numeric) or not math.isfinite(float(numeric)):
         return "Non atteint"
     return f"{float(numeric):.1f} ans"
+
+
+def _format_eur(value: object, digits: int = 0) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric) or not math.isfinite(float(numeric)):
+        return "n.d."
+    return f"{float(numeric):,.{digits}f} €".replace(",", " ").replace(".", ",")
+
+
+def _row_value(row: pd.Series | None, column: str, default: float = math.nan) -> float:
+    if row is None or column not in row:
+        return default
+    numeric = pd.to_numeric(pd.Series([row[column]]), errors="coerce").iloc[0]
+    return float(numeric) if not pd.isna(numeric) else default
+
+
+def _cumulative_cost_from_row(row: pd.Series | None) -> float:
+    return sum(_row_value(row, column, 0.0) for column in ("P1 cumule (EUR)", "P2 cumule (EUR)", "P4 cumule (EUR)"))
+
+
+def _scenario_row(df: pd.DataFrame, scenario_name: str) -> pd.Series | None:
+    if df.empty or "Scenario" not in df:
+        return None
+    rows = df[df["Scenario"].astype(str) == scenario_name]
+    return None if rows.empty else rows.iloc[0]
 
 
 def _filter_solar_only_scenarios(df: pd.DataFrame) -> pd.DataFrame:
@@ -172,14 +198,47 @@ def render_economics_tab(
             "température avec appoint gaz en complément. Les coûts sont calculés sans PAC géothermique, sans champ "
             "de sondes et sans recharge BTES."
         )
-        solar_row = _filter_solar_only_scenarios(economic_comparison_df)
-        solar_row = solar_row[solar_row["Scenario"].astype(str) == "Solaire thermique + appoint gaz"]
-        payback_value = solar_row["Temps retour brut (ans)"].iloc[0] if not solar_row.empty and "Temps retour brut (ans)" in solar_row else math.nan
-        st.metric(
-            "Temps de retour brut",
-            _format_payback_years(payback_value),
-            help="Calcul repris du module économique partagé : CAPEX net solaire / économies annuelles brutes.",
-        )
+        solar_row = _scenario_row(comparison_df, "Solaire thermique + appoint gaz")
+        reference_row = _scenario_row(comparison_df, "Référence 100 % gaz")
+        gas_reference_is_renewal = includes_gas_boiler_fixed_costs(str(heat_costs.get("gas_reference_context", "")))
+        if gas_reference_is_renewal:
+            capex_df = heat_costs.get("capex_summary")
+            solar_investment_eur = 0.0
+            backup_investment_eur = 0.0
+            reference_investment_eur = 0.0
+            if isinstance(capex_df, pd.DataFrame) and {"Generateur", "CAPEX brut (EUR)"}.issubset(capex_df.columns):
+                solar_investment_eur = float(
+                    capex_df.loc[capex_df["Generateur"].astype(str).eq("Solaire thermique"), "CAPEX brut (EUR)"].sum()
+                )
+                backup_investment_eur = float(
+                    capex_df.loc[capex_df["Generateur"].astype(str).eq("Appoint gaz"), "CAPEX brut (EUR)"].sum()
+                )
+                reference_investment_eur = float(
+                    capex_df.loc[capex_df["Generateur"].astype(str).eq("Reference 100% gaz"), "CAPEX brut (EUR)"].sum()
+                )
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Investissement solaire + gaz", _format_eur(solar_investment_eur + backup_investment_eur))
+            c2.metric("Investissement solaire thermique", _format_eur(solar_investment_eur))
+            c3.metric("Investissement référence gaz", _format_eur(reference_investment_eur))
+            c4.metric(
+                "Écart coûts cumulés",
+                _format_eur(_cumulative_cost_from_row(solar_row) - _cumulative_cost_from_row(reference_row)),
+                help="Coût cumulé solaire + gaz moins coût cumulé référence gaz sur l'horizon économique.",
+            )
+            c5, c6 = st.columns(2)
+            c5.metric("Coût cumulé solaire + gaz", _format_eur(_cumulative_cost_from_row(solar_row)))
+            c6.metric("Coût cumulé référence gaz", _format_eur(_cumulative_cost_from_row(reference_row)))
+            st.caption(
+                "En contexte chaudière gaz à renouveler, le temps de retour brut est masqué : "
+                "la lecture pertinente est une comparaison d'investissements et de coûts cumulés."
+            )
+        else:
+            payback_value = _row_value(solar_row, "Temps retour brut (ans)")
+            st.metric(
+                "Temps de retour brut",
+                _format_payback_years(payback_value),
+                help="Calcul repris du module économique partagé : CAPEX net solaire / économies annuelles brutes.",
+            )
     else:
         st.markdown("### Comparaison économique des 4 scénarios")
         st.caption(

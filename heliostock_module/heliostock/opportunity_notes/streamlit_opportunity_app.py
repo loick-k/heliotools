@@ -2240,6 +2240,8 @@ def render_opportunity_notes_app() -> None:
             ademe_aid_max_rate_on_works=ademe_cap,
         )
         economic_results = compute_cesc_economic_model(economic_inputs)
+        gas_reference_is_renewal = includes_gas_boiler_fixed_costs(gas_reference_context)
+
 
         st.markdown("#### Résultats économiques")
         st.caption(
@@ -2249,15 +2251,28 @@ def render_opportunity_notes_app() -> None:
         )
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Production solaire", f"{number(economic_results.annual_production_mwh, 1)} MWh/an")
-        col2.metric("Investissement", eur(economic_results.investment_cost_eur, 0))
+        col2.metric("Investissement solaire thermique", eur(economic_results.solar_thermal_investment_eur, 0))
         col3.metric("Aides", eur(economic_results.aid_total_eur, 0), percent(economic_results.aid_rate))
         col4.metric("Reste à charge", eur(economic_results.net_investment_eur, 0))
 
         col5, col6, col7, col8 = st.columns(4)
-        col5.metric("Économies annuelles", eur(economic_results.annual_savings_eur, 0))
-        col6.metric("Temps retour brut", f"{number(economic_results.raw_payback_years, 1)} ans")
-        col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
-        col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
+        if gas_reference_is_renewal:
+            col5.metric("Investissement solaire + gaz", eur(economic_results.solar_plus_gas_investment_eur, 0))
+            col6.metric("Investissement référence gaz", eur(economic_results.reference_gas_investment_eur, 0))
+            col7.metric(f"Coût cumulé solaire + gaz sur {economic_inputs.years} ans", eur(economic_results.solar_plus_gas_cumulative_cost_eur, 0))
+            col8.metric(f"Coût cumulé référence gaz sur {economic_inputs.years} ans", eur(economic_results.reference_gas_cumulative_cost_eur, 0))
+            st.caption(
+                "En contexte chaudière gaz à renouveler, le temps de retour brut est masqué : "
+                "la lecture pertinente est une comparaison d'investissements et de coûts cumulés."
+            )
+        else:
+            col5.metric("Économies annuelles", eur(economic_results.annual_savings_eur, 0))
+            col6.metric(
+                "Temps retour brut",
+                f"{number(economic_results.raw_payback_years, 1)} ans" if economic_results.raw_payback_years is not None else "Non atteint",
+            )
+            col7.metric("Coût chaleur solaire", eur_mwh(economic_results.solar_heat_cost_eur_mwh, 1))
+            col8.metric(f"Économies sur {economic_inputs.years} ans", eur(economic_results.savings_over_period_eur, 0))
 
         st.markdown("#### Lecture graphique")
         heat_cost_col, cashflow_col = st.columns([1, 3])

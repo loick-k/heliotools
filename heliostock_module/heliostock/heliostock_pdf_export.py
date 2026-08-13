@@ -10,7 +10,7 @@ from reportlab.lib.utils import ImageReader
 from .architectural_patrimony_service import CATEGORY_CONFIG
 from .architectural_static_map import StaticMapError, render_static_map
 from .common.pdf import draw_report_footer, draw_report_header, safe_pdf_text as _safe_text
-from .gas_reference import gas_reference_context_label
+from .gas_reference import gas_reference_context_label, includes_gas_boiler_fixed_costs
 from .scenario_outputs import ScenarioResult
 
 
@@ -758,7 +758,7 @@ def _scenario_metrics(scenario: ScenarioResult, scenario_name: str) -> list[tupl
         ("SPF PAC avec auxiliaires", _fmt_number(_row_float(final_row, "SPF PAC complet"), 1)),
         ("Chaleur PAC BT", _fmt_number(_row_float(final_row, "Chaleur PAC BT (MWh)"), 0, "MWh")),
         ("Couverture PAC BT", _fmt_number(_row_float(final_row, "Couverture PAC BT (%)"), 0, "%")),
-        ("Électricité PAC", _fmt_number(_row_float(final_row, "Electricite PAC (MWh)"), 0, "MWh/an")),
+        ("�?lectricité PAC", _fmt_number(_row_float(final_row, "Electricite PAC (MWh)"), 0, "MWh/an")),
         ("Appoint gaz année 1", _fmt_number(_row_float(first_row, "Appoint gaz total (MWh)"), 0, "MWh")),
         ("Appoint gaz année finale", _fmt_number(_row_float(final_row, "Appoint gaz total (MWh)"), 0, "MWh")),
         ("T source min finale", _fmt_number(_row_float(final_row, "T_source_PAC_min (C)"), 1, "°C")),
@@ -1204,18 +1204,46 @@ def _draw_solar_only_economic_page(canvas, scenario: ScenarioResult, *, width: f
         ["Reference 100 % gaz", "Reference 100% gaz"],
     )
     solar_capex_row = _capex_summary_row(scenario, "Solaire thermique")
+    backup_capex_row = _capex_summary_row(scenario, "Appoint gaz")
+    reference_capex_row = _capex_summary_row(scenario, "Reference 100% gaz")
+    gas_reference_is_renewal = includes_gas_boiler_fixed_costs(str(scenario.heat_costs.get("gas_reference_context", "")))
+    solar_cumulative_cost = sum(
+        _row_float(econ_row, column, 0.0) or 0.0 for column in ("P1 cumule (EUR)", "P2 cumule (EUR)", "P4 cumule (EUR)")
+    )
+    reference_cumulative_cost = sum(
+        _row_float(reference_row, column, 0.0) or 0.0 for column in ("P1 cumule (EUR)", "P2 cumule (EUR)", "P4 cumule (EUR)")
+    )
+    solar_investment = _row_float(solar_capex_row, "CAPEX brut (EUR)", 0.0) or 0.0
+    backup_investment = _row_float(backup_capex_row, "CAPEX brut (EUR)", 0.0) or 0.0
+    reference_investment = _row_float(reference_capex_row, "CAPEX brut (EUR)", 0.0) or 0.0
     y = _draw_section_title(canvas, "Synthèse économique", x=34, y=y)
+    metrics = [
+        ("Coût solaire + gaz", _fmt_number(_row_float(econ_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
+        ("Référence gaz", _fmt_number(_row_float(reference_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
+        ("Investissement solaire thermique", _fmt_number(solar_investment, 0, "EUR")),
+        ("Aide ADEME", _fmt_number(_row_float(solar_capex_row, "Aide ADEME (EUR)"), 0, "EUR")),
+    ]
+    if gas_reference_is_renewal:
+        metrics.extend(
+            [
+                ("Investissement solaire + gaz", _fmt_number(solar_investment + backup_investment, 0, "EUR")),
+                ("Investissement référence gaz", _fmt_number(reference_investment, 0, "EUR")),
+                ("Coût cumulé solaire + gaz", _fmt_number(solar_cumulative_cost, 0, "EUR")),
+                ("Coût cumulé référence gaz", _fmt_number(reference_cumulative_cost, 0, "EUR")),
+                ("Contexte référence", gas_reference_context_label(str(scenario.heat_costs.get("gas_reference_context", "")))),
+            ]
+        )
+    else:
+        metrics.extend(
+            [
+                ("CAPEX net solaire", _fmt_number(_row_float(econ_row, "CAPEX net (EUR)"), 0, "EUR")),
+                ("Temps retour brut", _fmt_payback_years(_row_float(econ_row, "Temps retour brut (ans)"))),
+                ("Contexte référence", gas_reference_context_label(str(scenario.heat_costs.get("gas_reference_context", "")))),
+            ]
+        )
     y = _draw_kpi_grid(
         canvas,
-        [
-            ("Coût solaire + gaz", _fmt_number(_row_float(econ_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
-            ("Référence gaz", _fmt_number(_row_float(reference_row, "Cout chaleur global (EUR/MWh)"), 1, "EUR/MWh")),
-            ("Investissement total", _fmt_number(_row_float(solar_capex_row, "CAPEX brut (EUR)"), 0, "EUR")),
-            ("Aide ADEME", _fmt_number(_row_float(solar_capex_row, "Aide ADEME (EUR)"), 0, "EUR")),
-            ("CAPEX net solaire", _fmt_number(_row_float(econ_row, "CAPEX net (EUR)"), 0, "EUR")),
-            ("Temps retour brut", _fmt_payback_years(_row_float(econ_row, "Temps retour brut (ans)"))),
-            ("Contexte référence", gas_reference_context_label(str(scenario.heat_costs.get("gas_reference_context", "")))),
-        ],
+        metrics,
         x=34,
         y=y,
         width=width - 68,
@@ -1294,7 +1322,7 @@ def build_heliostock_overview_pdf(
     solar_metrics.extend(
         [
             ("Heures palier haut ballon", _fmt_number(_solar_buffer_at_max_hours(scenario), 0, "h")),
-            ("Épisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
+            ("�?pisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
             ("Couverture solaire HT", _fmt_number(scenario.annual_ht_solar_coverage * 100.0, 0, "%")),
             ("Productivité solaire valorisée", _fmt_number(scenario.solar_productivity_valued_kwh_m2_year, 0, "kWh/m².an")),
         ]
