@@ -435,8 +435,11 @@ def render_resultats(context: ResultatsContext) -> None:
                 k1, k2, k3, k4 = st.columns(4)
                 k1.metric("Besoins thermiques totaux", f"{besoins_thermiques_totaux_kwh / 1000.0:,.1f} MWh/an".replace(",", " "))
                 k2.metric("Besoins ECS", f"{summary['becs_year'] / 1000.0:,.1f} MWh/an".replace(",", " "))
-                k3.metric("Besoins bouclage", f"{bbouclage_annuel_kwh / 1000.0:,.1f} MWh/an".replace(",", " "))
-                k4.metric("Production solaire annuelle", f"{summary['qstu_year'] / 1000.0:,.1f} MWh/an".replace(",", " "))
+                if type_bouclage_label == "Aucun bouclage sanitaire":
+                    k3.metric("Production solaire annuelle", f"{summary['qstu_year'] / 1000.0:,.1f} MWh/an".replace(",", " "))
+                else:
+                    k3.metric("Besoins bouclage", f"{bbouclage_annuel_kwh / 1000.0:,.1f} MWh/an".replace(",", " "))
+                    k4.metric("Production solaire annuelle", f"{summary['qstu_year'] / 1000.0:,.1f} MWh/an".replace(",", " "))
                 k5, k6, k7, k8 = st.columns(4)
                 k5.metric("Productivité annuelle", f"{productivite_annuelle_kwh_m2_an:,.0f} kWh/m2.an".replace(",", " "))
                 k6.metric("Ratio V/S", f"{stockage_specifique_l_m2:,.1f} L/m2".replace(",", " "))
@@ -564,8 +567,9 @@ def render_resultats(context: ResultatsContext) -> None:
                     _render_kv_table("Capteurs solaires", capteur_rows)
                 with st.expander("Circuit hydraulique", expanded=False):
                     _render_kv_table("Circuit hydraulique", circuit_rows)
-                with st.expander("Bouclage sanitaire", expanded=False):
-                    _render_kv_table("Bouclage sanitaire", bouclage_rows)
+                if type_bouclage_label != "Aucun bouclage sanitaire":
+                    with st.expander("Bouclage sanitaire", expanded=False):
+                        _render_kv_table("Bouclage sanitaire", bouclage_rows)
                 with st.expander("Stockage solaire", expanded=False):
                     _render_kv_table("Stockage solaire", stock_rows)
                 if mode_schema == "cescet":

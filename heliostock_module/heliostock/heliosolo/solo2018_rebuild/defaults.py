@@ -1,23 +1,45 @@
 ﻿from __future__ import annotations
 
 
+from pathlib import Path
+
+try:
+    from heliostock.ui_inputs import DEFAULT_EPW_REGIONS
+except Exception:  # pragma: no cover - fallback for standalone uses of the SOLO module.
+    DEFAULT_EPW_REGIONS = {}
+
+
 MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
 DAYS_BY_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
 
-NANTES_ZIP_DEFAULT = (
-    r"C:\Users\LOICK\Downloads\FRA_PL_Nantes.Atlantique.AP.072220_TMYx.2011-2025.zip"
-)
+DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+
+def _epw_zip_path(label: str, fallback_filename: str) -> str:
+    """Resolve HelioSOLO weather files from the shared HelioTools EPW catalog."""
+
+    for stations in DEFAULT_EPW_REGIONS.values():
+        station = stations.get(label)
+        if station is not None:
+            return str(station.path)
+    return str(DATA_DIR / fallback_filename)
+
+
 CITY_EPW_ZIP_PATHS = {
-    "Nantes": r"C:\Users\LOICK\Downloads\FRA_PL_Nantes.Atlantique.AP.072220_TMYx.2011-2025.zip",
-    "Rennes": r"C:\Users\LOICK\Downloads\FRA_BT_Rennes-St.Jacques.AP.071300_TMYx.2011-2025(2).zip",
-    "Brest": r"C:\Users\LOICK\Downloads\FRA_BT_Brest.Bretagne.AP.071100_TMYx.2011-2025(2).zip",
-    "Saint-Brieuc": r"C:\Users\LOICK\Downloads\FRA_BT_St.Brieuc-Armor.AP.071200_TMYx.2011-2025.zip",
-    "Vannes": r"C:\Users\LOICK\Downloads\FRA_BT_Vannes.Sene.072100_TMYx.2011-2025.zip",
-    "Angers": r"C:\Users\LOICK\Downloads\FRA_PL_Angers.Loire.AP.073901_TMYx.2011-2025.zip",
-    "Laval": r"C:\Users\LOICK\Downloads\FRA_PL_Laval-Etrammes.AP.071340_TMYx.2011-2025.zip",
-    "Le Mans": r"C:\Users\LOICK\Downloads\FRA_PL_Le.Mans.Arnage.AP.072350_TMYx.2011-2025.zip",
-    "La Roche-sur-Yon": r"C:\Users\LOICK\Downloads\FRA_PL_La.Roche.sur.Yon-Les.Ajoncs.AP.073060_TMYx.2011-2025.zip",
+    "Nantes": _epw_zip_path("Nantes", "FRA_PL_Nantes.Atlantique.AP.072220_TMYx.zip"),
+    "Rennes": _epw_zip_path("Rennes", "FRA_BT_Rennes-St.Jacques.AP.071300_TMYx.zip"),
+    "Brest": _epw_zip_path("Brest", "FRA_BT_Brest.Bretagne.AP.071100_TMYx.zip"),
+    "Saint-Brieuc": _epw_zip_path("Saint-Brieuc", "FRA_BT_St.Brieuc-Armor.AP.071200_TMYx.zip"),
+    "Vannes": _epw_zip_path("Vannes", "FRA_BT_Vannes.Sene.072100_TMYx.zip"),
+    "Angers": _epw_zip_path("Angers", "FRA_PL_Angers.Loire.AP.073901_TMYx.zip"),
+    "Laval": _epw_zip_path("Laval", "FRA_PL_Laval-Etrammes.AP.071340_TMYx.zip"),
+    "Le Mans": _epw_zip_path("Le Mans", "FRA_PL_Le.Mans.Arnage.AP.072350_TMYx.zip"),
+    "La Roche-sur-Yon": _epw_zip_path(
+        "La Roche-sur-Yon",
+        "FRA_PL_La.Roche.sur.Yon-Les.Ajoncs.AP.073060_TMYx.zip",
+    ),
 }
+NANTES_ZIP_DEFAULT = CITY_EPW_ZIP_PATHS["Nantes"]
 
 CAPTEUR_LIBRARY = {
     "Eklor": {
