@@ -509,9 +509,6 @@ def _render_helioprofil_generator() -> None:
 
     with right:
         st.subheader("Données mensuelles")
-        if not is_ehpad_profile and st.button("Charger l'exemple Niort 2025", type="secondary"):
-            st.session_state["helioprofil_input_table"] = _niort_demo_table()
-
         if "helioprofil_input_table" not in st.session_state:
             st.session_state["helioprofil_input_table"] = _default_input_table()
 
