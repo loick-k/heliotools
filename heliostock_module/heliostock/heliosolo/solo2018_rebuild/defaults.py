@@ -8,6 +8,11 @@ try:
 except Exception:  # pragma: no cover - fallback for standalone uses of the SOLO module.
     DEFAULT_EPW_REGIONS = {}
 
+try:
+    from heliostock.common.collector_library import as_heliosolo_capteur_library
+except Exception:  # pragma: no cover - standalone fallback.
+    as_heliosolo_capteur_library = None
+
 
 MONTHS = ["Jan", "Fev", "Mar", "Avr", "Mai", "Jun", "Jul", "Aou", "Sep", "Oct", "Nov", "Dec"]
 DAYS_BY_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -41,46 +46,34 @@ CITY_EPW_ZIP_PATHS = {
 }
 NANTES_ZIP_DEFAULT = CITY_EPW_ZIP_PATHS["Nantes"]
 
-CAPTEUR_LIBRARY = {
-    "Eklor": {
-        "C.SOL 423 EKS": {
-            "surface_utile_m2": 2.29,
-            "n0": 0.79,
-            "a1": 3.88,
-            "a2": 0.01,
-        }
-    },
-    "Ellios Technologies": {
-        "GK3133": {
-            "surface_utile_m2": 12.37,
-            "n0": 0.814,
-            "a1": 2.102,
-            "a2": 0.016,
-        }
-    },
-    "SunOptimo": {
-        "245V": {
-            "surface_utile_m2": 2.45,
-            "n0": 0.852,
-            "a1": 3.922,
-            "a2": 0.015,
+CAPTEUR_LIBRARY = (
+    as_heliosolo_capteur_library()
+    if as_heliosolo_capteur_library is not None
+    else {
+        "Eklor": {
+            "C.SOL 423 EKS": {
+                "surface_utile_m2": 2.29,
+                "n0": 0.79,
+                "a1": 3.88,
+                "a2": 0.01,
+            }
         },
-        "DIS150": {
-            "surface_utile_m2": 15.5,
-            "n0": 0.765,
-            "a1": 2.23,
-            "a2": 0.008,
+        "SunOptimo": {
+            "245V": {
+                "surface_utile_m2": 2.32,
+                "n0": 0.824,
+                "a1": 2.905,
+                "a2": 0.030,
+            },
+            "DIS150": {
+                "surface_utile_m2": 15.5,
+                "n0": 0.765,
+                "a1": 2.23,
+                "a2": 0.008,
+            },
         },
-    },
-    "TVP Solar": {
-        "MT power v4": {
-            "surface_utile_m2": 1.96,
-            "n0": 0.737,
-            "a1": 0.504,
-            "a2": 0.006,
-        }
-    },
-}
+    }
+)
 
 TYPOLOGIE_RATIOS_L_J_UNITE = {
     "Logement collectif": 30.0,

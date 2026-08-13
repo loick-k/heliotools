@@ -74,7 +74,8 @@ from ..gas_reference import (
     gas_reference_context_label,
     normalize_gas_reference_context,
 )
-from ..collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
+from ..collector_library import DEFAULT_COLLECTOR_NAME, get_collector_reference
+from ..common.ui_collector_library import get_session_collector_library, render_add_collector_expander
 from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, project_context_to_payload, render_project_identity_form
 from ..common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from ..common.solar_thermal_cost_reference import (
@@ -1810,19 +1811,21 @@ def render_opportunity_notes_app() -> None:
         st.subheader("Paramètres de prédimensionnement")
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            collector_names = list(COLLECTOR_LIBRARY.keys())
-            saved_collector_name = sizing_default.collector_name if sizing_default.collector_name in COLLECTOR_LIBRARY else DEFAULT_COLLECTOR_NAME
+            collector_library = get_session_collector_library("helionop")
+            collector_names = list(collector_library.keys())
+            saved_collector_name = sizing_default.collector_name if sizing_default.collector_name in collector_library else DEFAULT_COLLECTOR_NAME
             collector_name = st.selectbox(
                 "Bibliothèque capteur",
                 options=collector_names,
                 index=collector_names.index(saved_collector_name),
                 key=f"{project_ui_key}_collector_name",
             )
-            collector_ref = get_collector_reference(collector_name)
+            collector_ref = collector_library.get(collector_name) or get_collector_reference(collector_name)
             st.caption(
                 f"Capteur retenu : {collector_ref.manufacturer} {collector_ref.model}, "
                 f"surface unitaire {collector_ref.area_m2:.2f} m²."
             )
+            render_add_collector_expander("helionop")
             collector_unit_area_default = (
                 float(sizing_default.collector_unit_area_m2)
                 if sizing_default.collector_name == collector_name and sizing_default.collector_unit_area_m2

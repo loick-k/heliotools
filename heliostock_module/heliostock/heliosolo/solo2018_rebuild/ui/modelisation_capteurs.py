@@ -2,13 +2,17 @@
 
 import streamlit as st
 
+from heliostock.common.collector_library import as_heliosolo_capteur_library
+from heliostock.common.ui_collector_library import get_session_custom_collectors, render_add_collector_expander
 import heliostock.heliosolo.solo2018_rebuild.core.solo_v0_engine as solo_v0_mod
-from heliostock.heliosolo.solo2018_rebuild.defaults import CAPTEUR_LIBRARY
 from heliostock.heliosolo.solo2018_rebuild.ui.context import CapteursState
 
 
 def render_capteurs_block() -> CapteursState:
     with st.expander("5) Circuit capteurs solaires", expanded=True):
+        capteur_library = as_heliosolo_capteur_library(
+            extra_collectors=get_session_custom_collectors("heliosolo")
+        )
         if "capteur_surface_unitaire_m2" not in st.session_state:
             st.session_state["capteur_surface_unitaire_m2"] = 2.0
         if "capteur_n0" not in st.session_state:
@@ -22,13 +26,13 @@ def render_capteurs_block() -> CapteursState:
         if "capteur_force_init" not in st.session_state:
             st.session_state["capteur_force_init"] = True
 
-        fabricants = ["Saisie manuelle"] + sorted(CAPTEUR_LIBRARY.keys())
-        default_fabricant = "Eklor" if "Eklor" in CAPTEUR_LIBRARY else "Saisie manuelle"
+        fabricants = ["Saisie manuelle"] + sorted(capteur_library.keys())
+        default_fabricant = "Eklor" if "Eklor" in capteur_library else "Saisie manuelle"
         if "capteur_fabricant" not in st.session_state:
             st.session_state["capteur_fabricant"] = default_fabricant
         if "capteur_modele" not in st.session_state:
             if st.session_state["capteur_fabricant"] != "Saisie manuelle":
-                st.session_state["capteur_modele"] = sorted(CAPTEUR_LIBRARY[st.session_state["capteur_fabricant"]].keys())[0]
+                st.session_state["capteur_modele"] = sorted(capteur_library[st.session_state["capteur_fabricant"]].keys())[0]
             else:
                 st.session_state["capteur_modele"] = "Saisie manuelle"
 
@@ -38,13 +42,13 @@ def render_capteurs_block() -> CapteursState:
         fabricant_capteur = c_lib1.selectbox("Fabricant", options=fabricants, key="capteur_fabricant")
         modele_capteur = "Saisie manuelle"
         if fabricant_capteur != "Saisie manuelle":
-            modeles = sorted(CAPTEUR_LIBRARY[fabricant_capteur].keys())
+            modeles = sorted(capteur_library[fabricant_capteur].keys())
             if st.session_state.get("capteur_modele") not in modeles:
                 st.session_state["capteur_modele"] = modeles[0]
             modele_capteur = c_lib2.selectbox("Modèle de capteur", options=modeles, key="capteur_modele")
             capteur_sig = f"{fabricant_capteur}|{modele_capteur}"
             if st.session_state.get("capteur_selected_sig") != capteur_sig or st.session_state.get("capteur_force_init", False):
-                cap = CAPTEUR_LIBRARY[fabricant_capteur][modele_capteur]
+                cap = capteur_library[fabricant_capteur][modele_capteur]
                 st.session_state["capteur_surface_unitaire_m2"] = float(cap["surface_utile_m2"])
                 st.session_state["capteur_n0"] = float(cap["n0"])
                 st.session_state["capteur_a1"] = float(cap["a1"])
@@ -54,6 +58,7 @@ def render_capteurs_block() -> CapteursState:
         else:
             st.session_state["capteur_selected_sig"] = "Saisie manuelle"
             st.session_state["capteur_modele"] = "Saisie manuelle"
+        render_add_collector_expander("heliosolo")
 
         c_c1, c_c2, c_c3 = st.columns(3)
         surface_unitaire_capteur_m2 = c_c1.number_input(
