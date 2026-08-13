@@ -468,7 +468,23 @@ def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt"
         a2 = c4.number_input("a2 (W/m2.K2)", min_value=0.0, value=float(collector_ref.a2_w_m2_k2), step=0.001, format="%.3f", key="solar_a2")
 
         solar_fixed = FixedSolarAssumptions()
-        c9, c10, c11 = st.columns(3)
+        c8, c9, c10, c11 = st.columns(4)
+        solar_loop_mode_label = c8.selectbox(
+            "Type d'installation",
+            options=["Pressurisé", "Autovidangeable"],
+            index=0,
+            key="solar_loop_mode",
+            help=(
+                "Mode test autovidangeable : après une surchauffe ballon, la charge solaire est bloquée "
+                "jusqu'au prochain minuit pour représenter la mise en protection du champ."
+            ),
+        )
+        solar_loop_mode = "drainback_test" if solar_loop_mode_label == "Autovidangeable" else "pressurized"
+        if solar_loop_mode == "drainback_test":
+            st.warning(
+                "Mode autovidangeable en test : lorsqu'une surchauffe est détectée, "
+                "la production solaire vers le ballon est bloquée jusqu'à minuit."
+            )
         daily_buffer_ambient_temp_c = c9.number_input("T° ambiance ballon (°C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0, key="solar_daily_buffer_ambient_temp_c")
         buffer_max_label = (
             "Tmax ballon solaire (°C)"
@@ -623,6 +639,7 @@ def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt"
             daily_buffer_charge_mode=daily_buffer_charge_mode_label,
             daily_buffer_min_useful_temp_c=daily_buffer_min_useful_temp_c,
             daily_buffer_solar_loop_flow_l_h_m2=daily_buffer_solar_loop_flow_l_h_m2,
+            solar_loop_mode=solar_loop_mode,
             solar_preheat_target_ht_c=solar_preheat_target_ht_c,
             solar_buffer_hx_approach_k=solar_fixed.solar_buffer_hx_approach_k,
             solar_buffer_collector_approach_k=solar_fixed.solar_buffer_collector_approach_k,

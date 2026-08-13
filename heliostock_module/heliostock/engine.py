@@ -64,6 +64,7 @@ class CollectorConfig:
     daily_buffer_charge_mode: str = "bottom"
     daily_buffer_min_useful_temp_c: float = 25.0
     daily_buffer_solar_loop_flow_l_h_m2: float = 50.0
+    solar_loop_mode: str = "pressurized"
 
 
 @dataclass(frozen=True)

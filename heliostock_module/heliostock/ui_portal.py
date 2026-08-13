@@ -106,6 +106,7 @@ SAVEABLE_WIDGET_KEYS = [
     "process_ht_target_c",
     "demand_scope_label",
     "solar_collector_name",
+    "solar_loop_mode",
     "solar_area_m2",
     "solar_eta0",
     "solar_a1",

@@ -45,6 +45,7 @@ class SolarInputs:
     daily_buffer_charge_mode: str = "bottom"
     daily_buffer_min_useful_temp_c: float = 25.0
     daily_buffer_solar_loop_flow_l_h_m2: float = 50.0
+    solar_loop_mode: str = "pressurized"
 
     def validate(self) -> list[str]:
         warnings: list[str] = []
@@ -68,6 +69,8 @@ class SolarInputs:
             warnings.append("Le pas interne du ballon stratifié doit etre strictement positif.")
         if self.daily_buffer_solar_loop_flow_l_h_m2 <= 0.0:
             warnings.append("Le débit solaire spécifique du ballon stratifié doit etre strictement positif.")
+        if self.solar_loop_mode not in {"pressurized", "drainback_test"}:
+            warnings.append("Le mode hydraulique solaire n'est pas reconnu.")
         return warnings
 
     def to_collector_config(self) -> CollectorConfig:
@@ -102,6 +105,7 @@ class SolarInputs:
             daily_buffer_charge_mode=self.daily_buffer_charge_mode,
             daily_buffer_min_useful_temp_c=self.daily_buffer_min_useful_temp_c,
             daily_buffer_solar_loop_flow_l_h_m2=self.daily_buffer_solar_loop_flow_l_h_m2,
+            solar_loop_mode=self.solar_loop_mode,
         )
 
 

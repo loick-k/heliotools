@@ -364,12 +364,19 @@ def simulate_hourly(
         else None
     )
     results: list[HourlyResult] = []
+    drainback_protection_active = False
+    drainback_protection_day_key: tuple[int, int] | None = None
 
     total_hours = len(weather) * years
     for absolute_position in range(total_hours):
         w = weather[absolute_position % len(weather)]
         year_index = absolute_position // len(weather) + 1
         absolute_hour_index = absolute_position
+        current_day_key = (year_index, absolute_position % len(weather) // 24)
+        if drainback_protection_day_key != current_day_key:
+            drainback_protection_active = False
+            drainback_protection_day_key = current_day_key
+        drainback_mode = collector.solar_loop_mode == "drainback_test"
         if hourly_demand_override is not None:
             demand_ht, demand_bt = hourly_demand_override.get(w.hour_index, (0.0, 0.0))
         else:
@@ -409,6 +416,8 @@ def simulate_hourly(
                 solar_ht_potential
                 * max(0.0, min(1.0, collector.daily_buffer_charge_factor_ht))
             )
+            if drainback_mode and drainback_protection_active:
+                ht_surplus_to_buffer_available = 0.0
             tank_step = stratified_tank.step(
                 q_solar_j=ht_surplus_to_buffer_available * J_PER_KWH,
                 q_load_j=max(0.0, demand_ht) * J_PER_KWH,
@@ -454,6 +463,8 @@ def simulate_hourly(
                 solar_ht_potential
                 * max(0.0, min(1.0, collector.daily_buffer_charge_factor_ht))
             )
+            if drainback_mode and drainback_protection_active:
+                ht_surplus_to_buffer_available = 0.0
             solar_ht_to_buffer = min(ht_surplus_to_buffer_available, buffer_capacity_remaining)
             buffer_energy += solar_ht_to_buffer
             buffer_loss = min(buffer_energy, _hourly_buffer_loss(buffer_energy, collector))
@@ -488,6 +499,8 @@ def simulate_hourly(
             tank_q_load_from_tank = solar_ht_from_buffer
             tank_q_losses = buffer_loss
             tank_useful_energy_available = max(0.0, buffer_energy)
+        if drainback_mode and buffer_was_saturated_by_solar:
+            drainback_protection_active = True
         # Alias legacy conserve pour les exports historiques : la chaleur HT
         # vient bien du ballon solaire journalier, pas d'un usage direct capteur.
         solar_ht_direct_legacy_alias = solar_ht_from_buffer
