@@ -15,6 +15,7 @@ from .solo2018_rebuild.ui.context import ModelisationContext
 from .solo2018_rebuild.ui.description import render_description as _render_description
 from .solo2018_rebuild.ui.modelisation import render_modelisation as _render_modelisation
 from .solo2018_rebuild.ui.resultats import render_resultats as _render_resultats
+from .notice_heliosolo import render_heliosolo_notice as _render_heliosolo_notice
 
 
 def _render_legacy_solo_styles() -> None:
@@ -114,8 +115,8 @@ def render_heliosolo_app() -> None:
             width="stretch",
         )
 
-    tab_description, tab_modelisation, tab_resultats = st.tabs(
-        ["1) Description de l'opération", "2) Modélisation", "3) Résultats"]
+    tab_description, tab_modelisation, tab_resultats, tab_notice = st.tabs(
+        ["1) Description de l'opération", "2) Modélisation", "3) Résultats", "4) Notice"]
     )
     with tab_description:
         description_state = _render_description()
@@ -125,4 +126,7 @@ def render_heliosolo_app() -> None:
 
     with tab_resultats:
         _render_resultats(resultats_context)
+
+    with tab_notice:
+        _render_heliosolo_notice()
 
