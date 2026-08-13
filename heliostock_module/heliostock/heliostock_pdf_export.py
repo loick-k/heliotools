@@ -326,6 +326,14 @@ def _economic_row(df: pd.DataFrame, scenario_name: str) -> pd.Series | None:
     return None if rows.empty else rows.iloc[0]
 
 
+def _capex_summary_row(scenario: ScenarioResult, generator_name: str) -> pd.Series | None:
+    capex_df = scenario.heat_costs.get("capex_summary") if isinstance(scenario.heat_costs, dict) else None
+    if not isinstance(capex_df, pd.DataFrame) or capex_df.empty or "Generateur" not in capex_df:
+        return None
+    rows = capex_df[capex_df["Generateur"].astype(str) == generator_name]
+    return None if rows.empty else rows.iloc[0]
+
+
 def _draw_header(canvas, *, title: str, subtitle: str, width: float, height: float) -> None:
     draw_report_header(canvas, title=title, subtitle=subtitle, width=width, height=height)
 

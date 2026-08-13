@@ -330,6 +330,11 @@ def render_hourly_results(
         * float(scenario.config.collector.daily_buffer_l_per_m2)
         / 1000.0
     )
+    solar_storage_volume_label = (
+        f"{solar_storage_volume_m3 * 1000.0:.0f} L"
+        if normalized_demand_scope == "ht_only"
+        else f"{solar_storage_volume_m3:.0f} m³"
+    )
 
     def _format_temp(value: float | None) -> str:
         if value is None:
@@ -368,7 +373,7 @@ def render_hourly_results(
         input_metrics.extend(
             [
                 ("Surface solaire", f"{scenario.config.collector.area_m2:.0f} m²"),
-                ("Volume stockage solaire", f"{solar_storage_volume_m3:.0f} m³"),
+                ("Volume stockage solaire", solar_storage_volume_label),
             ]
         )
     if show_geothermal_blocks:
