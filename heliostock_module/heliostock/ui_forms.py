@@ -25,6 +25,7 @@ from .gas_reference import (
 )
 from .hourly_engine import HourlyWeather
 from .inputs import BtesInputs, EconomicsInputs, HeatPumpInputs, SolarInputs
+from .common.ui_collector_library import get_session_collector_library, render_add_collector_expander
 from .load_profiles import (
     apply_demand_scope,
     _estimate_capped_bt_heat_mwh,
@@ -32,7 +33,6 @@ from .load_profiles import (
     _peak_bt_power_kw,
 )
 from .ui_inputs import (
-    COLLECTOR_LIBRARY,
     DEFAULT_EPW_REGIONS,
     FixedEconomicsAssumptions,
     FixedGeoAssumptions,
@@ -445,14 +445,22 @@ def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt"
         st.markdown("### Orientation et environnement capteurs")
         render_solar_weather_orientation_inputs()
         st.markdown("### Capteurs et ballon solaire")
-        if st.session_state.get("solar_collector_name") not in COLLECTOR_LIBRARY:
-            st.session_state["solar_collector_name"] = list(COLLECTOR_LIBRARY.keys())[0]
-        collector_name = st.selectbox("Bibliothèque capteur", options=list(COLLECTOR_LIBRARY.keys()), index=0, key="solar_collector_name")
-        collector_ref = COLLECTOR_LIBRARY[collector_name]
+        collector_library = get_session_collector_library("heliodyn")
+        if st.session_state.get("solar_collector_name") not in collector_library:
+            st.session_state["solar_collector_name"] = list(collector_library.keys())[0]
+        collector_names = list(collector_library.keys())
+        collector_name = st.selectbox(
+            "Bibliothèque capteur",
+            options=collector_names,
+            index=collector_names.index(st.session_state["solar_collector_name"]),
+            key="solar_collector_name",
+        )
+        collector_ref = collector_library[collector_name]
         st.caption(
             f"Capteur sélectionné : fabricant {collector_ref.manufacturer} - modèle {collector_ref.model}. "
             "Les coefficients restent modifiables ci-dessous."
         )
+        render_add_collector_expander("heliodyn")
         c1, c2, c3, c4 = st.columns(4)
         area_m2 = c1.number_input("Surface capteurs (m²)", min_value=1.0, value=500.0, step=50.0, key="solar_area_m2")
         eta0 = c2.number_input("eta0", min_value=0.0, max_value=1.0, value=float(collector_ref.eta0), step=0.001, format="%.3f", key="solar_eta0")

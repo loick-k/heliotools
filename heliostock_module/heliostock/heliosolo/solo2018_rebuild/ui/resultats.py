@@ -30,6 +30,7 @@ from heliostock.heliosolo.solo2018_rebuild.ui.charts import (
 from heliostock.heliosolo.solo2018_rebuild.ui.components import render_kv_table as _render_kv_table
 from heliostock.heliosolo.solo2018_rebuild.ui.context import ResultatsContext
 from heliostock.heliosolo.solo2018_rebuild.utils import annual_sum_monthly as _annual_sum_monthly, fmt_num as _fmt_num
+from heliostock.heliosolo.pdf_export import build_heliosolo_overview_pdf
 
 
 def render_resultats(context: ResultatsContext) -> None:
@@ -418,6 +419,47 @@ def render_resultats(context: ResultatsContext) -> None:
                 f"{_fmt_num(vecs_moy, 0)} L/j | Stockage {_fmt_num(volume_stock_l, 0)} L | "
                 f"{date.today().strftime('%d/%m/%Y')}"
             )
+            pdf_metrics = [
+                ("Besoins thermiques totaux", f"{_fmt_num(besoins_thermiques_totaux_kwh / 1000.0, 1)} MWh/an"),
+                ("Besoins ECS", f"{_fmt_num(float(summary['becs_year']) / 1000.0, 1)} MWh/an"),
+                ("Production solaire annuelle", f"{_fmt_num(float(summary['qstu_year']) / 1000.0, 1)} MWh/an"),
+                ("Taux de couverture annuel", f"{float(summary['couvsol_year']):.1%}"),
+                ("Productivité annuelle", f"{_fmt_num(productivite_annuelle_kwh_m2_an, 0)} kWh/m2.an"),
+                ("Ratio V/S", f"{_fmt_num(stockage_specifique_l_m2, 1)} L/m2"),
+                ("Couverture max été", f"{couvsol_max_estivale:.1%}"),
+                ("Pertes bouclage", f"{_fmt_num(pertes_bouclage_est_mwh_an, 1)} MWh/an"),
+            ]
+            monthly_pdf_rows = [
+                {
+                    "Mois": str(row["month"]),
+                    "Besoin total (MWh)": _fmt_num(float(row["besoin_total_m"]) / 1000.0, 1),
+                    "Production solaire (MWh)": _fmt_num(float(row["qstu_m"]) / 1000.0, 1),
+                    "Production solaire valeur": float(row["qstu_m"]) / 1000.0,
+                    "Couverture": f"{float(row['couvsol_m']):.1%}",
+                }
+                for row in monthly_df.to_dict(orient="records")
+            ]
+            pdf_payload = {
+                "project_name": project_name or "Projet HelioSOLO",
+                "subtitle": header_detail,
+                "metrics": pdf_metrics,
+                "controls": controles,
+                "station_rows": station_rows,
+                "besoins_rows": besoins_rows,
+                "capteur_rows": capteur_rows,
+                "stock_rows": stock_rows,
+                "bouclage_rows": [] if type_bouclage_label == "Aucun bouclage sanitaire" else bouclage_rows,
+                "circuit_rows": circuit_rows,
+                "monthly_rows": monthly_pdf_rows,
+                "audit_notes": [
+                    "Calcul mensuel sur jours moyens : le modèle ne reproduit pas les variations horaires ni la régulation détaillée.",
+                    "Les besoins ECS, la température d'eau froide et les pertes de bouclage dominent souvent l'incertitude.",
+                    "Le stockage est représenté par une constante de refroidissement globale, sans stratification dynamique.",
+                    "Le mode CESCET applique une correction eau technique et des pertes aval ; il reste une approximation de prédimensionnement.",
+                    "Les modes qualitatifs de bouclage sont des aides de saisie et doivent être remplacés par des mesures dès que possible.",
+                    "Une couverture estivale élevée signale un risque de surdimensionnement ou de production non valorisable.",
+                ],
+            }
             st.markdown(
                 f"""
                 <div class="solo-header">
@@ -426,6 +468,13 @@ def render_resultats(context: ResultatsContext) -> None:
                 </div>
                 """,
                 unsafe_allow_html=True,
+            )
+            st.download_button(
+                "Télécharger le rapport PDF HelioSOLO",
+                data=build_heliosolo_overview_pdf(pdf_payload),
+                file_name=f"heliosolo_{(project_name or 'projet').strip().lower().replace(' ', '_')}_{date.today():%Y%m%d}.pdf",
+                mime="application/pdf",
+                width="stretch",
             )
 
             res_tabs = st.tabs(["Synthèse", "Analyse mensuelle", "Configuration"])

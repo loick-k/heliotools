@@ -1,93 +1,90 @@
 # Notice méthodologique HelioSOLO
 
-Cette notice documente la reconstitution HelioSOLO intégrée dans HelioTools et son écart avec l'algorithme SOLO 2018 décrit dans `SOLO_2018_Principes_et_Algorithmes_V1_1.pdf`.
+Cette notice documente la reconstitution HelioSOLO intégrée dans HelioTools et ses écarts avec l'algorithme SOLO 2018 décrit dans `SOLO_2018_Principes_et_Algorithmes_V1_1.pdf`.
 
-HelioSOLO n'est pas le logiciel officiel SOLO 2018. C'est une reconstitution Python/Streamlit destinée à rendre les hypothèses plus lisibles, à faciliter les tests et à préparer les passerelles avec HelioNOP, HelioDyn et les futurs modules économiques.
+HelioSOLO n'est pas le logiciel officiel SOLO 2018. C'est une reconstitution Python/Streamlit destinée à rendre les hypothèses plus lisibles, faciliter les tests et préparer les passerelles avec HelioNOP, HelioDyn et les futurs modules économiques.
 
-## Périmètre du modèle
+## Positionnement physique
 
-HelioSOLO reste un modèle mensuel de type SOLO 2018.
+HelioSOLO reste un modèle mensuel de prédimensionnement solaire thermique ECS.
 
-Il ne s'agit pas d'une simulation horaire dynamique. Le calcul travaille sur des jours moyens mensuels : besoin ECS moyen, température d'eau froide moyenne, température extérieure moyenne et irradiation moyenne dans le plan des capteurs.
+Il ne s'agit pas d'une simulation horaire dynamique. Le calcul travaille sur des jours moyens mensuels : volume ECS, température d'eau froide, température ECS, pertes de bouclage, température extérieure et irradiation dans le plan des capteurs.
 
-La philosophie reprise est celle de SOLO 2018 : obtenir rapidement un ordre de grandeur robuste pour une installation solaire thermique collective, sans passer par une simulation hydraulique détaillée.
+Le résultat doit donc être lu comme un ordre de grandeur robuste pour note d'opportunité ou comparaison d'hypothèses, pas comme une étude hydraulique d'exécution.
 
 ## Éléments repris de SOLO 2018
 
 ### Équation mensuelle centrale
 
-Le calcul mensuel conserve la logique SOLO : production solaire utile calculée à partir du besoin de référence, du rayonnement disponible, de la surface de capteurs, des pertes du capteur, du transfert primaire, de l'échangeur et du stockage.
+Le moteur conserve la logique SOLO : la production solaire utile est calculée mois par mois à partir du besoin de référence, du rayonnement disponible, de la surface capteurs, des pertes capteurs, du transfert primaire, de l'échangeur et du stockage.
 
-Les résultats sont produits mois par mois puis agrégés à l'année.
+Les résultats mensuels sont ensuite agrégés à l'année.
 
 ### Capteurs solaires
 
-HelioSOLO accepte les paramètres de capteurs sous forme `B/K` ou sous forme issue d'essais normalisés `eta0/a1/a2`.
+HelioSOLO accepte deux familles de paramètres :
 
-Quand les coefficients `eta0/a1/a2` sont utilisés, le code les convertit en couple équivalent `B/K` par régression sur plusieurs écarts de température. Cette logique reprend l'esprit de SOLO 2018, qui ramène les performances capteur vers une formulation exploitable par le calcul mensuel.
+- formulation `B/K` ;
+- coefficients d'essais `eta0/a1/a2`.
+
+Quand `eta0/a1/a2` sont fournis, ils sont convertis vers un couple équivalent `B/K` par régression sur plusieurs écarts de température. Cette conversion reprend l'esprit du calcul SOLO, mais reste une approximation pratique : elle ne remplace pas une simulation horaire détaillée du capteur.
 
 ### Correction d'incidence
 
-Le rayonnement disponible dans le plan des capteurs peut être corrigé par un coefficient d'incidence dépendant de l'inclinaison, de l'orientation, de la latitude, du mois et d'heures représentatives.
+Le rayonnement disponible peut être corrigé selon l'inclinaison, l'orientation, la latitude, le mois et des heures représentatives. Le modèle travaille sur une correction mensuelle, pas sur une trajectoire solaire horaire complète.
 
 ### Circuit primaire et échangeur
 
-Le moteur tient compte des pertes côté primaire, du type de circulation, de l'efficacité de régulation, de l'échangeur solaire et de la dégradation de transfert entre capteurs et stockage.
+Le calcul tient compte :
+
+- du type de circulation ;
+- des pertes du circuit primaire ;
+- de l'efficacité de régulation ;
+- du type d'échangeur solaire ;
+- de la dégradation de transfert entre capteurs et stockage.
+
+Ces grandeurs servent à corriger la production solaire mensuelle. Elles ne décrivent pas la régulation instantanée ni les transitoires hydrauliques.
 
 ### Stockage solaire
 
-HelioSOLO reprend les deux logiques de définition du stockage :
+HelioSOLO reprend les deux approches de stockage :
 
-- une valeur globale de constante de refroidissement du stock ;
-- une définition détaillée par volume, surface équivalente, épaisseur d'isolant, conductivité de l'isolant et correction de ponts thermiques.
+- constante de refroidissement globale ;
+- définition détaillée par volume unitaire, nombre de ballons, surface équivalente, épaisseur d'isolant, conductivité de l'isolant et correction de ponts thermiques.
 
-La géométrie standard du ballon reprend l'hypothèse cylindrique verticale avec `H/D = 2`.
+La géométrie détaillée repose sur un ballon cylindrique vertical avec `H/D = 2`. La constante `CRStockSolaire` est exprimée en `Wh/L/K/jour`. Le calcul utilise explicitement le volume en litres pour éviter l'erreur classique de facteur 1000 entre m3 et litres.
 
-La constante `CRStockSolaire` est calculée en `Wh/L/K/jour`. Le code convertit explicitement le volume en litres dans la constante finale afin d'éviter une erreur de facteur 1000 entre m3 et litres.
+Le stock reste toutefois représenté de façon globale. Il n'y a pas de stratification dynamique ni de température haute/basse du ballon dans HelioSOLO.
 
 ### Bouclage sanitaire
 
-HelioSOLO reprend les grands modes de SOLO 2018 :
+Les modes physiques ou simplifiés suivants sont représentés :
 
-- pas de pertes de bouclage ;
+- aucun bouclage ;
 - saisie directe des pertes ;
-- calcul par débit de bouclage et écart de température ;
-- calcul par longueur de boucle et coefficient linéique ;
+- calcul par débit et écart de température ;
+- calcul par longueur et coefficient linéique ;
 - qualification simplifiée de la boucle : bonne, moyenne ou mauvaise.
 
-Quand le bouclage est considéré comme solarisable indirectement, le besoin solaire de référence est augmenté via une température ECS équivalente, plafonnée par la température maximale du stockage solaire.
-
-### Eau technique CESCET
-
-Le mode CESCET est représenté comme un CESC complété par un circuit d'eau technique et un échangeur aval.
-
-Le calcul applique une correction de température côté eau technique, puis retranche les pertes du circuit d'eau technique. Cette logique reprend le principe de SOLO 2018 : l'échangeur et les pertes aval réduisent l'énergie solaire effectivement livrée à l'ECS.
-
-### Production primaire solaire
-
-La production primaire est calculée comme la production utile augmentée des pertes de stockage solaire. Cela permet de distinguer la production utile livrée à l'ECS et l'énergie produite en amont du ballon.
+Quand le bouclage est solarisable indirectement, le besoin solaire de référence est augmenté par une température ECS équivalente, plafonnée par la température maximale de stockage.
 
 ## Adaptations HelioTools
 
-### Interface et usages
+### Typologies et unités de référence
 
-L'interface Streamlit n'est pas une reproduction écran par écran de SOLO 2018. Elle vise une lecture plus directe des hypothèses, des résultats mensuels et des contrôles métier.
+SOLO 2018 manipule surtout des grandeurs physiques. HelioSOLO ajoute une couche d'aide par typologie d'établissement et unité de référence pour accélérer la saisie.
 
-Les exports et sauvegardes JSON sont des ajouts HelioTools.
+Cette couche est pratique, mais elle ne doit pas être confondue avec une mesure. Pour un site atypique, il faut privilégier :
 
-### Typologies d'établissement et unités
-
-SOLO 2018 attend principalement des grandeurs physiques : volume ECS, température ECS, température d'eau froide, pertes de bouclage, surface, stockage, etc.
-
-HelioSOLO ajoute une couche d'aide par typologie d'établissement et unité de référence pour estimer plus vite certains volumes ou pertes.
-
-Cette adaptation est utile pour le prédimensionnement, mais elle ne doit pas être confondue avec une grandeur physique mesurée. Pour un site atypique, il faut privilégier une saisie explicite des besoins et des pertes de bouclage.
+- un volume ECS mesuré ;
+- une température eau froide cohérente ;
+- une perte de bouclage mesurée ou calculée sur une longueur réelle.
 
 ### Pertes de bouclage par typologie
 
-La différence la plus importante porte sur le bouclage.
+C'est un écart important avec une lecture stricte de SOLO 2018.
 
-Dans le cœur SOLO, le bouclage est plutôt ramené à un coefficient global ou à des pertes connues. Dans HelioSOLO, les modes qualitatifs `bon`, `moyen`, `mauvais` peuvent être convertis à partir d'un nombre d'unités estimé :
+Dans HelioSOLO, les modes `bon`, `moyen` et `mauvais` peuvent convertir un volume ECS en nombre d'unités :
 
 `nombre d'unités = volume ECS journalier / volume ECS par unité de référence`
 
@@ -99,67 +96,118 @@ et enfin :
 
 `KG boucle = longueur de boucle x coefficient linéique`
 
-C'est une aide de saisie, pas une mesure. Elle peut être pertinente pour un ordre de grandeur, mais elle doit être remplacée par une longueur réelle, un débit mesuré ou une perte saisie si les données sont disponibles.
+Cette approche donne un ordre de grandeur, mais elle peut fortement biaiser le résultat si le bâtiment ne correspond pas à la typologie choisie. Les pertes de bouclage doivent être vues comme une hypothèse de premier rang.
 
 ### Température d'eau froide et CESCET
 
-HelioSOLO permet plusieurs sources pour la température d'eau froide :
+HelioSOLO permet plusieurs sources de température d'eau froide :
 
 - saisie annuelle ;
 - saisie mensuelle ;
 - méthode ESM2 ;
 - méthode ESM2 + 3 °C.
 
-Pendant le développement, un risque avait été identifié : dans certains chemins, quand la température d'eau froide n'était pas issue de la méthode ESM2 ou ESM2 + 3 °C, le calcul CESCET pouvait se comporter comme un calcul ECS sanitaire simple.
+Pendant le développement, un risque avait été identifié : lorsque la température d'eau froide n'était pas issue d'ESM2 ou ESM2 + 3 °C, certains chemins de calcul en eau technique CESCET pouvaient revenir à un comportement proche du CESC sanitaire simple.
 
-Ce point a été corrigé : la correction eau technique est maintenant appliquée à partir de la température mensuelle utilisée par le mois, quelle que soit son origine. Une température d'eau froide saisie manuellement reste donc compatible avec le calcul CESCET.
+Ce point a été corrigé : la correction eau technique utilise désormais la température mensuelle réellement retenue, quelle que soit son origine. Une température d'eau froide saisie manuellement reste donc compatible avec le calcul CESCET.
 
 ### Météo
 
-La reconstitution conserve une logique météo mensuelle. Elle peut utiliser des profils préremplis ou des données EPW importées dans le module.
+Le module utilise des profils mensuels et peut lire des données EPW. La météo n'est pas encore totalement mutualisée avec les bibliothèques météo utilisées par HelioNOP et HelioDyn.
 
-Cette partie n'est pas encore totalement mutualisée avec la bibliothèque météo commune de HelioTools. C'est un point de convergence futur avec HelioNOP et HelioDyn.
+À terme, la bonne cible est une source météo commune pour HelioTools, afin d'éviter des écarts entre modules.
 
-### Stock solaire homogène
+### Exports
 
-Comme SOLO 2018, HelioSOLO reste un calcul mensuel avec stockage représenté de façon globale. Il ne simule pas une stratification horaire détaillée du ballon.
+Les exports JSON, CSV et PDF sont des ajouts HelioTools. Le PDF utilise le moteur commun HelioTools pour garder une mise en page homogène avec les autres modules.
 
-La stratification dynamique 3 nœuds relève plutôt de HelioDyn, pas de HelioSOLO.
+## Audit physique du moteur actuel
 
-### Schémas hydrauliques
+### Besoin ECS
 
-Le module actuel ne couvre pas encore de façon exhaustive toutes les variantes hydrauliques possibles. Les choix disponibles sont ceux nécessaires à la reconstitution actuelle et aux cas de test prioritaires.
+Le besoin ECS est calculé à partir du volume, de la température ECS de référence et de la température d'eau froide :
 
-## Contrôles et limites d'interprétation
+`Besoin ECS = Volume x capacité thermique de l'eau x (T_ECS - T_EF)`
 
-Les résultats doivent être interprétés comme une note d'opportunité ou une vérification de cohérence, pas comme une étude d'exécution.
+Le modèle est physiquement cohérent si les volumes et températures sont cohérents. L'incertitude principale vient rarement de la formule : elle vient plutôt de la qualité du profil de consommation.
 
-Points sensibles :
+### Bouclage
 
-- qualité des besoins ECS mensuels ;
-- température d'eau froide retenue ;
-- pertes de bouclage ;
-- efficacité d'échangeur ;
-- circuit eau technique en CESCET ;
-- volume de stockage ;
-- fraction solaire élevée ;
-- sites avec usages très intermittents.
+Les pertes de bouclage peuvent devenir dominantes. Si elles sont surestimées, le besoin solarisable et la production solaire peuvent être artificiellement élevés. Si elles sont sous-estimées, le projet peut paraître moins pertinent qu'il ne l'est.
 
-Lorsque les pertes de bouclage sont importantes ou mal connues, elles peuvent dominer le résultat. Dans ce cas, il faut éviter les modes qualitatifs et saisir une perte mesurée ou une géométrie réaliste.
+Pour les notes d'opportunité, le mode typologique est acceptable. Pour une étude avancée, il faut privilégier une donnée mesurée ou une longueur réelle.
 
-## Lecture rapide des différences
+### Stockage
+
+Le stockage est représenté par une constante de refroidissement mensuelle. C'est cohérent avec l'esprit SOLO, mais cela ne permet pas d'observer :
+
+- la stratification du ballon ;
+- les épisodes horaires de saturation ;
+- les cycles courts de charge/décharge ;
+- la température réelle en haut et en bas de ballon.
+
+Ces phénomènes relèvent plutôt d'HelioDyn.
+
+### Production solaire
+
+La production solaire mensuelle est cohérente pour comparer des surfaces, volumes et hypothèses de bouclage. Elle devient moins précise lorsque :
+
+- la fraction solaire estivale est très élevée ;
+- le stockage est très faible ;
+- le besoin est très intermittent ;
+- les pertes de bouclage sont mal connues ;
+- le schéma hydraulique réel diffère fortement du schéma représenté.
+
+### CESCET
+
+Le CESCET ajoute une correction pour l'eau technique et les pertes aval. C'est utile pour éviter d'assimiler une installation eau technique à une installation sanitaire directe.
+
+Le modèle reste toutefois mensuel. Il ne vérifie pas les débits instantanés, les températures de retour réelles, ni la stratégie de régulation de l'échangeur aval.
+
+### Contrôles numériques
+
+Le code applique des sécurités simples :
+
+- valeurs négatives évitées sur les énergies et pertes ;
+- volumes et surfaces bornés positivement ;
+- constantes de refroidissement positives ;
+- températures équivalentes plafonnées par le stockage ;
+- gestion dédiée des mois et des lignes annuelles.
+
+Ces garde-fous évitent les erreurs numériques évidentes, mais ils ne remplacent pas le jugement métier.
+
+## Différences principales avec SOLO 2018
 
 | Sujet | SOLO 2018 | HelioSOLO |
 |---|---|---|
 | Pas de temps | Mensuel, jour moyen | Mensuel, jour moyen |
-| Capteurs | Formulation B/K, conversion possible | B/K et conversion eta0/a1/a2 |
-| Stock solaire | Constante CR globale ou détaillée | Même logique, avec correction explicite litres/m3 |
-| Bouclage | Plusieurs modes physiques/simplifiés | Même logique + aide par typologie et unité |
-| CESCET | Circuit eau technique et échangeur aval | Repris, avec correction robuste quelle que soit la source TEF |
-| Météo | Données mensuelles | Données mensuelles, EPW/module interne |
-| Hydraulique détaillée | Semi-simplifiée | Semi-simplifiée |
+| Capteurs | Formulation SOLO B/K | B/K et conversion `eta0/a1/a2` |
+| Stock solaire | Constante globale ou détaillée | Même logique, avec vigilance explicite sur les unités |
+| Bouclage | Modes physiques et simplifiés | Même base + aide par typologie et unité |
+| CESCET | Circuit eau technique et échangeur aval | Repris, avec correction robuste quelle que soit la source de température d'eau froide |
+| Météo | Données mensuelles | Profils mensuels et EPW interne |
+| Hydraulique fine | Simplifiée | Simplifiée |
 | Simulation horaire | Non | Non |
 | Stratification ballon | Non détaillée | Non détaillée |
+
+## Bonnes pratiques d'utilisation
+
+Pour une première approche, HelioSOLO est pertinent si :
+
+- le besoin ECS est connu ou raisonnablement estimé ;
+- la température d'eau froide est cohérente ;
+- les pertes de bouclage sont maîtrisées ;
+- la fraction solaire reste dans un domaine raisonnable ;
+- le schéma hydraulique choisi correspond au principe réel.
+
+Pour fiabiliser une étude, il faut en priorité améliorer :
+
+1. le profil de besoin ECS ;
+2. les pertes de bouclage ;
+3. la température d'eau froide ;
+4. les caractéristiques capteur ;
+5. le volume et les pertes du stockage ;
+6. la cohérence du schéma hydraulique.
 
 ## Positionnement dans HelioTools
 
@@ -169,11 +217,13 @@ HelioNOP sert à produire une note d'opportunité.
 
 HelioDyn sert à simuler dynamiquement des profils horaires, avec ou sans couplage solaire-géothermie.
 
-À terme, les briques communes à mutualiser sont :
+Les briques à mutualiser progressivement sont :
 
 - besoins ECS ;
 - température d'eau froide ;
+- météo ;
 - bibliothèque capteurs ;
 - pertes de bouclage ;
+- stockage solaire ;
 - hypothèses économiques ;
 - exports PDF.
