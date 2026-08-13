@@ -361,6 +361,15 @@ def render_hourly_results(
             ).sum()
         )
     )
+    if "solar_ht_buffer_at_max" in hourly_df:
+        at_max = hourly_df["solar_ht_buffer_at_max"].fillna(False).astype(bool)
+        solar_buffer_at_max_episodes = int((at_max & ~at_max.shift(1, fill_value=False)).sum())
+    else:
+        at_max = (
+            hourly_df.get("solar_ht_buffer_temp_end_c", pd.Series(dtype=float))
+            >= scenario.config.collector.daily_buffer_max_temp_c - 1e-6
+        )
+        solar_buffer_at_max_episodes = int((at_max & ~at_max.shift(1, fill_value=False)).sum())
     combined_eff = (
         (ht_eff * ht_energy_mwh + storage_eff * storage_energy_mwh)
         / max(1e-9, ht_energy_mwh + storage_energy_mwh)
@@ -387,26 +396,25 @@ def render_hourly_results(
     if not show_solar_blocks and not show_geothermal_blocks:
         st.warning("Aucun besoin HT ou BT actif dans le périmètre de calcul.")
 
-    _render_kpi_section(
-        "Besoin",
-        [
-            ("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh"),
-            ("Besoin haute température", f"{total_ht / 1000:.0f} MWh"),
-            ("Besoin basse température", f"{total_bt / 1000:.0f} MWh"),
-        ],
-        tone="energy",
-    )
+    demand_metrics = [("Besoin total", f"{(total_ht + total_bt) / 1000:.0f} MWh")]
+    if show_geothermal_blocks:
+        demand_metrics.extend(
+            [
+                ("Besoin haute température", f"{total_ht / 1000:.0f} MWh"),
+                ("Besoin basse température", f"{total_bt / 1000:.0f} MWh"),
+            ]
+        )
+    _render_kpi_section("Besoin", demand_metrics, tone="energy")
 
     if show_solar_blocks and not show_geothermal_blocks:
-        st.markdown("### Solaire thermique seul - besoin haute température")
         _render_kpi_section("Taux EnR global", [("Taux EnR global", f"{global_ren_rate * 100:.0f} %")], tone="energy")
         _render_kpi_section(
             "Solaire thermique",
             [
-                ("Production solaire totale", f"{total_preheat_ht / 1000:.0f} MWh"),
-                ("Production solaire ECS", f"{total_preheat_ht / 1000:.0f} MWh"),
+                ("Production solaire thermique", f"{total_preheat_ht / 1000:.0f} MWh"),
                 ("Pertes ballon solaire", f"{solar_buffer_loss_mwh:.0f} MWh"),
                 ("Heures palier haut ballon", f"{solar_buffer_at_max_hours} h"),
+                ("Épisodes de surchauffe", f"{solar_buffer_at_max_episodes}"),
                 ("Productivité solaire valorisée", f"{solar_productivity_valued:.0f} kWh/m².an"),
                 ("Taux de couverture solaire", f"{annual_ht_solar_coverage * 100:.0f} %"),
                 ("Solaire non valorisé", f"{float(hourly_df.get('solar_not_used_kwh', pd.Series(dtype=float)).sum()) / 1000:.0f} MWh"),
@@ -1048,6 +1056,24 @@ def _render_multiyear_tab(
 
 
 def _render_duration_tab(hourly_df: pd.DataFrame, *, scenario: ScenarioResult) -> None:
+    show_geothermal_blocks = scenario.total_bt_kwh > 1e-6 and bool(scenario.config.geothermal_enabled)
+    if not show_geothermal_blocks:
+        st.markdown("### Monotone horaire")
+        st.caption(
+            f"Mode solaire thermique seul, année {scenario.simulation_year_displayed}. "
+            "La monotone est triée par besoin décroissant et affiche la part couverte par le solaire thermique "
+            "et l'appoint gaz."
+        )
+        ht_stack_df = _stacked_coverage_duration_dataframe(hourly_df, mode="HT")
+        st.altair_chart(
+            _stacked_coverage_duration_chart(
+                ht_stack_df,
+                title="Besoin total = solaire thermique + appoint gaz",
+            ),
+            width="stretch",
+        )
+        return
+
     st.markdown("### Monotones de charge - scénario B")
     st.caption(
         "Scénario affiché : B - Géothermie avec recharge solaire et linéaire initial, "

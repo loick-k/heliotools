@@ -72,6 +72,7 @@ from ..gas_reference import (
     GAS_REFERENCE_EXISTING_BOILER,
     GAS_REFERENCE_RENEWAL,
     gas_reference_context_label,
+    includes_gas_boiler_fixed_costs,
     normalize_gas_reference_context,
 )
 from ..collector_library import DEFAULT_COLLECTOR_NAME, get_collector_reference

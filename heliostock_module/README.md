@@ -79,6 +79,37 @@ Le cache resultat JSON remplace l'ancien pickle. Les tableaux pandas et dataclas
 structure JSON stable afin d'eviter les erreurs de deserialisation apres reboot ou rechargement Streamlit. Les anciens
 caches `_resultat.pkl` sont ignores : il faut relancer puis enregistrer le calcul pour creer `results/latest_result.json`.
 
+## Sessions de connexion persistantes
+
+Le portail HelioTools peut maintenir une session apres actualisation de page ou redemarrage normal de session Streamlit
+avec un cookie signe HMAC-SHA256. Le cookie ne contient ni mot de passe, ni hash brut du mot de passe, ni permissions,
+ni donnees projet. Il contient seulement l'email normalise, un identifiant utilisateur, les dates de creation/expiration,
+l'environnement et une empreinte d'authentification non reversible.
+
+Secrets a configurer en production :
+
+```text
+AUTH_SESSION_SECRET=REMPLACER-PAR-UN-SECRET-ALEATOIRE
+AUTH_SESSION_HOURS=12
+AUTH_SESSION_ENV=production
+```
+
+Generation d'un secret :
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+`AUTH_SESSION_SECRET` doit contenir au moins 32 caracteres et ne doit jamais etre versionne. Si ce secret est absent ou
+trop court, la persistance est desactivee proprement et la connexion classique reste disponible. `AUTH_SESSION_HOURS`
+vaut 12 h par defaut, avec une borne de 1 h a 720 h. A chaque restauration, HelioTools relit le compte utilisateur
+depuis la source de verite, verifie que le compte est actif et recharge les roles/applications depuis la base. Un
+changement de mot de passe, une desactivation ou une suppression du compte invalide le cookie.
+
+Limite Streamlit : le composant cookie utilise par l'application ne permet pas de garantir `HttpOnly`. La protection
+repose donc sur une signature robuste, une duree limitee, `SameSite=Strict` lorsque supporte par le navigateur et une
+validation serveur systematique. La valeur du cookie et le secret ne doivent pas etre journalises.
+
 Pour le fichier Excel process actuellement supporte, le mapping est :
 
 - `E besoin HT kWh` / `P besoin HT kW` -> besoin HT 60 C ;

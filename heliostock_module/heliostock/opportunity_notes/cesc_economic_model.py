@@ -119,6 +119,9 @@ class CescEconomicResults:
     annual_production_mwh: float
     average_reference_energy_cost_eur_mwh: float
     investment_cost_eur: float
+    solar_plus_gas_investment_eur: float
+    solar_thermal_investment_eur: float
+    reference_gas_investment_eur: float
     ademe_aid_eur_per_mwh_year_used: float
     works_aid_uncapped_eur: float
     works_aid_cap_eur: float
@@ -131,6 +134,8 @@ class CescEconomicResults:
     heat_cost_p1_eur_mwh: float | None
     heat_cost_p2_eur_mwh: float | None
     heat_cost_p4_eur_mwh: float | None
+    solar_plus_gas_cumulative_cost_eur: float
+    reference_gas_cumulative_cost_eur: float
     savings_over_period_eur: float
     cost_lines: tuple[CostLine, ...]
 
@@ -162,14 +167,16 @@ def compute_cesc_economic_model(inputs: CescEconomicInputs) -> CescEconomicResul
         / inputs.eta_appoint
         * _annuity_average_factor(inputs.reference_energy_inflation_rate, inputs.years)
     )
+    reference_boiler_investment_eur = 0.0
     if includes_gas_boiler_fixed_costs(inputs.gas_reference_context):
         reference_boiler_power_kw = max(0.0, float(inputs.reference_boiler_power_kw))
+        reference_boiler_investment_eur = reference_boiler_power_kw * max(0.0, float(inputs.reference_boiler_capex_eur_kw))
         reference_boiler_p2_eur_mwh = _safe_divide(
             reference_boiler_power_kw * max(0.0, float(inputs.reference_boiler_p2_eur_kw_year)),
             annual_production_mwh,
         ) or 0.0
         reference_boiler_p4_eur_mwh = _safe_divide(
-            reference_boiler_power_kw * max(0.0, float(inputs.reference_boiler_capex_eur_kw)),
+            reference_boiler_investment_eur,
             annual_production_mwh * inputs.years,
         ) or 0.0
         average_reference_energy_cost_eur_mwh += reference_boiler_p2_eur_mwh + reference_boiler_p4_eur_mwh
@@ -217,6 +224,14 @@ def compute_cesc_economic_model(inputs: CescEconomicInputs) -> CescEconomicResul
             p4_investment_eur_mwh,
         )
     )
+
+    solar_operating_cumulative_eur = (
+        ((p1_auxiliary_electricity_eur_mwh or 0.0) + (p2_maintenance_eur_mwh or 0.0))
+        * annual_production_mwh
+        * inputs.years
+    )
+    solar_plus_gas_cumulative_cost_eur = net_investment_eur + solar_operating_cumulative_eur
+    reference_gas_cumulative_cost_eur = average_reference_energy_cost_eur_mwh * annual_production_mwh * inputs.years
 
     operating_costs_eur_mwh = (p1_auxiliary_electricity_eur_mwh or 0.0) + (
         p2_maintenance_eur_mwh or 0.0
@@ -272,6 +287,9 @@ def compute_cesc_economic_model(inputs: CescEconomicInputs) -> CescEconomicResul
         annual_production_mwh=annual_production_mwh,
         average_reference_energy_cost_eur_mwh=average_reference_energy_cost_eur_mwh,
         investment_cost_eur=investment_cost_eur,
+        solar_plus_gas_investment_eur=investment_cost_eur + reference_boiler_investment_eur,
+        solar_thermal_investment_eur=investment_cost_eur,
+        reference_gas_investment_eur=reference_boiler_investment_eur,
         ademe_aid_eur_per_mwh_year_used=aid_eur_per_mwh_year,
         works_aid_uncapped_eur=works_aid_uncapped_eur,
         works_aid_cap_eur=works_aid_cap_eur,
@@ -284,6 +302,8 @@ def compute_cesc_economic_model(inputs: CescEconomicInputs) -> CescEconomicResul
         heat_cost_p1_eur_mwh=p1_auxiliary_electricity_eur_mwh,
         heat_cost_p2_eur_mwh=p2_maintenance_eur_mwh,
         heat_cost_p4_eur_mwh=p4_investment_eur_mwh,
+        solar_plus_gas_cumulative_cost_eur=solar_plus_gas_cumulative_cost_eur,
+        reference_gas_cumulative_cost_eur=reference_gas_cumulative_cost_eur,
         savings_over_period_eur=savings_over_period_eur,
         cost_lines=cost_lines,
     )

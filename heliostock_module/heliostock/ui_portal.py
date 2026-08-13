@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
+import inspect
 import json
 import re
 import base64
@@ -11,7 +12,7 @@ import os
 import shutil
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,12 +22,24 @@ from urllib import request as urlrequest
 import streamlit as st
 import pandas as pd
 
+from .auth_session import (
+    AUTH_SESSION_COOKIE_NAME,
+    AuthSessionConfig,
+    config_from_values,
+    create_session_token,
+    validate_token_for_user,
+)
 from .common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from .common.project_context import project_context_to_payload
 from .ui_architectural_constraints import (
     current_architectural_constraints_payload,
     restore_architectural_constraints_payload,
 )
+
+try:  # Optional Streamlit component. Without it, classic login still works.
+    import extra_streamlit_components as stx
+except Exception:  # pragma: no cover - depends on optional frontend package.
+    stx = None
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
@@ -54,6 +67,7 @@ LOGIN_FAILURE_STATE_KEY = "heliotools_login_failures"
 LOGIN_LOCK_STATE_KEY = "heliotools_login_locked_until"
 USERS_SESSION_CACHE_KEY = "heliotools_users_cache"
 PROJECTS_SESSION_CACHE_KEY = "heliotools_projects_cache"
+AUTH_SESSION_RESTORE_ATTEMPTED_KEY = "heliotools_auth_session_restore_attempted"
 GITHUB_BACKUP_TIMEOUT_SECONDS = 3
 FORBIDDEN_PROJECT_KEY_FRAGMENTS = ("token", "api_key", "apikey", "secret", "password")
 APP_HOME_LABEL = "Accueil HelioTools"
@@ -154,6 +168,98 @@ def _secret_value(name: str) -> str:
         return str(st.secrets.get(name, "") or "")
     except Exception:
         return ""
+
+
+def _auth_session_secret() -> str:
+    return _secret_value("AUTH_SESSION_SECRET") or str(os.environ.get("AUTH_SESSION_SECRET", "") or "")
+
+
+def _auth_session_hours_setting() -> str:
+    return _secret_value("AUTH_SESSION_HOURS") or str(os.environ.get("AUTH_SESSION_HOURS", "") or "")
+
+
+def _auth_session_environment_setting() -> str:
+    return _secret_value("AUTH_SESSION_ENV") or str(os.environ.get("AUTH_SESSION_ENV", "") or "")
+
+
+def _auth_session_config() -> AuthSessionConfig:
+    return config_from_values(
+        secret=_auth_session_secret(),
+        hours=_auth_session_hours_setting(),
+        environment=_auth_session_environment_setting(),
+    )
+
+
+@st.cache_resource
+def _cookie_manager() -> Any | None:
+    if stx is None:
+        return None
+    try:
+        return stx.CookieManager()
+    except Exception:
+        return None
+
+
+def _cookie_manager_ready() -> bool:
+    return _cookie_manager() is not None
+
+
+def _cookie_get(name: str) -> str:
+    manager = _cookie_manager()
+    if manager is None:
+        return ""
+    try:
+        cookies = manager.get_all()
+        if isinstance(cookies, dict):
+            return str(cookies.get(name, "") or "")
+    except Exception:
+        return ""
+    return ""
+
+
+def _cookie_set(name: str, value: str, *, expires_at: datetime) -> None:
+    manager = _cookie_manager()
+    if manager is None:
+        return
+    try:
+        params = inspect.signature(manager.set).parameters
+    except Exception:
+        params = {}
+    kwargs: dict[str, Any] = {"path": "/"}
+    if "expires_at" in params:
+        kwargs["expires_at"] = expires_at
+    if "max_age" in params:
+        kwargs["max_age"] = max(1, int((expires_at - datetime.now()).total_seconds()))
+    if "secure" in params:
+        kwargs["secure"] = True
+    if "same_site" in params:
+        kwargs["same_site"] = "strict"
+    if "key" in params:
+        kwargs["key"] = f"set_{name}"
+    try:
+        manager.set(name, value, **kwargs)
+    except TypeError:
+        try:
+            manager.set(name, value, expires_at=expires_at, key=f"set_{name}")
+        except Exception:
+            return
+    except Exception:
+        return
+
+
+def _cookie_delete(name: str) -> None:
+    manager = _cookie_manager()
+    if manager is None:
+        return
+    try:
+        manager.delete(name, key=f"delete_{name}")
+    except TypeError:
+        try:
+            manager.delete(name)
+        except Exception:
+            return
+    except Exception:
+        return
 
 
 def _admin_email() -> str:
@@ -609,6 +715,71 @@ def _user_by_email(email: str) -> dict[str, Any] | None:
     return None
 
 
+def _session_user_from_record(user: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "email": user.get("email"),
+        "nom": user.get("nom") or user.get("email"),
+        "role": user.get("role", "user"),
+        "app_access": _user_app_access(user),
+    }
+
+
+def _connect_session_from_user(user: dict[str, Any], *, clear_projects: bool = True) -> None:
+    if clear_projects:
+        _clear_project_session_state()
+    st.session_state["user"] = _session_user_from_record(user)
+    st.session_state["heliostock_admin_authenticated"] = user.get("role") == "admin"
+    st.session_state["heliostock_admin_email"] = str(user.get("email", ""))
+    st.session_state.pop("heliotools_login_error", None)
+
+
+def _set_persistent_auth_cookie(user: dict[str, Any]) -> None:
+    config = _auth_session_config()
+    if not config.is_enabled or not _cookie_manager_ready():
+        return
+    token = create_session_token(user, config=config)
+    if not token:
+        return
+    expires_at = datetime.now() + timedelta(hours=config.hours)
+    _cookie_set(AUTH_SESSION_COOKIE_NAME, token, expires_at=expires_at)
+
+
+def _clear_persistent_auth_cookie() -> None:
+    _cookie_delete(AUTH_SESSION_COOKIE_NAME)
+
+
+def restore_persistent_auth_session() -> bool:
+    """Restore a signed persistent session cookie if available and still valid."""
+
+    if is_user_authenticated():
+        return True
+    if st.session_state.get(AUTH_SESSION_RESTORE_ATTEMPTED_KEY):
+        return False
+    st.session_state[AUTH_SESSION_RESTORE_ATTEMPTED_KEY] = True
+
+    config = _auth_session_config()
+    if not config.is_enabled or not _cookie_manager_ready():
+        return False
+
+    token = _cookie_get(AUTH_SESSION_COOKIE_NAME)
+    if not token:
+        return False
+
+    probe = validate_token_for_user(token, None, config=config)
+    email = ""
+    if probe.payload:
+        email = _email_normalise(str(probe.payload.get("email", "")))
+    user = _user_by_email(email) if email else None
+    validation = validate_token_for_user(token, user, config=config)
+    if not validation.ok or not user:
+        _clear_persistent_auth_cookie()
+        return False
+
+    _connect_session_from_user(user, clear_projects=True)
+    _append_login_event(email=email, success=True, reason="persistent_session", role=str(user.get("role", "")))
+    return True
+
+
 def _hash_password(password: str, salt: str | None = None) -> str:
     if salt is None:
         salt = os.urandom(16).hex()
@@ -651,6 +822,7 @@ def _create_user(email: str, name: str, password: str, *, role: str = "user") ->
             "role": role_value,
             "app_access": _default_app_access(role_value),
             "password_hash": _hash_password(password),
+            "password_updated_at": datetime.now().isoformat(timespec="seconds"),
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "active": True,
         }
@@ -749,24 +921,19 @@ def _connect_user(email: str, password: str) -> bool:
 
     _clear_login_failures(email_norm)
     _clear_project_session_state()
-    st.session_state["user"] = {
-        "email": user.get("email"),
-        "nom": user.get("nom") or user.get("email"),
-        "role": user.get("role", "user"),
-        "app_access": _user_app_access(user),
-    }
-    st.session_state["heliostock_admin_authenticated"] = user.get("role") == "admin"
-    st.session_state["heliostock_admin_email"] = str(user.get("email", ""))
-    st.session_state.pop("heliotools_login_error", None)
+    _connect_session_from_user(user, clear_projects=False)
+    _set_persistent_auth_cookie(user)
     _append_login_event(email=email_norm, success=True, reason="login", role=str(user.get("role", "")))
     return True
 
 
 def _disconnect_user() -> None:
+    _clear_persistent_auth_cookie()
     _clear_project_session_state()
     st.session_state.pop("user", None)
     st.session_state["heliostock_admin_authenticated"] = False
     st.session_state.pop("heliostock_admin_email", None)
+    st.session_state.pop(AUTH_SESSION_RESTORE_ATTEMPTED_KEY, None)
 
 
 def is_admin_authenticated() -> bool:

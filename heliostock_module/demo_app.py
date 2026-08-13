@@ -8,6 +8,9 @@ from heliostock import ui_portal
 st.set_page_config(page_title="HelioTools", layout="wide")
 
 
+ui_portal.restore_persistent_auth_session()
+
+
 def _is_user_authenticated() -> bool:
     checker = getattr(ui_portal, "is_user_authenticated", None)
     if callable(checker):

@@ -20,7 +20,7 @@ def test_heliotools_portal_password_hashing_helpers():
     assert password_hash != "motdepasse-solide"
     assert ui_portal._verify_password("motdepasse-solide", password_hash)
     assert not ui_portal._verify_password("mauvais", password_hash)
-    assert ui_portal._safe_project_slug("Projet test / 01") == "Projet_test_01"
+    assert ui_portal._safe_project_slug("Projet test / 01") == "projet-test-01"
     with pytest.raises(ValueError):
         ui_portal._validate_password("court")
 
@@ -255,7 +255,8 @@ def test_helioeco_app_is_registered_in_portal():
     app_source = _source("heliostock/helioeco/streamlit_helioeco_app.py")
 
     assert "APP_HELIOECO_LABEL" in portal_source
-    assert "APP_HELIOECO_LABEL" in " ".join(portal_source.split("APP_ACCESS_LABELS", 1)[1].splitlines()[:4])
+    access_block = portal_source.split("APP_ACCESS_LABELS", 1)[1].split(")", 1)[0]
+    assert "APP_HELIOECO_LABEL" in access_block
     assert "ui_portal.APP_HELIOECO_LABEL" in demo_source
     assert "from heliostock.helioeco import render_helioeco_app" in demo_source
     assert "def render_helioeco_app() -> None:" in app_source
@@ -398,7 +399,7 @@ def test_sidebar_application_selectbox_only_contains_applications():
     assert "app_options = [label for label in APP_ACCESS_LABELS if label in allowed_apps]" in sidebar_block
     assert "app_options = [APP_HOME_LABEL]" not in sidebar_block
     assert "app_options.append(APP_ADMIN_LABEL)" not in sidebar_block
-    assert "on_change=_clear_portal_page_selection" in sidebar_block
+    assert "_clear_portal_page_selection()" in sidebar_block
 
 
 def test_login_portal_uses_discreet_beta_copy():

@@ -1272,9 +1272,9 @@ def build_heliostock_overview_pdf(
     y = _draw_section_title(canvas, "Besoins et production solaire", x=34, y=y)
     solar_metrics = [
         ("Besoin total", _fmt_mwh_from_kwh(scenario.total_ht_kwh + scenario.total_bt_kwh)),
-        ("Besoin haute température", _fmt_mwh_from_kwh(scenario.total_ht_kwh)),
     ]
     if has_geothermal:
+        solar_metrics.append(("Besoin haute température", _fmt_mwh_from_kwh(scenario.total_ht_kwh)))
         solar_metrics.extend(
             [
                 ("Besoin basse température", _fmt_mwh_from_kwh(scenario.total_bt_kwh)),
@@ -1286,24 +1286,15 @@ def build_heliostock_overview_pdf(
     else:
         solar_metrics.extend(
             [
-                ("Production solaire totale", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
-                ("Production solaire ECS", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
+                ("Production solaire thermique", _fmt_mwh_from_kwh(scenario.total_preheat_ht_kwh)),
                 ("Pertes ballon solaire", _fmt_mwh_from_kwh(_solar_buffer_loss_kwh(scenario))),
                 ("Appoint gaz HT", _fmt_mwh_from_kwh(scenario.total_backup_ht_kwh)),
             ]
         )
-    if abs(float(scenario.total_ht_kwh + scenario.total_bt_kwh) - float(scenario.total_ht_kwh)) <= 1e-6:
-        solar_metrics = [
-            metric for metric in solar_metrics if not str(metric[0]).startswith("Besoin haute")
-        ]
-    if not has_geothermal:
-        solar_metrics = [
-            metric for metric in solar_metrics if str(metric[0]) != "Production solaire ECS"
-        ]
     solar_metrics.extend(
         [
-            ("Épisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
             ("Heures palier haut ballon", _fmt_number(_solar_buffer_at_max_hours(scenario), 0, "h")),
+            ("Épisodes de surchauffe", _fmt_number(_solar_buffer_at_max_episodes(scenario), 0)),
             ("Couverture solaire HT", _fmt_number(scenario.annual_ht_solar_coverage * 100.0, 0, "%")),
             ("Productivité solaire valorisée", _fmt_number(scenario.solar_productivity_valued_kwh_m2_year, 0, "kWh/m².an")),
         ]
