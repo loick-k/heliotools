@@ -65,6 +65,9 @@ def _propagate_project_weather(identity: ProjectIdentity) -> None:
 def _on_location_change(identity: ProjectIdentity) -> None:
     st.session_state.pop("gmi_result", None)
     st.session_state.pop("heliostock_architectural_result", None)
+    st.session_state.pop("heliostock_architectural_analysed_at", None)
+    st.session_state.pop("heliostock_architectural_analysis_latitude", None)
+    st.session_state.pop("heliostock_architectural_analysis_longitude", None)
     _propagate_project_location_to_checks(identity)
     _propagate_project_weather(identity)
 

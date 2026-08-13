@@ -184,7 +184,13 @@ def render_heliostock_hourly() -> pd.DataFrame:
         solar_parametric_tab_label = ""
     calculation_tab_label = f"{len(tab_labels) + 1}. Calcul et résultats"
     tab_labels.append(calculation_tab_label)
-    input_tabs = st.tabs(tab_labels)
+    default_tab = st.session_state.get("heliostock_default_tab")
+    if default_tab not in tab_labels:
+        default_tab = tab_labels[0]
+    try:
+        input_tabs = st.tabs(tab_labels, default=default_tab)
+    except TypeError:
+        input_tabs = st.tabs(tab_labels)
     input_tabs_by_label = dict(zip(tab_labels, input_tabs))
 
     with input_tabs_by_label["1. Projet"]:
@@ -201,7 +207,12 @@ def render_heliostock_hourly() -> pd.DataFrame:
             demand_scope=demand_form.demand_scope,
         )
     with input_tabs_by_label["4. Contraintes architecturales"]:
-        render_architectural_constraints_test(state_prefix="heliostock", show_address_inputs=False, show_map=True)
+        render_architectural_constraints_test(
+            state_prefix="heliostock",
+            show_address_inputs=False,
+            show_map=True,
+            default_tab_after_analysis="4. Contraintes architecturales",
+        )
     if show_geothermal_tabs:
         geothermal_tab_label = next(label for label in tab_labels if label.endswith("PAC géothermie"))
         with input_tabs_by_label[geothermal_tab_label]:

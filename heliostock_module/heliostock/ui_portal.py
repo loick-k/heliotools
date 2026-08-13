@@ -805,6 +805,15 @@ def _clear_project_session_state() -> None:
         "portal_project_to_load",
         "portal_project_name",
         "heliostock_current_project_shared_with",
+        "heliostock_default_tab",
+        "heliostock_architectural_selected_address",
+        "heliostock_architectural_latitude",
+        "heliostock_architectural_longitude",
+        "heliostock_architectural_project_type",
+        "heliostock_architectural_result",
+        "heliostock_architectural_analysed_at",
+        "heliostock_architectural_analysis_latitude",
+        "heliostock_architectural_analysis_longitude",
     ):
         st.session_state.pop(key, None)
 

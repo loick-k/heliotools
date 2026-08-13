@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 import folium
@@ -67,6 +68,9 @@ def _ensure_default_state(prefix: str) -> None:
         "address_candidates": [],
         "selected_address": "",
         "result": None,
+        "analysed_at": "",
+        "analysis_latitude": None,
+        "analysis_longitude": None,
     }
     for name, value in defaults.items():
         st.session_state.setdefault(_state_key(prefix, name), value)
@@ -82,6 +86,9 @@ def current_architectural_constraints_payload(prefix: str) -> dict[str, Any]:
         "longitude": float(st.session_state.get(_state_key(prefix, "longitude"), DEFAULT_LONGITUDE)),
         "project_type": str(st.session_state.get(_state_key(prefix, "project_type")) or PROJECT_TYPES[0]),
         "result": st.session_state.get(_state_key(prefix, "result")),
+        "analysed_at": str(st.session_state.get(_state_key(prefix, "analysed_at")) or ""),
+        "analysis_latitude": st.session_state.get(_state_key(prefix, "analysis_latitude")),
+        "analysis_longitude": st.session_state.get(_state_key(prefix, "analysis_longitude")),
     }
 
 
@@ -101,11 +108,16 @@ def restore_architectural_constraints_payload(prefix: str, payload: dict[str, An
         st.session_state[_state_key(prefix, "project_type")] = str(payload.get("project_type"))
     result = payload.get("result")
     st.session_state[_state_key(prefix, "result")] = result if isinstance(result, dict) else None
+    st.session_state[_state_key(prefix, "analysed_at")] = str(payload.get("analysed_at") or "")
+    for name in ("analysis_latitude", "analysis_longitude"):
+        value = payload.get(name)
+        st.session_state[_state_key(prefix, name)] = float(value) if value is not None else None
 
 
 def _coordinates_changed(prefix: str) -> None:
     st.session_state[_state_key(prefix, "selected_address")] = ""
     st.session_state[_state_key(prefix, "result")] = None
+    st.session_state[_state_key(prefix, "analysed_at")] = ""
 
 
 def _render_category_status(result: dict[str, Any]) -> None:
@@ -254,6 +266,7 @@ def render_architectural_constraints_test(
     state_prefix: str = "shared",
     show_address_inputs: bool = True,
     show_map: bool = True,
+    default_tab_after_analysis: str | None = None,
 ) -> None:
     """Render a preliminary heritage constraint check for solar thermal projects."""
 
@@ -352,14 +365,25 @@ def render_architectural_constraints_test(
                     round(float(latitude), 7),
                     round(float(longitude), 7),
                 )
+                st.session_state[_state_key(state_prefix, "analysed_at")] = datetime.now().isoformat(timespec="seconds")
+                st.session_state[_state_key(state_prefix, "analysis_latitude")] = round(float(latitude), 7)
+                st.session_state[_state_key(state_prefix, "analysis_longitude")] = round(float(longitude), 7)
         except (PatrimoineServiceError, ValueError) as exc:
             st.error(str(exc))
+        else:
+            if default_tab_after_analysis:
+                st.session_state[f"{state_prefix}_default_tab"] = default_tab_after_analysis
+                st.rerun()
 
     result = st.session_state.get(_state_key(state_prefix, "result"))
     if isinstance(result, dict):
         _render_interpretation(result, project_type)
         _render_category_status(result)
         st.write(f"**Configuration étudiée :** {project_type}")
+
+        analysed_at = st.session_state.get(_state_key(state_prefix, "analysed_at"))
+        if analysed_at:
+            st.caption(f"Analyse conservée dans le projet lors du prochain enregistrement : {analysed_at}")
 
         if result.get("errors"):
             with st.expander("Erreurs techniques", expanded=False):
