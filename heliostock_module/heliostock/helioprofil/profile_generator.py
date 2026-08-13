@@ -15,15 +15,14 @@ MONTHS_FR = [
 ]
 WEEKDAYS_FR = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 
-InputMode = Literal["gaz_mensuel", "vehicules_mensuels", "vehicules_annuels", "hybride"]
+InputMode = Literal["gaz_mensuel", "véhicules_mensuels", "véhicules_annuels", "hybride", "target_mensuel"]
 EnergyUnit = Literal["kWh", "MWh", "m3 gaz"]
 CP_WHLK = 1.163
 VEHICLE_COLD_WATER_REFERENCE_C = 15.0
 VEHICLE_ECS_REFERENCE_C = 60.0
 DEFAULT_KWH_PER_VEHICLE = 45.0
-DEFAULT_L_60C_PER_VEHICLE = DEFAULT_KWH_PER_VEHICLE * 1000.0 / (
-    CP_WHLK * (VEHICLE_ECS_REFERENCE_C - VEHICLE_COLD_WATER_REFERENCE_C)
-)
+DEFAULT_L_60C_PER_VEHICLE = 860.0
+DEFAULT_L_60C_PER_EHPAD_RESIDENT_DAY = 15.0
 
 
 @dataclass
@@ -199,11 +198,11 @@ def compute_targets(
         if gas_target is None:
             raise ValueError("Mode gaz mensuel : valeurs mensuelles gaz manquantes.")
         target = gas_target
-    elif config.input_mode == "vehicules_mensuels":
+    elif config.input_mode == "véhicules_mensuels":
         if veh_target is None:
             raise ValueError("Mode véhicules mensuels : valeurs mensuelles véhicules manquantes.")
         target = veh_target
-    elif config.input_mode == "vehicules_annuels":
+    elif config.input_mode == "véhicules_annuels":
         target = monthly_targets_from_vehicles_daily(cal, config)
     elif config.input_mode == "hybride":
         if gas_target is not None:
@@ -215,6 +214,10 @@ def compute_targets(
                 target = target.where(target > 0, veh_target)
         if gas_target is None and veh_target is None:
             target = monthly_targets_from_vehicles_daily(cal, config)
+    elif config.input_mode == "target_mensuel":
+        if gas_target is None:
+            raise ValueError("Mode cible mensuelle : valeurs mensuelles kWh manquantes.")
+        target = gas_target
     else:
         raise ValueError(f"Mode inconnu : {config.input_mode}")
     return target.reindex(idx).fillna(0.0)
@@ -300,13 +303,18 @@ def generate_profile(
     profile_csv: str | Path,
     monthly_gas_values: Iterable[float] | None = None,
     monthly_vehicle_values: Iterable[float] | None = None,
+    monthly_targets_kwh_values: Iterable[float] | None = None,
     custom_closure_text: str = "",
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     cal = make_calendar(config.year, remove_feb_29=config.remove_feb_29)
     closures = parse_closure_text(custom_closure_text)
     cal = apply_closures(cal, config, closures)
     profile = load_profile(profile_csv)
-    targets = compute_targets(cal, config, monthly_gas_values, monthly_vehicle_values)
+    if monthly_targets_kwh_values is None:
+        targets = compute_targets(cal, config, monthly_gas_values, monthly_vehicle_values)
+    else:
+        targets = pd.Series(list(monthly_targets_kwh_values), index=pd.Index(range(1, 13), name="month"))
+        targets = pd.to_numeric(targets, errors="coerce").fillna(0.0).astype(float)
     cal_profile = apply_type_profile(cal, profile)
     generated, bilan = rescale_monthly(cal_profile, targets, config)
     return generated, bilan, profile
@@ -392,6 +400,20 @@ def build_excel_bytes(
         ["Sortie", "100 % du besoin en E besoin HT kWh ; E besoin BT kWh = 0"],
         ["Format HelioStock", "Feuille besoins_8760h avec 8760 lignes et colonnes strictes"],
     ], columns=["Paramètre", "Valeur"])
+
+    if "EHPAD" in config.profile_name:
+        vehicle_mask = hypotheses["Paramètre"].astype(str).str.contains("hicule|nerg", case=False, regex=True)
+        hypotheses = hypotheses.loc[~vehicle_mask].copy()
+        ehpad_rows = pd.DataFrame(
+            [
+                [
+                    "Ratio SOCOL EHPAD",
+                    f"{DEFAULT_L_60C_PER_EHPAD_RESIDENT_DAY:.0f} L équivalent 60 °C/résident/jour",
+                ]
+            ],
+            columns=["Paramètre", "Valeur"],
+        )
+        hypotheses = pd.concat([hypotheses.iloc[:8], ehpad_rows, hypotheses.iloc[8:]], ignore_index=True)
 
     output = BytesIO()
     sheets = {

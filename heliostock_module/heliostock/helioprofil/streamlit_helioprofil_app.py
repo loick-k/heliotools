@@ -8,6 +8,8 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from .profile_generator import (
+    CP_WHLK,
+    DEFAULT_L_60C_PER_EHPAD_RESIDENT_DAY,
     DEFAULT_L_60C_PER_VEHICLE,
     GeneratorConfig,
     MONTHS_FR,
@@ -38,6 +40,22 @@ PROFILE_NOTES = {
         "un profil 8760 h compatible HelioDyn."
     ),
 }
+
+PROFILE_NOTES.update(
+    {
+        "Station de lavage poids lourds": (
+            "Ratio SOCOL retenu : 860 L équivalent 60 °C par véhicule lavé a l'eau chaude. "
+            "Cette valeur est documentee a partir du site Prolavage Poids Lourds a Angers "
+            "et correspond a environ 45 kWh utiles par véhicule avec une eau froide de référence a 15 °C."
+        ),
+        "EHPAD cuisine ECS + lingerie": (
+            "Profil horaire approche depuis la courbe du guide ADEME/COSTIC pour un EHPAD avec cuisine "
+            "alimentée en ECS et lingerie. Ratio SOCOL affiche : 15 L équivalent 60 °C par résident et par jour. "
+            "Si des relevés gaz sont utilises, HelioProfil distingue le besoin ECS utile, un bouclage sanitaire "
+            "estimé depuis le talon estival et un chauffage residuel non exporte dans le profil HelioDyn."
+        ),
+    }
+)
 
 PROFILE_BAR_COLOR = "#22B2A6"
 PROFILE_BAR_LINE = "#486DAC"
@@ -178,9 +196,93 @@ def _default_input_table() -> pd.DataFrame:
             "mois_num": range(1, 13),
             "mois": MONTHS_FR,
             "gaz_mesure": [0.0] * 12,
-            "vehicules": [0.0] * 12,
+            "véhicules": [0.0] * 12,
         }
     )
+
+
+def _ehpad_default_input_table() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "mois_num": range(1, 13),
+            "mois": MONTHS_FR,
+            "gaz_mesure": [0.0] * 12,
+            "volume_l_j": [0.0] * 12,
+        }
+    )
+
+
+def _month_days() -> list[int]:
+    return [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+
+def _volume_l_day_to_kwh_month(volume_l_day: float, days: int, *, cold_water_c: float = 15.0) -> float:
+    delta_t = max(0.0, 60.0 - float(cold_water_c))
+    return max(0.0, float(volume_l_day)) * float(days) * CP_WHLK * delta_t / 1000.0
+
+
+def _ehpad_targets_from_ratio(résidents: float, ratio_l_résident_day: float) -> tuple[list[float], pd.DataFrame]:
+    daily_l = max(0.0, float(résidents)) * max(0.0, float(ratio_l_résident_day))
+    useful = [_volume_l_day_to_kwh_month(daily_l, days) for days in _month_days()]
+    return _ehpad_detail_from_parts(useful, [0.0] * 12, [0.0] * 12)
+
+
+def _ehpad_targets_from_daily_volumes(volumes_l_day: list[float]) -> tuple[list[float], pd.DataFrame]:
+    useful = [
+        _volume_l_day_to_kwh_month(volume, days)
+        for volume, days in zip(volumes_l_day, _month_days())
+    ]
+    return _ehpad_detail_from_parts(useful, [0.0] * 12, [0.0] * 12)
+
+
+def _gas_values_to_useful_kwh(values: list[float], *, gas_unit: str, gas_conversion_kwh_per_m3: float, gas_efficiency: float) -> pd.Series:
+    gas = pd.Series(values, index=range(1, 13), dtype=float).fillna(0.0)
+    if gas_unit == "MWh":
+        gas = gas * 1000.0
+    elif gas_unit == "m3 gaz":
+        gas = gas * gas_conversion_kwh_per_m3
+    return gas * max(0.0, float(gas_efficiency))
+
+
+def _ehpad_targets_from_gas_talon(
+    gas_values: list[float],
+    *,
+    gas_unit: str,
+    gas_conversion_kwh_per_m3: float,
+    gas_efficiency: float,
+    résidents: float,
+    ratio_l_résident_day: float,
+) -> tuple[list[float], pd.DataFrame]:
+    useful, _detail = _ehpad_targets_from_ratio(résidents, ratio_l_résident_day)
+    days = _month_days()
+    useful_from_gas = _gas_values_to_useful_kwh(
+        gas_values,
+        gas_unit=gas_unit,
+        gas_conversion_kwh_per_m3=gas_conversion_kwh_per_m3,
+        gas_efficiency=gas_efficiency,
+    )
+    summer_months = [6, 7, 8, 9]
+    gas_daily_talon = min((float(useful_from_gas.loc[m]) / days[m - 1] for m in summer_months), default=0.0)
+    useful_daily_talon = min((float(useful[m - 1]) / days[m - 1] for m in summer_months), default=0.0)
+    loop_daily = max(0.0, gas_daily_talon - useful_daily_talon)
+    loop = [loop_daily * d for d in days]
+    target = [u + b for u, b in zip(useful, loop)]
+    heating = [max(0.0, float(useful_from_gas.loc[m]) - target[m - 1]) for m in range(1, 13)]
+    return _ehpad_detail_from_parts(useful, loop, heating)
+
+
+def _ehpad_detail_from_parts(useful: list[float], loop: list[float], heating: list[float]) -> tuple[list[float], pd.DataFrame]:
+    target = [float(u) + float(b) for u, b in zip(useful, loop)]
+    detail = pd.DataFrame(
+        {
+            "mois": MONTHS_FR,
+            "Besoin ECS utile (kWh)": useful,
+            "Bouclage sanitaire estimé (kWh)": loop,
+            "Chauffage residuel estimé (kWh)": heating,
+            "Cible exportée HelioDyn (kWh)": target,
+        }
+    )
+    return target, detail
 
 
 def _niort_demo_table() -> pd.DataFrame:
@@ -202,7 +304,7 @@ def _niort_demo_table() -> pd.DataFrame:
                 19102.195431,
                 23998.9675266,
             ],
-            "vehicules": [0.0] * 12,
+            "véhicules": [0.0] * 12,
         }
     )
 
@@ -210,9 +312,12 @@ def _niort_demo_table() -> pd.DataFrame:
 def _input_mode_from_label(label: str) -> str:
     return {
         "Relevés mensuels gaz": "gaz_mensuel",
-        "Véhicules mensuels": "vehicules_mensuels",
-        "Véhicules annuels / véhicules par jour": "vehicules_annuels",
+        "Véhicules mensuels": "véhicules_mensuels",
+        "Véhicules annuels / véhicules par jour": "véhicules_annuels",
         "Hybride": "hybride",
+        "Ratio SOCOL résidents": "ehpad_ratio_socol",
+        "Profil L/jour moyen": "ehpad_l_jour",
+        "Releves gaz avec talon": "ehpad_gaz_talon",
     }[label]
 
 
@@ -220,8 +325,12 @@ def _input_columns_for_mode(input_mode: str) -> list[str]:
     columns = ["mois_num", "mois"]
     if input_mode in {"gaz_mensuel", "hybride"}:
         columns.append("gaz_mesure")
-    if input_mode in {"vehicules_mensuels", "hybride"}:
-        columns.append("vehicules")
+    if input_mode in {"véhicules_mensuels", "hybride"}:
+        columns.append("véhicules")
+    if input_mode == "ehpad_gaz_talon":
+        columns.append("gaz_mesure")
+    if input_mode == "ehpad_l_jour":
+        columns.append("volume_l_j")
     return columns
 
 
@@ -273,30 +382,65 @@ def render_helioprofil_app() -> None:
             value=60.0,
             step=1.0,
         )
-        mode_label = st.radio(
-            "Mode de recalage",
-            [
-                "Relevés mensuels gaz",
-                "Véhicules mensuels",
-                "Véhicules annuels / véhicules par jour",
-                "Hybride",
-            ],
-            index=0,
-        )
+        is_ehpad_profile = profile_name == "EHPAD cuisine ECS + lingerie"
+        if is_ehpad_profile:
+            mode_label = st.radio(
+                "Mode de recalage EHPAD",
+                [
+                    "Ratio SOCOL résidents",
+                    "Profil L/jour moyen",
+                    "Releves gaz avec talon",
+                ],
+                index=0,
+            )
+        else:
+            mode_label = st.radio(
+                "Mode de recalage",
+                [
+                    "Relevés mensuels gaz",
+                    "Véhicules mensuels",
+                    "Véhicules annuels / véhicules par jour",
+                    "Hybride",
+                ],
+                index=0,
+            )
         input_mode = _input_mode_from_label(mode_label)
 
         gas_conversion = float(GeneratorConfig().gas_conversion_kwh_per_m3)
         gas_efficiency = 0.75
         gas_unit = "kWh"
         l_60c_per_vehicle = float(DEFAULT_L_60C_PER_VEHICLE)
+        l_60c_per_ehpad_résident_day = float(DEFAULT_L_60C_PER_EHPAD_RESIDENT_DAY)
+        ehpad_résidents = 80
         vehicles_per_day = 13.0
 
         uses_gas_readings = input_mode in {"gaz_mensuel", "hybride"}
-        uses_monthly_vehicles = input_mode in {"vehicules_mensuels", "hybride"}
-        uses_daily_vehicles = input_mode == "vehicules_annuels"
-        uses_vehicle_ratio = uses_monthly_vehicles or uses_daily_vehicles
+        uses_ehpad_gas_talon = input_mode == "ehpad_gaz_talon"
+        uses_monthly_vehicles = input_mode in {"véhicules_mensuels", "hybride"}
+        uses_daily_vehicles = input_mode == "véhicules_annuels"
+        uses_vehicle_ratio = (uses_monthly_vehicles or uses_daily_vehicles) and not is_ehpad_profile
 
-        if uses_gas_readings:
+        if is_ehpad_profile:
+            st.markdown("**Recalage EHPAD**")
+            ehpad_résidents = int(
+                st.number_input(
+                    "Nombre de résidents",
+                    min_value=1,
+                    max_value=5000,
+                    value=80,
+                    step=1,
+                )
+            )
+            l_60c_per_ehpad_résident_day = st.number_input(
+                "Ratio SOCOL (L équivalent 60 °C / résident / jour)",
+                min_value=1.0,
+                max_value=200.0,
+                value=float(DEFAULT_L_60C_PER_EHPAD_RESIDENT_DAY),
+                step=1.0,
+                help="Ratio affiché pour le profil EHPAD cuisine ECS + lingerie. Il sert de base si aucune mesure directe n'est disponible.",
+            )
+
+        if uses_gas_readings or uses_ehpad_gas_talon:
             st.markdown("**Recalage par relevés gaz**")
             gas_efficiency = st.number_input(
                 "Rendement gaz estimé",
@@ -353,13 +497,16 @@ def render_helioprofil_app() -> None:
 
     with right:
         st.subheader("Données mensuelles")
-        if st.button("Charger l'exemple Niort 2025", type="secondary"):
+        if not is_ehpad_profile and st.button("Charger l'exemple Niort 2025", type="secondary"):
             st.session_state["helioprofil_input_table"] = _niort_demo_table()
 
         if "helioprofil_input_table" not in st.session_state:
             st.session_state["helioprofil_input_table"] = _default_input_table()
 
         base_input_table = st.session_state["helioprofil_input_table"]
+        for required_column in ("gaz_mesure", "véhicules", "volume_l_j"):
+            if required_column not in base_input_table.columns:
+                base_input_table[required_column] = 0.0
         visible_columns = _input_columns_for_mode(input_mode)
         visible_input_table = base_input_table[visible_columns].copy()
         column_config = {
@@ -372,14 +519,33 @@ def render_helioprofil_app() -> None:
                 help="Selon l'unité choisie dans les paramètres.",
                 format="%.2f",
             )
-        if "vehicules" in visible_columns:
-            column_config["vehicules"] = st.column_config.NumberColumn(
+        if "véhicules" in visible_columns:
+            column_config["véhicules"] = st.column_config.NumberColumn(
                 "Véhicules",
                 help="Nombre mensuel de véhicules.",
                 format="%.2f",
             )
 
-        if input_mode == "vehicules_annuels":
+        if "volume_l_j" in visible_columns:
+            column_config["volume_l_j"] = st.column_config.NumberColumn(
+                "Volume ECS utile (L/jour moyen)",
+                help="Volume journalier moyen d'ECS utile du mois.",
+                format="%.1f",
+            )
+
+        if input_mode == "ehpad_ratio_socol":
+            st.info(
+                "Ce mode utilise uniquement le nombre de résidents et le ratio SOCOL. "
+                "Aucune saisie mensuelle n'est nécessaire."
+            )
+            st.dataframe(
+                visible_input_table,
+                width="stretch",
+                column_config=column_config,
+                hide_index=True,
+            )
+            input_table = base_input_table
+        elif input_mode == "véhicules_annuels":
             st.info(
                 "Ce mode utilise le nombre de véhicules par jour ouvert et le calendrier de fermetures. "
                 "Aucune saisie mensuelle n'est nécessaire."
@@ -402,6 +568,7 @@ def render_helioprofil_app() -> None:
             input_table = _merge_visible_input_table(base_input_table, edited_visible_input_table)
         st.session_state["helioprofil_input_table"] = input_table
 
+    generator_input_mode = "target_mensuel" if is_ehpad_profile else input_mode
     config = GeneratorConfig(
         year=int(year),
         profile_name=profile_name,
@@ -411,7 +578,7 @@ def render_helioprofil_app() -> None:
         gas_conversion_kwh_per_m3=gas_conversion,
         l_60c_per_vehicle=float(l_60c_per_vehicle),
         vehicles_per_day=float(vehicles_per_day),
-        input_mode=input_mode,
+        input_mode=generator_input_mode,
         close_weekends=bool(close_weekends),
         close_french_holidays=bool(close_holidays),
         compensate_closed_days=True,
@@ -420,13 +587,36 @@ def render_helioprofil_app() -> None:
     )
 
     try:
+        monthly_targets_kwh = None
+        ehpad_detail_df = None
         monthly_gas = input_table["gaz_mesure"].tolist()
-        monthly_vehicles = input_table["vehicules"].tolist()
-        if input_mode == "gaz_mensuel":
-            monthly_vehicles = None
-        elif input_mode == "vehicules_mensuels":
+        monthly_vehicles = input_table["véhicules"].tolist()
+        if is_ehpad_profile:
             monthly_gas = None
-        elif input_mode == "vehicules_annuels":
+            monthly_vehicles = None
+            if input_mode == "ehpad_ratio_socol":
+                monthly_targets_kwh, ehpad_detail_df = _ehpad_targets_from_ratio(
+                    ehpad_résidents,
+                    l_60c_per_ehpad_résident_day,
+                )
+            elif input_mode == "ehpad_l_jour":
+                monthly_targets_kwh, ehpad_detail_df = _ehpad_targets_from_daily_volumes(
+                    input_table["volume_l_j"].tolist()
+                )
+            elif input_mode == "ehpad_gaz_talon":
+                monthly_targets_kwh, ehpad_detail_df = _ehpad_targets_from_gas_talon(
+                    input_table["gaz_mesure"].tolist(),
+                    gas_unit=gas_unit,
+                    gas_conversion_kwh_per_m3=gas_conversion,
+                    gas_efficiency=gas_efficiency,
+                    résidents=ehpad_résidents,
+                    ratio_l_résident_day=l_60c_per_ehpad_résident_day,
+                )
+        elif input_mode == "gaz_mensuel":
+            monthly_vehicles = None
+        elif input_mode == "véhicules_mensuels":
+            monthly_gas = None
+        elif input_mode == "véhicules_annuels":
             monthly_gas = None
             monthly_vehicles = None
 
@@ -435,6 +625,7 @@ def render_helioprofil_app() -> None:
             profile_csv=PROFILE_LIBRARY[profile_name],
             monthly_gas_values=monthly_gas,
             monthly_vehicle_values=monthly_vehicles,
+            monthly_targets_kwh_values=monthly_targets_kwh,
             custom_closure_text=custom_closures,
         )
 
@@ -453,6 +644,31 @@ def render_helioprofil_app() -> None:
         c2.metric("Pic horaire", f"{peak_kw:.0f} kW")
         c3.metric("Jours ouverts", f"{open_days}")
         c4.metric("Jours fermés", f"{closed_days}")
+
+        if ehpad_detail_df is not None:
+            st.subheader("Décomposition EHPAD")
+            useful_mwh = ehpad_detail_df["Besoin ECS utile (kWh)"].sum() / 1000.0
+            loop_mwh = ehpad_detail_df["Bouclage sanitaire estimé (kWh)"].sum() / 1000.0
+            heating_mwh = ehpad_detail_df["Chauffage residuel estimé (kWh)"].sum() / 1000.0
+            target_mwh = ehpad_detail_df["Cible exportée HelioDyn (kWh)"].sum() / 1000.0
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Besoin ECS utile", f"{useful_mwh:.1f} MWh")
+            d2.metric("Bouclage sanitaire estimé", f"{loop_mwh:.1f} MWh")
+            d3.metric("Chauffage résiduel estimé", f"{heating_mwh:.1f} MWh")
+            d4.metric("Cible exportée HelioDyn", f"{target_mwh:.1f} MWh")
+            detail_display = ehpad_detail_df.copy()
+            for col in detail_display.columns:
+                if col != "mois":
+                    detail_display[col] = (detail_display[col] / 1000.0).round(2)
+            detail_display = detail_display.rename(
+                columns={
+                    "Besoin ECS utile (kWh)": "Besoin ECS utile (MWh)",
+                    "Bouclage sanitaire estimé (kWh)": "Bouclage sanitaire estimé (MWh)",
+                    "Chauffage residuel estimé (kWh)": "Chauffage résiduel estimé (MWh)",
+                    "Cible exportée HelioDyn (kWh)": "Cible exportée HelioDyn (MWh)",
+                }
+            )
+            st.dataframe(detail_display, width="stretch", hide_index=True)
 
         st.subheader("Graphiques de contrôle")
         selected_section = st.radio(
