@@ -35,6 +35,13 @@ def _is_solar_ht_only(demand_scope: str) -> bool:
     return str(demand_scope or "").lower() == "ht_only"
 
 
+def _format_payback_years(value: object) -> str:
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.isna(numeric) or not math.isfinite(float(numeric)):
+        return "Non atteint"
+    return f"{float(numeric):.1f} ans"
+
+
 def _filter_solar_only_scenarios(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty or "Scenario" not in df.columns:
         return df
@@ -164,6 +171,14 @@ def render_economics_tab(
             "Lecture : comparaison entre une référence 100 % appoint gaz et le scénario solaire thermique haute "
             "température avec appoint gaz en complément. Les coûts sont calculés sans PAC géothermique, sans champ "
             "de sondes et sans recharge BTES."
+        )
+        solar_row = _filter_solar_only_scenarios(economic_comparison_df)
+        solar_row = solar_row[solar_row["Scenario"].astype(str) == "Solaire thermique + appoint gaz"]
+        payback_value = solar_row["Temps retour brut (ans)"].iloc[0] if not solar_row.empty and "Temps retour brut (ans)" in solar_row else math.nan
+        st.metric(
+            "Temps de retour brut",
+            _format_payback_years(payback_value),
+            help="Calcul repris du module économique partagé : CAPEX net solaire / économies annuelles brutes.",
         )
     else:
         st.markdown("### Comparaison économique des 4 scénarios")

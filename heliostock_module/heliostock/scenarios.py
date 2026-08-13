@@ -977,6 +977,9 @@ def run_hourly_scenario(
         economic_comparison_df.loc[solar_mask, "Cout chaleur global (EUR/MWh)"] = (
             p1_cumulative + p2_cumulative + p4_cumulative
         ) / max(1e-9, delivered_cumulative_mwh)
+        economic_comparison_df.loc[solar_mask, "Temps retour brut (ans)"] = float(
+            solar_economics.get("payback_years", float("nan"))
+        )
     economic_comparison_df["Méthode coût chaleur"] = "Multiannuel nominal" if run_multiyear else "Annuel nominal"
     economic_comparison_chart_df = economic_comparison_df.melt(
         id_vars=["Scenario"],
