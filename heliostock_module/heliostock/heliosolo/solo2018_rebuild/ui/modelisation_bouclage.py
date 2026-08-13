@@ -20,46 +20,61 @@ PERTES_BOUCLE_LABELS_LEGACY = {
 
 def render_bouclage_block(bouclage_block_container, mode_meteo_verification: bool) -> BouclageState:
     with bouclage_block_container.expander("3) Bouclage sanitaire", expanded=True):
-        st.caption(
-            "Sans calibration de cette référence au type de bâtiment, les pertes de bouclage "
-            "peuvent être fortement biaisées."
-        )
-
         c_b1, c_b2 = st.columns(2)
+        type_bouclage_options = [
+            "Aucun bouclage sanitaire",
+            "Sans apport solaire au bouclage",
+            "Avec apport solaire indirect au bouclage",
+        ]
+        default_type_bouclage_label = (
+            "Sans apport solaire au bouclage"
+            if mode_meteo_verification
+            else "Avec apport solaire indirect au bouclage"
+        )
         type_bouclage_label = c_b1.selectbox(
             "Type de bouclage",
-            options=["Sans apport solaire au bouclage", "Avec apport solaire indirect au bouclage"],
-            index=0 if mode_meteo_verification else 1,
+            options=type_bouclage_options,
+            index=type_bouclage_options.index(default_type_bouclage_label),
             key="type_bouclage_label",
         )
-        type_bouclage = "aucun_apport" if type_bouclage_label.startswith("Sans") else "apport_indirect"
+        has_bouclage = type_bouclage_label != "Aucun bouclage sanitaire"
+        type_bouclage = "apport_indirect" if type_bouclage_label.startswith("Avec") else "aucun_apport"
         if st.session_state.get("mode_pertes_boucle_label") in PERTES_BOUCLE_LABELS_LEGACY:
             st.session_state["mode_pertes_boucle_label"] = PERTES_BOUCLE_LABELS_LEGACY[
                 st.session_state["mode_pertes_boucle_label"]
             ]
-        mode_pertes_boucle_label = c_b2.selectbox(
-            "Calcul des pertes de bouclage",
-            options=[
-                "Pas de pertes de bouclage",
-                "Saisie pertes (kWh/j)",
-                "Débit et delta T connus",
-                "Longueur et isolation connues",
-                "Boucle courte bien isolée",
-                "Boucle qualité moyenne",
-                "Boucle longue mal isolée",
-            ],
-            index=0,
-            key="mode_pertes_boucle_label",
-        )
-        mode_pertes_boucle = {
-            "Pas de pertes de bouclage": "aucune",
-            "Saisie pertes (kWh/j)": "saisie_kwh_j",
-            "Débit et delta T connus": "debit_delta",
-            "Longueur et isolation connues": "long_kl",
-            "Boucle courte bien isolée": "bon",
-            "Boucle qualité moyenne": "moyen",
-            "Boucle longue mal isolée": "mauvais",
-        }[mode_pertes_boucle_label]
+        if has_bouclage:
+            st.caption(
+                "Sans calibration de cette référence au type de bâtiment, les pertes de bouclage "
+                "peuvent être fortement biaisées."
+            )
+            mode_pertes_boucle_label = c_b2.selectbox(
+                "Calcul des pertes de bouclage",
+                options=[
+                    "Pas de pertes de bouclage",
+                    "Saisie pertes (kWh/j)",
+                    "Débit et delta T connus",
+                    "Longueur et isolation connues",
+                    "Boucle courte bien isolée",
+                    "Boucle qualité moyenne",
+                    "Boucle longue mal isolée",
+                ],
+                index=0,
+                key="mode_pertes_boucle_label",
+            )
+            mode_pertes_boucle = {
+                "Pas de pertes de bouclage": "aucune",
+                "Saisie pertes (kWh/j)": "saisie_kwh_j",
+                "Débit et delta T connus": "debit_delta",
+                "Longueur et isolation connues": "long_kl",
+                "Boucle courte bien isolée": "bon",
+                "Boucle qualité moyenne": "moyen",
+                "Boucle longue mal isolée": "mauvais",
+            }[mode_pertes_boucle_label]
+        else:
+            c_b2.caption("Aucun réseau de bouclage sanitaire déclaré.")
+            mode_pertes_boucle_label = "Pas de pertes de bouclage"
+            mode_pertes_boucle = "aucune"
 
         debit_bouclage_l_h = 0.0
         delta_tmax_bouclage_k = 0.0
@@ -76,7 +91,10 @@ def render_bouclage_block(bouclage_block_container, mode_meteo_verification: boo
         pertes_boucle_monthly_map: dict[str, float] = {
             m: float(st.session_state["pertes_boucle_monthly_map_state"].get(m, 0.0)) for m in MONTHS
         }
-        if mode_pertes_boucle == "saisie_kwh_j":
+        if not has_bouclage:
+            pertes_boucle_monthly_map = {m: 0.0 for m in MONTHS}
+            st.session_state["pertes_boucle_monthly_map_state"] = dict(pertes_boucle_monthly_map)
+        elif mode_pertes_boucle == "saisie_kwh_j":
             c_bs1, c_bs2 = st.columns(2)
             pertes_boucle_mode_saisie = c_bs1.selectbox(
                 "Mode de saisie des pertes",
@@ -115,23 +133,23 @@ def render_bouclage_block(bouclage_block_container, mode_meteo_verification: boo
                     for r in pertes_edit.to_dict(orient="records")
                 }
             st.session_state["pertes_boucle_monthly_map_state"] = dict(pertes_boucle_monthly_map)
-        if mode_pertes_boucle == "debit_delta":
+        if has_bouclage and mode_pertes_boucle == "debit_delta":
             c_bd1, c_bd2 = st.columns(2)
             debit_bouclage_l_h = c_bd1.number_input("Débit de bouclage (L/h)", min_value=0.0, value=300.0, step=10.0)
             delta_tmax_bouclage_k = c_bd2.number_input("Delta T max bouclage (degC)", min_value=0.0, value=5.0, step=0.5)
-        elif mode_pertes_boucle == "long_kl":
+        elif has_bouclage and mode_pertes_boucle == "long_kl":
             c_bl1, c_bl2 = st.columns(2)
             long_bouclage_m = c_bl1.number_input("Longueur de boucle (m)", min_value=0.0, value=120.0, step=5.0)
             kl_bouclage_w_m_k = c_bl2.number_input("Perte linéique boucle (W/m/degC)", min_value=0.0, value=0.3, step=0.01, format="%.2f")
-        elif mode_pertes_boucle == "bon":
+        elif has_bouclage and mode_pertes_boucle == "bon":
             c_bb1, c_bb2 = st.columns(2)
             long1_boucle_bon_m_par_unite = c_bb1.number_input("Longueur boucle par unité (m/unité)", min_value=0.0, value=solo_v0_mod.LONG1_BOUCLE_BON_M_PAR_LGT, step=0.1)
             kl_boucle_bon_w_m_k = c_bb2.number_input("Perte linéique boucle (W/m/degC)", min_value=0.0, value=solo_v0_mod.KL_BOUCLE_BON_W_M_K, step=0.01, format="%.2f")
-        elif mode_pertes_boucle == "moyen":
+        elif has_bouclage and mode_pertes_boucle == "moyen":
             c_bm1, c_bm2 = st.columns(2)
             long1_boucle_moyen_m_par_unite = c_bm1.number_input("Longueur boucle par unité (m/unité)", min_value=0.0, value=solo_v0_mod.LONG1_BOUCLE_MOYEN_M_PAR_LGT, step=0.1)
             kl_boucle_moyen_w_m_k = c_bm2.number_input("Perte linéique boucle (W/m/degC)", min_value=0.0, value=solo_v0_mod.KL_BOUCLE_MOYEN_W_M_K, step=0.01, format="%.2f")
-        elif mode_pertes_boucle == "mauvais":
+        elif has_bouclage and mode_pertes_boucle == "mauvais":
             c_bv1, c_bv2 = st.columns(2)
             long1_boucle_mauvais_m_par_unite = c_bv1.number_input("Longueur boucle par unité (m/unité)", min_value=0.0, value=solo_v0_mod.LONG1_BOUCLE_MAUVAIS_M_PAR_LGT, step=0.1)
             kl_boucle_mauvais_w_m_k = c_bv2.number_input("Perte linéique boucle (W/m/degC)", min_value=0.0, value=solo_v0_mod.KL_BOUCLE_MAUVAIS_W_M_K, step=0.01, format="%.2f")

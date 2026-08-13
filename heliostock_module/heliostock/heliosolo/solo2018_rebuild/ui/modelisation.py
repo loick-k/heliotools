@@ -237,7 +237,10 @@ def render_modelisation(context: ModelisationContext) -> ResultatsContext:
             coeff3_ci=coeff3_ci,
             algo_corr_incidence=algo_corr_incidence,
         )
-        if mode_pertes_boucle == "saisie_kwh_j":
+        if type_bouclage_label == "Aucun bouclage sanitaire":
+            pertes_bouclage_preview_mwh_an = 0.0
+            bouclage_pertes_placeholder.empty()
+        elif mode_pertes_boucle == "saisie_kwh_j":
             pertes_bouclage_preview_mwh_an = float(
                 sum(float(pertes_boucle_monthly_map.get(m, 0.0)) * d for m, d in zip(MONTHS, DAYS_BY_MONTH))
             ) / 1000.0
@@ -246,9 +249,10 @@ def render_modelisation(context: ModelisationContext) -> ResultatsContext:
                 rows=rows_preview,
                 installation=installation_preview,
             )
-        bouclage_pertes_placeholder.caption(
-            f"Estimation pertes de bouclage: {_fmt_num(pertes_bouclage_preview_mwh_an, 3)} MWh/an"
-        )
+        if type_bouclage_label != "Aucun bouclage sanitaire":
+            bouclage_pertes_placeholder.caption(
+                f"Estimation pertes de bouclage: {_fmt_num(pertes_bouclage_preview_mwh_an, 3)} MWh/an"
+            )
     except Exception:
         bouclage_pertes_placeholder.caption("Estimation pertes de bouclage: -")
 
