@@ -142,41 +142,34 @@ def render_besoins_block(mode_meteo_verification: bool, meteo_impose_map: dict) 
                     step=0.5,
                     format="%.1f",
                 )
-            with st.form("monthly_profiles_form", clear_on_submit=False):
-                monthly_profiles_edit = st.data_editor(
-                    monthly_profiles_df,
-                    num_rows="fixed",
-                    width="stretch",
-                    hide_index=True,
-                    disabled=["Mois"],
-                    column_config=monthly_column_config,
-                    key="monthly_profiles_editor",
-                )
-                monthly_profiles_submitted = st.form_submit_button(
-                    "Valider les valeurs mensuelles",
-                    width="stretch",
-                )
-            if monthly_profiles_submitted:
-                monthly_records = monthly_profiles_edit.to_dict(orient="records")
-                if "Temperature EF (degC)" in monthly_profiles_edit.columns:
-                    tef_monthly_map = {
-                        str(r["Mois"]): _to_float(r["Temperature EF (degC)"], 12.0)
-                        for r in monthly_records
-                    }
-                    st.session_state["tef_monthly_map_state"] = dict(tef_monthly_map)
-                if "VECS (L/j)" in monthly_profiles_edit.columns:
-                    vecs_monthly_map = {
-                        str(r["Mois"]): _to_float(r["VECS (L/j)"], 1500.0)
-                        for r in monthly_records
-                    }
-                    st.session_state["vecs_monthly_map_state"] = dict(vecs_monthly_map)
-                if "Temperature ECS (degC)" in monthly_profiles_edit.columns:
-                    tecs_monthly_map = {
-                        str(r["Mois"]): _to_float(r["Temperature ECS (degC)"], 60.0)
-                        for r in monthly_records
-                    }
-                    st.session_state["tecs_monthly_map_state"] = dict(tecs_monthly_map)
-                st.success("Valeurs mensuelles mises à jour.")
+            monthly_profiles_edit = st.data_editor(
+                monthly_profiles_df,
+                num_rows="fixed",
+                width="stretch",
+                hide_index=True,
+                disabled=["Mois"],
+                column_config=monthly_column_config,
+                key="monthly_profiles_editor",
+            )
+            monthly_records = monthly_profiles_edit.to_dict(orient="records")
+            if "Temperature EF (degC)" in monthly_profiles_edit.columns:
+                tef_monthly_map = {
+                    str(r["Mois"]): _to_float(r["Temperature EF (degC)"], 12.0)
+                    for r in monthly_records
+                }
+                st.session_state["tef_monthly_map_state"] = dict(tef_monthly_map)
+            if "VECS (L/j)" in monthly_profiles_edit.columns:
+                vecs_monthly_map = {
+                    str(r["Mois"]): _to_float(r["VECS (L/j)"], 1500.0)
+                    for r in monthly_records
+                }
+                st.session_state["vecs_monthly_map_state"] = dict(vecs_monthly_map)
+            if "Temperature ECS (degC)" in monthly_profiles_edit.columns:
+                tecs_monthly_map = {
+                    str(r["Mois"]): _to_float(r["Temperature ECS (degC)"], 60.0)
+                    for r in monthly_records
+                }
+                st.session_state["tecs_monthly_map_state"] = dict(tecs_monthly_map)
 
         st.markdown("**Eau froide**")
         c_ef1, c_ef2 = st.columns(2)
