@@ -8,6 +8,7 @@ from typing import Callable
 from .btes_models import create_btes_model
 from .engine import (
     BtesConfig,
+    CALCULATION_MODE_SOLAR_HT_ONLY,
     CollectorConfig,
     HeatPumpConfig,
     MonthlyDemand,
@@ -376,7 +377,14 @@ def simulate_hourly(
         if drainback_protection_day_key != current_day_key:
             drainback_protection_active = False
             drainback_protection_day_key = current_day_key
-        drainback_mode = collector.solar_loop_mode == "drainback_test"
+        # Le mode autovidangeable de test represente une mise en protection
+        # apres surchauffe du ballon solaire. Il ne s'applique qu'au solaire
+        # thermique seul : en couplage HelioStock, le surplus doit rester
+        # disponible pour la redirection vers le stockage geothermique.
+        drainback_mode = (
+            collector.solar_loop_mode == "drainback_test"
+            and config.calculation_mode == CALCULATION_MODE_SOLAR_HT_ONLY
+        )
         if hourly_demand_override is not None:
             demand_ht, demand_bt = hourly_demand_override.get(w.hour_index, (0.0, 0.0))
         else:

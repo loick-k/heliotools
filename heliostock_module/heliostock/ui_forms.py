@@ -481,10 +481,16 @@ def render_solar_form(*, process_ht_target_c: float, demand_scope: str = "ht_bt"
         )
         solar_loop_mode = "drainback_test" if solar_loop_mode_label == "Autovidangeable" else "pressurized"
         if solar_loop_mode == "drainback_test":
-            st.warning(
-                "Mode autovidangeable en test : lorsqu'une surchauffe est détectée, "
-                "la production solaire vers le ballon est bloquée jusqu'à minuit."
-            )
+            if demand_scope == "ht_only":
+                st.warning(
+                    "Mode autovidangeable en test : lorsqu'une surchauffe est détectée, "
+                    "la production solaire vers le ballon est bloquée jusqu'à minuit."
+                )
+            else:
+                st.info(
+                    "En mode couplé HelioStock, l'autovidangeable ne bloque pas le surplus : "
+                    "la ressource solaire restante peut être redirigée vers le stockage géothermique."
+                )
         daily_buffer_ambient_temp_c = c9.number_input("T° ambiance ballon (°C)", min_value=0.0, max_value=40.0, value=20.0, step=1.0, key="solar_daily_buffer_ambient_temp_c")
         buffer_max_label = (
             "Tmax ballon solaire (°C)"
