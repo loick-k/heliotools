@@ -34,29 +34,18 @@ PROFILE_THEMES_COMING_SOON = [
     "Industrie avec besoin process",
 ]
 PROFILE_NOTES = {
+    "Station de lavage poids lourds": (
+        "Ratio SOCOL retenu : 860 L équivalent 60 °C par véhicule lavé à l'eau chaude. "
+        "Cette valeur est documentée à partir du site Prolavage Poids Lourds à Angers et correspond "
+        "à environ 45 kWh utiles par véhicule avec une eau froide de référence à 15 °C."
+    ),
     "EHPAD cuisine ECS + lingerie": (
-        "Profil horaire approché depuis la courbe ADEME/COSTIC au pas de 10 minutes pour un EHPAD "
-        "avec cuisine alimentée en ECS et lingerie. Les valeurs sont agrégées à l'heure pour produire "
-        "un profil 8760 h compatible HelioDyn."
+        "Profil horaire approché depuis la courbe du guide ADEME/COSTIC pour un EHPAD avec cuisine "
+        "alimentée en ECS et lingerie. Ratio SOCOL affiché : 15 L équivalent 60 °C par résident et par jour. "
+        "Si des relevés gaz sont utilisés, HelioProfil distingue le besoin ECS utile, un bouclage sanitaire "
+        "estimé depuis le talon estival et un chauffage résiduel non exporté dans le profil HelioDyn."
     ),
 }
-
-PROFILE_NOTES.update(
-    {
-        "Station de lavage poids lourds": (
-            "Ratio SOCOL retenu : 860 L équivalent 60 °C par véhicule lavé a l'eau chaude. "
-            "Cette valeur est documentee a partir du site Prolavage Poids Lourds a Angers "
-            "et correspond a environ 45 kWh utiles par véhicule avec une eau froide de référence a 15 °C."
-        ),
-        "EHPAD cuisine ECS + lingerie": (
-            "Profil horaire approche depuis la courbe du guide ADEME/COSTIC pour un EHPAD avec cuisine "
-            "alimentée en ECS et lingerie. Ratio SOCOL affiche : 15 L équivalent 60 °C par résident et par jour. "
-            "Si des relevés gaz sont utilises, HelioProfil distingue le besoin ECS utile, un bouclage sanitaire "
-            "estimé depuis le talon estival et un chauffage residuel non exporte dans le profil HelioDyn."
-        ),
-    }
-)
-
 PROFILE_BAR_COLOR = "#22B2A6"
 PROFILE_BAR_LINE = "#486DAC"
 PROFILE_GRID_COLOR = "#D9E1EF"
@@ -342,15 +331,40 @@ def _merge_visible_input_table(previous: pd.DataFrame, edited_visible: pd.DataFr
     return merged
 
 
-def render_helioprofil_app() -> None:
-    """Render HelioProfil inside the HelioTools portal."""
+def _render_helioprofil_notice() -> None:
+    st.subheader("Notice HelioProfil")
+    st.markdown(
+        """
+HelioProfil genere un profil de puissance horaire 8760 h a partir d'un profil type, d'une saisonnalite
+mensuelle et d'un recalage annuel ou mensuel. Le fichier exporte est destine a alimenter HelioDyn avec
+un besoin horaire haute temperature.
 
-    st.title("HelioProfil")
-    st.caption(
-        "Générateur de profils horaires 8760 h pour créer un fichier Excel de besoins process "
-        "compatible avec HelioDyn."
+L'annee calendrier de reference sert uniquement a positionner les jours de semaine, week-ends, jours
+feries et periodes de fermeture. Elle ne constitue pas une hypothese meteo.
+"""
     )
 
+    st.markdown("### Sources et ratios")
+    for profile_name, note in PROFILE_NOTES.items():
+        st.markdown(f"**{profile_name}**")
+        st.write(note)
+
+    st.markdown("### Profils prevus")
+    st.write(
+        "Les thematiques Logement, Hebergement collectif, Equipement sportif, Restauration collective "
+        "et Industrie avec besoin process sont affichees comme pistes futures, mais ne sont pas encore "
+        "activables dans cette version."
+    )
+
+    st.markdown("### Limites")
+    st.write(
+        "Les profils fournis sont des profils de pre-dimensionnement. Ils ne remplacent pas un comptage "
+        "horaire reel lorsque celui-ci existe. Les coefficients horaires decrivent la forme de la demande ; "
+        "le niveau energetique final depend du recalage saisi par l'utilisateur."
+    )
+
+
+def _render_helioprofil_generator() -> None:
     left, right = st.columns([1, 2], gap="large")
 
     with left:
@@ -367,8 +381,6 @@ def render_helioprofil_app() -> None:
             ),
         )
         profile_name = st.selectbox("Profil type", list(PROFILE_LIBRARY.keys()), index=0)
-        if profile_name in PROFILE_NOTES:
-            st.caption(PROFILE_NOTES[profile_name])
         st.caption("Thématiques à venir, non disponibles dans cette version :")
         for unavailable_profile in PROFILE_THEMES_COMING_SOON:
             st.markdown(
@@ -821,3 +833,19 @@ def render_helioprofil_app() -> None:
     except Exception as exc:
         st.error("HelioProfil n'a pas pu générer le profil.")
         st.exception(exc)
+
+
+def render_helioprofil_app() -> None:
+    """Render HelioProfil inside the HelioTools portal."""
+
+    st.title("HelioProfil")
+    st.caption(
+        "Générateur de profils horaires 8760 h pour créer un fichier Excel de besoins process "
+        "compatible avec HelioDyn."
+    )
+
+    creation_tab, notice_tab = st.tabs(["Création d'un profil de puissance horaire", "Notice"])
+    with creation_tab:
+        _render_helioprofil_generator()
+    with notice_tab:
+        _render_helioprofil_notice()
