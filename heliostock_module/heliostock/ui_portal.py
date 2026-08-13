@@ -66,6 +66,7 @@ APP_HELIOECO_LABEL = "HelioEco"
 APP_HELIORC_LABEL = "HelioRC"
 APP_SOCOL_LABEL = "Schémathèque SOCOL"
 APP_HELIOPROFIL_LABEL = "HelioProfil"
+APP_HELIOSOLO_LABEL = "HelioSOLO"
 APP_ACCESS_LABELS = (
     APP_HELIOSTOCK_LABEL,
     APP_DASHBOARD_LABEL,
@@ -74,6 +75,7 @@ APP_ACCESS_LABELS = (
     APP_HELIORC_LABEL,
     APP_SOCOL_LABEL,
     APP_HELIOPROFIL_LABEL,
+    APP_HELIOSOLO_LABEL,
 )
 PORTAL_PAGE_LABELS = (APP_HOME_LABEL, APP_ADMIN_LABEL)
 
@@ -1512,6 +1514,11 @@ def render_heliotools_home_page() -> None:
             APP_HELIOPROFIL_LABEL,
             "Génération de profils horaires 8760 h compatibles avec HelioDyn.",
             "Ouvrir HelioProfil",
+        ),
+        (
+            APP_HELIOSOLO_LABEL,
+            "Reconstitution SOLO 2018 pour le calcul solaire thermique ECS.",
+            "Ouvrir HelioSOLO",
         ),
     ]
     cards = [card for card in cards + optional_cards if card[0] in allowed_apps]

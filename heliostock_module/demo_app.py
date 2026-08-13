@@ -128,3 +128,17 @@ elif selected_app == ui_portal.APP_HELIOPROFIL_LABEL:
     except Exception:
         _show_startup_error("HelioProfil a rencontré une erreur.")
 
+elif selected_app == ui_portal.APP_HELIOSOLO_LABEL:
+    try:
+        from heliostock.heliosolo import render_heliosolo_app
+
+        render_heliosolo_app()
+    except ModuleNotFoundError as exc:
+        st.error(
+            "HelioSOLO nécessite des dépendances optionnelles. "
+            "Vérifie que `streamlit` et `pandas` sont installés, puis relance l'application."
+        )
+        st.caption(str(exc))
+    except Exception:
+        _show_startup_error("HelioSOLO a rencontré une erreur.")
+
