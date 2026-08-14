@@ -19,5 +19,12 @@
     "success": true,
     "reason": "login",
     "role": "admin"
+  },
+  {
+    "timestamp": "2026-08-14T17:12:57",
+    "email": "loick@atlansun.fr",
+    "success": true,
+    "reason": "login",
+    "role": "admin"
   }
 ]
