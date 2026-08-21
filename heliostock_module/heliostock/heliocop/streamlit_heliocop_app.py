@@ -789,14 +789,18 @@ def render_heliocop_app() -> None:
         "9. Économie SOLOPAC",
         "10. Synthèse",
     ]
-    tabs = st.tabs(tab_labels)
-    (
-        tab_site, tab_surface, tab_cold, tab_needs, tab_loop, tab_pac,
-        tab_economics, tab_solopac, tab_solopac_economics, tab_summary,
-    ) = tabs
     project_key = "heliocop_v2"
+    active_section = st.radio(
+        "Section HelioCOP",
+        options=tab_labels,
+        horizontal=True,
+        key=f"{project_key}_active_section",
+        label_visibility="collapsed",
+    )
+    identity = _identity_from_state()
+    profile_mode = identity.typology == PROFILE_TYPOLOGY
 
-    with tab_site:
+    if active_section == tab_labels[0]:
         st.subheader("Caractéristiques du site")
         identity = render_project_identity_form(
             key_prefix="heliocop",
@@ -821,7 +825,7 @@ def render_heliocop_app() -> None:
         else:
             st.info("Mode logement collectif : besoins par typologie puis prédimensionnement COSTIC 2.3.2.")
 
-    with tab_surface:
+    if active_section == tab_labels[1]:
         render_surface_orientation_measurement(state_prefix="heliocop")
     surface_payload = current_surface_orientation_payload("heliocop")
     surface_metrics = surface_payload.get("metrics", {}) if isinstance(surface_payload, dict) else {}
@@ -831,7 +835,21 @@ def render_heliocop_app() -> None:
         if isinstance(raw, (int, float)) and raw > 0:
             max_surface_m2 = float(raw)
 
-    with tab_cold:
+    cold_mode = str(st.session_state.get(f"{project_key}_cold_mode") or COLD_WATER_MODES[0])
+    if cold_mode not in COLD_WATER_MODES:
+        cold_mode = COLD_WATER_MODES[0]
+    if cold_mode == COLD_WATER_MODES[0]:
+        fixed_tef_cached = float(st.session_state.get(f"{project_key}_fixed_tef", 12.0))
+        cold_water = {month: fixed_tef_cached for month in MONTH_NAMES}
+    else:
+        monthly_air = _monthly_air_temperatures_from_station(
+            identity.weather_region or "Bretagne", identity.weather_station or "Rennes"
+        )
+        cold_water = _esm2_cold_water_temperatures(
+            monthly_air, 3.0 if cold_mode == COLD_WATER_MODES[2] else 0.0
+        )
+
+    if active_section == tab_labels[2]:
         st.subheader("Température d'eau froide")
         cold_mode = st.radio(
             "Mode de calcul",
@@ -881,16 +899,27 @@ def render_heliocop_app() -> None:
                 "La Tef sert à convertir le volume des ballons ECS2 en capacité de stockage équivalente à 60 °C."
             )
 
-    # Valeurs communes initialisées pour les deux branches.
-    housing = None
-    building_state = None
-    park_type = None
-    counts: dict[str, int] = {}
-    needs40: dict[str, float] = {}
-    monthly_coefficients = dict(DEFAULT_MONTHLY_COEFFICIENTS)
-    profile: HourlyLoadProfile | None = None
+    # Valeurs communes initialisées pour les deux branches. Elles sont relues depuis
+    # session_state afin que les sections aval restent exploitables sans rendre tous
+    # les anciens onglets à chaque rerun Streamlit.
+    housing = st.session_state.get(f"{project_key}_housing")
+    building_state = st.session_state.get(f"{project_key}_building_state_cached")
+    park_type = st.session_state.get(f"{project_key}_park_type_cached")
+    counts: dict[str, int] = st.session_state.get(f"{project_key}_housing_counts", {})
+    needs40: dict[str, float] = st.session_state.get(f"{project_key}_needs40", {})
+    monthly_coefficients = st.session_state.get(f"{project_key}_monthly_coefficients", dict(DEFAULT_MONTHLY_COEFFICIENTS))
+    profile: HourlyLoadProfile | None = st.session_state.get(f"{project_key}_profile")
+    if not profile_mode and housing is None:
+        # Navigation active : les sections aval doivent rester ouvrables même si
+        # l'utilisateur n'a pas encore rendu la section de saisie des besoins.
+        park_type = park_type if park_type in PARK_TYPES else PARK_TYPES[0]
+        counts = counts or {"T1": 0, "T2": 0, "T3": 10, "T4": 30, "T5": 0, "T6 ou plus": 0}
+        needs40 = needs40 or HOUSING_NEEDS_L_EQ40_DAY[park_type]
+        monthly_coefficients = monthly_coefficients or dict(DEFAULT_MONTHLY_COEFFICIENTS)
+        building_state = building_state or "Bâtiment existant"
+        housing = compute_housing_reference(counts, park_type)
 
-    with tab_needs:
+    if active_section == tab_labels[3]:
         if not profile_mode:
             st.subheader("Estimation des besoins ECS — logement collectif")
             building_state = st.selectbox(
@@ -1045,13 +1074,27 @@ def render_heliocop_app() -> None:
                 with st.expander("Aperçu du profil horaire", expanded=False):
                     st.dataframe(profile_df.head(168), hide_index=True, width="stretch")
 
+        st.session_state[f"{project_key}_housing"] = housing
+        st.session_state[f"{project_key}_building_state_cached"] = building_state
+        st.session_state[f"{project_key}_park_type_cached"] = park_type
+        st.session_state[f"{project_key}_housing_counts"] = counts
+        st.session_state[f"{project_key}_needs40"] = needs40
+        st.session_state[f"{project_key}_monthly_coefficients"] = monthly_coefficients
+        st.session_state[f"{project_key}_profile"] = profile
+
     # Bouclage : commun uniquement au mode logement. En mode process, le profil
     # fourni est considéré comme le besoin thermique à couvrir et aucun bouclage
     # sanitaire n'est ajouté automatiquement.
-    annual_loop_mwh = 0.0
-    loop_design_power_kw = 0.0
-    common_monthly = ()
-    annual_ecs_mwh = profile.annual_energy_mwh if profile_mode and profile is not None else 0.0
+    annual_loop_mwh = float(st.session_state.get(f"{project_key}_annual_loop_mwh", 0.0) or 0.0)
+    loop_design_power_kw = float(st.session_state.get(f"{project_key}_loop_design_power_kw", 0.0) or 0.0)
+    common_monthly = st.session_state.get(f"{project_key}_common_monthly", ())
+    annual_ecs_mwh = float(
+        st.session_state.get(
+            f"{project_key}_annual_ecs_mwh",
+            profile.annual_energy_mwh if profile_mode and profile is not None else 0.0,
+        )
+        or 0.0
+    )
     if not profile_mode and housing is not None and building_state is not None and park_type is not None:
         site_inputs = SiteInputs(
             project_name=identity.project_name,
@@ -1077,8 +1120,18 @@ def render_heliocop_app() -> None:
             cold_water_mode=cold_mode,
             cold_water_temperatures_c=cold_water,
         )
+        cached_loop_inputs = st.session_state.get(f"{project_key}_loop_inputs")
+        if not isinstance(cached_loop_inputs, LoopInputs):
+            cached_loop_inputs = LoopInputs()
+        common_monthly = build_monthly_needs(site_inputs, needs_inputs, common_sizing_inputs, cached_loop_inputs)
+        annual_ecs_mwh = sum(r.useful_energy_mwh for r in common_monthly)
+        annual_loop_mwh = sum(r.loop_losses_mwh for r in common_monthly)
+        loop_design_power_kw = max(
+            (r.loop_losses_kwh / max(1.0, r.days * 24.0) for r in common_monthly),
+            default=0.0,
+        )
 
-    with tab_loop:
+    if active_section == tab_labels[4]:
         if profile_mode:
             st.subheader("Bouclage sanitaire")
             st.info(
@@ -1089,6 +1142,7 @@ def render_heliocop_app() -> None:
                 st.metric("Besoin thermique du profil", f"{_number(profile.annual_energy_mwh, 1)} MWh/an")
         else:
             loop_inputs = _loop_inputs_ui(project_key)
+            st.session_state[f"{project_key}_loop_inputs"] = loop_inputs
             common_monthly = build_monthly_needs(site_inputs, needs_inputs, common_sizing_inputs, loop_inputs)
             annual_ecs_mwh = sum(r.useful_energy_mwh for r in common_monthly)
             annual_loop_mwh = sum(r.loop_losses_mwh for r in common_monthly)
@@ -1123,24 +1177,35 @@ def render_heliocop_app() -> None:
                 hide_index=True,
                 width="stretch",
             )
+            st.session_state[f"{project_key}_annual_loop_mwh"] = annual_loop_mwh
+            st.session_state[f"{project_key}_loop_design_power_kw"] = loop_design_power_kw
+            st.session_state[f"{project_key}_common_monthly"] = common_monthly
+            st.session_state[f"{project_key}_annual_ecs_mwh"] = annual_ecs_mwh
 
     # Variables de résultat communes aux deux moteurs.
-    selected_pac = None
-    selected_tank = None
-    required_surface = 0.0
-    source_type = "Moquette solaire"
-    pecs_kw = None
-    pac_min_kw = None
-    pdim_kw = None
-    target_storage = None
-    sizing_rows = ()
-    selected_profile_option = None
-    selected_profile_simulation = None
-    pareto_options = ()
-    solopac_results = None
-    solopac_economics = None
+    selected_pac = st.session_state.get(f"{project_key}_selected_pac")
+    selected_tank = st.session_state.get(f"{project_key}_selected_tank")
+    required_surface = float(st.session_state.get(f"{project_key}_required_surface", 0.0) or 0.0)
+    source_type = st.session_state.get(f"{project_key}_source_type_cached", "Moquette solaire")
+    pecs_kw = st.session_state.get(f"{project_key}_pecs_kw")
+    pac_min_kw = st.session_state.get(f"{project_key}_pac_min_kw")
+    pdim_kw = st.session_state.get(f"{project_key}_pdim_kw")
+    target_storage = st.session_state.get(f"{project_key}_target_storage")
+    sizing_rows = st.session_state.get(f"{project_key}_sizing_rows", ())
+    selected_profile_option = st.session_state.get(f"{project_key}_selected_profile_option")
+    selected_profile_simulation = st.session_state.get(f"{project_key}_selected_profile_simulation")
+    pareto_options = st.session_state.get(f"{project_key}_pareto_options", ())
+    solopac_results = st.session_state.get(f"{project_key}_solopac_results")
+    solopac_economics = st.session_state.get(f"{project_key}_solopac_economics")
+    source_ratio = float(
+        st.session_state.get(
+            f"{project_key}_source_ratio",
+            SOURCE_SURFACE_RATIO_M2_PER_KW_PPAC.get(str(source_type), 5.0),
+        )
+        or SOURCE_SURFACE_RATIO_M2_PER_KW_PPAC.get(str(source_type), 5.0)
+    )
 
-    with tab_pac:
+    if active_section == tab_labels[5]:
         st.subheader("Prédimensionnement PAC solaire")
         with st.expander("Schéma de référence — ECS2", expanded=False):
             if ECS2_REFERENCE_IMAGE.exists():
@@ -1461,6 +1526,19 @@ def render_heliocop_app() -> None:
         else:
             st.info("La surface de source sera calculée après sélection d'une PAC.")
 
+        st.session_state[f"{project_key}_selected_pac"] = selected_pac
+        st.session_state[f"{project_key}_selected_tank"] = selected_tank
+        st.session_state[f"{project_key}_required_surface"] = required_surface
+        st.session_state[f"{project_key}_source_type_cached"] = source_type
+        st.session_state[f"{project_key}_pecs_kw"] = pecs_kw
+        st.session_state[f"{project_key}_pac_min_kw"] = pac_min_kw
+        st.session_state[f"{project_key}_pdim_kw"] = pdim_kw
+        st.session_state[f"{project_key}_target_storage"] = target_storage
+        st.session_state[f"{project_key}_sizing_rows"] = sizing_rows
+        st.session_state[f"{project_key}_selected_profile_option"] = selected_profile_option
+        st.session_state[f"{project_key}_selected_profile_simulation"] = selected_profile_simulation
+        st.session_state[f"{project_key}_pareto_options"] = pareto_options
+
     monthly_heat_for_economics = {month: 0.0 for month in MONTH_NAMES}
     if profile_mode and profile is not None:
         for value_kwh, month_number in zip(profile.energy_kwh, profile.months):
@@ -1473,7 +1551,7 @@ def render_heliocop_app() -> None:
 
     annual_ecs_mwh_for_economics = sum(monthly_heat_for_economics.values())
 
-    economics = None
+    economics = st.session_state.get(f"{project_key}_economics")
     monthly_cop = dict(DEFAULT_MONTHLY_COP_60C)
     electricity_cost = DEFAULT_ELECTRICITY_COST_EUR_MWH
     maintenance_annual_eur = DEFAULT_MAINTENANCE_ANNUAL_EUR
@@ -1497,7 +1575,7 @@ def render_heliocop_app() -> None:
     reference_boiler_p2_eur_kw_year = DEFAULT_REFERENCE_BOILER_P2_EUR_KW_YEAR
     reference_boiler_capex_eur_kw = DEFAULT_REFERENCE_BOILER_CAPEX_EUR_KW
 
-    with tab_economics:
+    if active_section == tab_labels[6]:
         st.subheader("Énergie et coût de chaleur PAC solaire")
         if selected_pac is None:
             st.warning("Sélectionner d'abord une configuration PAC dans l'onglet 6.")
@@ -1850,7 +1928,9 @@ def render_heliocop_app() -> None:
                 "Elle se propage au P4 du scénario PAC solaire et à la fourchette de coût de chaleur affichée ; la valeur centrale et le classement des solutions restent calculés sur le CAPEX central."
             )
 
-    with tab_solopac:
+        st.session_state[f"{project_key}_economics"] = economics
+
+    if active_section == tab_labels[7]:
         st.subheader("Simulation SOLOPAC — import et analyse technique")
         st.caption(
             "Importez le classeur de résultats mensuels exporté par SOLOPAC. HelioCOP ne conserve que les flux utiles au bilan : "
@@ -1917,7 +1997,9 @@ def render_heliocop_app() -> None:
             )
             st.dataframe(_solopac_monthly_dataframe(solopac_results), hide_index=True, width="stretch")
 
-    with tab_solopac_economics:
+        st.session_state[f"{project_key}_solopac_results"] = solopac_results
+
+    if active_section == tab_labels[8]:
         st.subheader("Bilan économique actualisé par la simulation SOLOPAC")
         if solopac_results is None:
             st.info("Importez d'abord une simulation dans l'onglet 8.")
@@ -1995,9 +2077,11 @@ def render_heliocop_app() -> None:
                     help="Positif : SOLOPAC conduit à un coût de chaleur supérieur au prédimensionnement ; négatif : inférieur.",
                 )
 
+            st.session_state[f"{project_key}_solopac_economics"] = solopac_economics
+
     economics_for_summary = solopac_economics if solopac_economics is not None else economics
 
-    with tab_summary:
+    if active_section == tab_labels[9]:
         st.subheader("Synthèse HelioCOP")
         if profile_mode:
             if profile is None or selected_pac is None or selected_tank is None:
