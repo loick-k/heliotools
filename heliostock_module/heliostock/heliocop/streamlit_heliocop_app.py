@@ -93,6 +93,7 @@ from ..ui_surface_orientation import (
     render_surface_orientation_measurement,
     restore_surface_orientation_state,
 )
+from .pdf_export import build_heliocop_overview_pdf
 from .project_state import build_heliocop_state_payload, restore_heliocop_state_payload
 
 APP_KEY = "heliocop"
@@ -2091,13 +2092,24 @@ def render_heliocop_app() -> None:
             "economics": asdict(economics_for_summary) if economics_for_summary is not None else None,
         }
         st.session_state["heliocop_last_summary_payload"] = summary_payload
-        st.download_button(
-            "Télécharger la synthèse JSON",
-            data=json.dumps(summary_payload, ensure_ascii=False, indent=2).encode("utf-8"),
-            file_name="heliocop_synthese.json",
-            mime="application/json",
-            width="stretch",
-        )
+        safe_project_name = safe_slug(identity.project_name, fallback="heliocop")
+        c_pdf, c_json = st.columns(2)
+        with c_pdf:
+            st.download_button(
+                "Télécharger la synthèse PDF",
+                data=build_heliocop_overview_pdf(summary_payload),
+                file_name=f"{safe_project_name}_HelioCOP_synthese.pdf",
+                mime="application/pdf",
+                width="stretch",
+            )
+        with c_json:
+            st.download_button(
+                "Télécharger la synthèse JSON",
+                data=json.dumps(summary_payload, ensure_ascii=False, indent=2).encode("utf-8"),
+                file_name=f"{safe_project_name}_HelioCOP_synthese.json",
+                mime="application/json",
+                width="stretch",
+            )
         st.caption(
             "Prédimensionnement de note d'opportunité — règles ECS2 SOCOL / COSTIC et références SoloPAC 1.1. "
             "À affiner avec le futur moteur dynamique HelioCOP."
