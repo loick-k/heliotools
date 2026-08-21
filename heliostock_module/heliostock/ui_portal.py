@@ -94,6 +94,12 @@ APP_ACCESS_LABELS = (
     APP_HELIOCOP_LABEL,
 )
 PORTAL_PAGE_LABELS = (APP_HOME_LABEL, APP_ADMIN_LABEL)
+PROJECT_ACCESS_STORES = (
+    HELIOSTOCK_PROJECT_STORE,
+    JsonProjectStore("helionop", app_label=APP_OPPORTUNITY_LABEL),
+    JsonProjectStore("heliorc", app_label=APP_HELIORC_LABEL),
+    JsonProjectStore("heliocop", app_label=APP_HELIOCOP_LABEL),
+)
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -1028,10 +1034,11 @@ def _project_unique_key(path: Path) -> str:
         return f"path:{path.resolve()}"
     if not isinstance(data, dict):
         return f"path:{path.resolve()}"
+    app_key = str(data.get("app_key") or ("heliostock" if data.get("app") == "HelioStock" else "")).strip()
     project_id = str(data.get("project_id") or "").strip()
     owner = _email_normalise(str(data.get("owner_email", "") or data.get("created_by_email", "")))
     if project_id:
-        return f"id:{owner}:{project_id}"
+        return f"id:{app_key}:{owner}:{project_id}"
     return f"path:{path.resolve()}"
 
 
@@ -1048,7 +1055,7 @@ def _dedupe_project_files(files: list[Path]) -> list[Path]:
 
 
 def _set_project_shared_emails(path: Path, emails: list[str]) -> None:
-    path = _assert_local_project_path(path)
+    path = _assert_any_project_path(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("Format de projet JSON invalide.")
@@ -1063,6 +1070,8 @@ def _set_project_shared_emails(path: Path, emails: list[str]) -> None:
     data["shared_with_emails"] = clean
     data["updated_at"] = now_iso()
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    if _project_app_key(path) != HELIOSTOCK_PROJECT_STORE.app_key:
+        return
     demand_path, _ = _project_artifact_paths(path)
     legacy_demand_path, _ = _legacy_project_sidecar_paths(path)
     demand_bytes = demand_path.read_bytes() if demand_path.exists() else None
@@ -1088,6 +1097,42 @@ def _is_heliostock_project_file(path: Path) -> bool:
     except Exception:
         return False
     return isinstance(data, dict) and data.get("app") == "HelioStock" and isinstance(data.get("widget_values"), dict)
+
+
+def _project_app_key(path: Path) -> str:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    return str(data.get("app_key") or ("heliostock" if data.get("app") == "HelioStock" else "")).strip()
+
+
+def _project_app_label(path: Path) -> str:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return "Projet"
+    if not isinstance(data, dict):
+        return "Projet"
+    app_key = str(data.get("app_key") or "").strip()
+    if app_key == HELIOSTOCK_PROJECT_STORE.app_key or data.get("app") == "HelioStock":
+        return APP_HELIOSTOCK_LABEL
+    return str(data.get("app_label") or data.get("app") or app_key or "Projet")
+
+
+def _is_common_project_file(path: Path) -> bool:
+    if _is_system_project_file(path):
+        return False
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    app_keys = {store.app_key for store in PROJECT_ACCESS_STORES}
+    return str(data.get("app_key") or "").strip() in app_keys and bool(data.get("owner_email"))
 
 
 def _can_access_project(path: Path) -> bool:
@@ -1144,6 +1189,18 @@ def _all_heliostock_project_files() -> list[Path]:
     return _dedupe_project_files(files)
 
 
+def _all_common_project_files() -> list[Path]:
+    files = _raw_heliostock_project_files()
+    for store in PROJECT_ACCESS_STORES:
+        root = store.app_dir()
+        if not root.exists():
+            continue
+        for path in root.rglob("*.json"):
+            if _is_heliostock_project_file(path) or _is_common_project_file(path):
+                files.append(path)
+    return _dedupe_project_files(files)
+
+
 def _has_existing_project_data() -> bool:
     roots = [PROJECTS_DIR, HELIOSTOCK_PROJECT_STORE.app_dir()]
     for root in roots:
@@ -1165,6 +1222,14 @@ def _assert_local_project_path(path: Path) -> Path:
     return resolved
 
 
+def _assert_any_project_path(path: Path) -> Path:
+    resolved = path.resolve()
+    roots = [PROJECTS_DIR.resolve()] + [store.app_dir().resolve() for store in PROJECT_ACCESS_STORES]
+    if not any(root == resolved or root in resolved.parents for root in roots):
+        raise ValueError("Le fichier projet doit se trouver dans un dossier projet HelioTools.")
+    return resolved
+
+
 def _project_label(path: Path) -> str:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -1172,7 +1237,7 @@ def _project_label(path: Path) -> str:
         return path.stem
     if not isinstance(data, dict):
         return path.stem
-    return str(data.get("name") or path.stem)
+    return str(data.get("library_name") or data.get("name") or data.get("project_name") or path.stem)
 
 
 def _unique_project_labels(paths: list[Path]) -> list[str]:
@@ -1541,7 +1606,7 @@ def _user_display_label(user: dict[str, Any]) -> str:
 
 def _project_access_label(path: Path) -> str:
     owner = _project_owner_email(path) or "sans propriétaire"
-    return f"{_project_label(path)} - {owner}"
+    return f"{_project_app_label(path)} - {_project_label(path)} - {owner}"
 
 
 def _render_app_access_admin(users: list[dict[str, Any]]) -> None:
@@ -1592,8 +1657,8 @@ def _render_app_access_admin(users: list[dict[str, Any]]) -> None:
 
 
 def _render_project_access_admin(users: list[dict[str, Any]]) -> None:
-    st.markdown("### Accès aux projets HelioDyn")
-    projects = _all_heliostock_project_files()
+    st.markdown("### Accès aux projets HelioTools")
+    projects = _all_common_project_files()
     user_by_email = {
         _email_normalise(str(user.get("email", ""))): user
         for user in users
@@ -1601,7 +1666,7 @@ def _render_project_access_admin(users: list[dict[str, Any]]) -> None:
     }
 
     if not projects:
-        st.info("Aucun projet HelioDyn sauvegardé.")
+        st.info("Aucun projet HelioTools sauvegardé.")
         return
 
     rows = []
@@ -1611,6 +1676,7 @@ def _render_project_access_admin(users: list[dict[str, Any]]) -> None:
         explicit_access = [owner] + [email for email in shared if email != owner]
         rows.append(
             {
+                "Application": _project_app_label(path),
                 "Projet": _project_label(path),
                 "Propriétaire": owner,
                 "Utilisateurs autorisés": ", ".join(email for email in explicit_access if email),

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict
+from datetime import date, datetime
 from pathlib import Path
+import uuid
 
 import pandas as pd
 import streamlit as st
@@ -61,7 +63,9 @@ from .solopac_reference import (
     round_collector_surface,
     solopac_indicators,
 )
+from ..common.project_context import project_context_to_payload
 from ..common.project_identity import ProjectIdentity, ProjectIdentityOptions, render_project_identity_form
+from ..common.project_store import JsonProjectStore, normalize_email, now_iso, project_library_metadata, safe_slug
 from ..gas_reference import (
     GAS_REFERENCE_EXISTING_BOILER,
     GAS_REFERENCE_RENEWAL,
@@ -84,16 +88,259 @@ from ..opportunity_notes.opportunity_model import (
     build_monthly_needs,
 )
 from ..ui_inputs import DEFAULT_EPW_REGIONS, WEATHER_STATION_LABEL_ALIASES
-from ..ui_surface_orientation import current_surface_orientation_payload, render_surface_orientation_measurement
+from ..ui_surface_orientation import (
+    current_surface_orientation_payload,
+    render_surface_orientation_measurement,
+    restore_surface_orientation_state,
+)
+from .project_state import build_heliocop_state_payload, restore_heliocop_state_payload
 
 APP_KEY = "heliocop"
 APP_LABEL = "HelioCOP"
+PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)
 ECS2_REFERENCE_IMAGE = Path(__file__).resolve().parent / "assets" / "schema_ecs2_reference.png"
 PROFILE_EXAMPLE_FILE = Path(__file__).resolve().parent / "assets" / "profil_8760h_Cholet2_pessimiste.xlsx"
 SOLOPAC_RESULTS_EXAMPLE_FILE = Path(__file__).resolve().parent / "assets" / "Resultats_SOLOPAC_Cholet2.xlsx"
 PROFILE_TYPOLOGY = "Station de lavage poids lourds"
 COLD_WATER_MODES = ("Température eau froide fixée", "Méthode ESM2", "Méthode ESM2 + 3 °C")
 PARK_TYPES = tuple(HOUSING_STANDARD_EQUIVALENTS)
+
+
+def _current_owner_email() -> str:
+    user = st.session_state.get("user")
+    if isinstance(user, dict):
+        email = normalize_email(str(user.get("email", "")))
+        if email:
+            return email
+    return normalize_email(str(st.session_state.get("heliostock_admin_email", "")))
+
+
+def _coerce_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if cleaned:
+            for parser in (
+                lambda text: datetime.fromisoformat(text.replace("Z", "+00:00")).date(),
+                lambda text: datetime.strptime(text, "%Y/%m/%d").date(),
+                lambda text: datetime.strptime(text, "%d/%m/%Y").date(),
+            ):
+                try:
+                    return parser(cleaned)
+                except ValueError:
+                    continue
+    return date.today()
+
+
+def _coerce_float(value: object, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _identity_from_state() -> ProjectIdentity:
+    return ProjectIdentity(
+        project_name=str(st.session_state.get("heliocop_project_name") or "Nouveau projet HelioCOP"),
+        client_name=str(st.session_state.get("heliocop_client_name") or ""),
+        airtable_id=str(st.session_state.get("heliocop_airtable_id") or ""),
+        analyst=str(st.session_state.get("heliocop_analyst") or ""),
+        project_date=_coerce_date(st.session_state.get("heliocop_project_date")),
+        typology=str(st.session_state.get("heliocop_typology") or "Logement collectif"),
+        region=str(st.session_state.get("heliocop_region") or ""),
+        department=str(st.session_state.get("heliocop_department") or ""),
+        city=str(st.session_state.get("heliocop_city") or ""),
+        address=str(st.session_state.get("heliocop_project_address_label") or st.session_state.get("heliocop_address") or ""),
+        latitude=_coerce_float(st.session_state.get("heliocop_project_latitude"), 47.2184),
+        longitude=_coerce_float(st.session_state.get("heliocop_project_longitude"), -1.5536),
+        weather_region=str(st.session_state.get("heliocop_weather_region") or "Bretagne"),
+        weather_station=str(st.session_state.get("heliocop_weather_station") or "Rennes"),
+        notes=str(st.session_state.get("heliocop_notes") or ""),
+    )
+
+
+def _build_project_payload() -> dict:
+    identity = _identity_from_state()
+    saved_at = now_iso()
+    previous_project_id = str(st.session_state.get("heliocop_current_project_id") or "")
+    library_id = str(st.session_state.get("heliocop_project_library_id") or previous_project_id or uuid.uuid4())
+    metadata = project_library_metadata(
+        project_name=identity.project_name or "Nouveau projet HelioCOP",
+        project_reference=identity.airtable_id,
+        saved_at=saved_at,
+        library_id=library_id,
+    )
+    versioned_project_id = f"{metadata['version_id']}-{safe_slug(metadata['library_id'], fallback='heliocop')}"
+    summary = st.session_state.get("heliocop_last_summary_payload")
+    if not isinstance(summary, dict):
+        summary = {}
+    return {
+        "schema_version": 1,
+        "app_key": APP_KEY,
+        "app_label": APP_LABEL,
+        "project_id": versioned_project_id,
+        "name": identity.project_name or "Nouveau projet HelioCOP",
+        "created_at": str(st.session_state.get("heliocop_project_created_at") or saved_at),
+        "saved_at": saved_at,
+        **metadata,
+        "project_context": project_context_to_payload(
+            identity,
+            app_key=APP_KEY,
+            app_label=APP_LABEL,
+            geographic_scope="Bretagne / Pays de la Loire",
+            weather_source="Fichiers météo EPW locaux",
+        ),
+        "surface_orientation": current_surface_orientation_payload("heliocop"),
+        "state": build_heliocop_state_payload(st.session_state),
+        "summary": summary,
+    }
+
+
+def _project_file_label(project_file) -> str:
+    payload = project_file.payload if hasattr(project_file, "payload") else project_file["payload"]
+    path = project_file.path if hasattr(project_file, "path") else project_file["path"]
+    name = str(payload.get("library_name") or payload.get("name") or payload.get("project_name") or path.stem)
+    version = str(payload.get("version_label") or payload.get("updated_at") or payload.get("saved_at") or "")
+    reference = str(payload.get("library_reference") or "")
+    suffix = " - ".join(part for part in (reference, version[:16]) if part)
+    return f"{name} | {suffix}" if suffix else name
+
+
+def _restore_project_payload(payload: dict) -> None:
+    project_id = str(payload.get("project_id") or payload.get("library_id") or "loaded")
+    restore_heliocop_state_payload(payload.get("state", {}), st.session_state)
+    restore_surface_orientation_state(payload, project_id=project_id, state_prefix="heliocop")
+    st.session_state["heliocop_current_project_id"] = project_id
+    st.session_state["heliocop_project_library_id"] = str(payload.get("library_id") or project_id)
+    st.session_state["heliocop_project_created_at"] = str(payload.get("created_at") or payload.get("saved_at") or now_iso())
+    summary = payload.get("summary")
+    if isinstance(summary, dict):
+        st.session_state["heliocop_last_summary_payload"] = summary
+
+
+def _reset_project_state() -> None:
+    for key in list(st.session_state.keys()):
+        if str(key).startswith(("heliocop_", "heliocop_v2_")):
+            st.session_state.pop(key, None)
+    st.session_state["heliocop_project_reset_notice"] = "Nouveau projet HelioCOP initialisé."
+
+
+def _is_current_admin() -> bool:
+    user = st.session_state.get("user")
+    return isinstance(user, dict) and str(user.get("role", "user")).lower() == "admin"
+
+
+def _normalise_project_emails(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [email for email in (normalize_email(str(value)) for value in values) if email]
+
+
+def _load_accessible_project_payload(path: Path, current_email: str) -> dict:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Format de projet HelioCOP invalide.")
+    if str(payload.get("app_key") or "") != APP_KEY:
+        raise ValueError("Ce projet n'est pas un projet HelioCOP.")
+    owner_email = normalize_email(str(payload.get("owner_email", "")))
+    shared_emails = _normalise_project_emails(payload.get("shared_with_emails"))
+    if not (owner_email == current_email or current_email in shared_emails or _is_current_admin()):
+        raise PermissionError("Ce projet HelioCOP n'est pas accessible à cet utilisateur.")
+    return payload
+
+
+def _accessible_project_files(owner_email: str) -> list[dict]:
+    items: dict[Path, dict] = {}
+    for project_file in PROJECT_STORE.list_projects(owner_email=owner_email):
+        items[project_file.path] = {"path": project_file.path, "payload": project_file.payload}
+    root = PROJECT_STORE.app_dir()
+    if root.exists():
+        for path in root.rglob("*.json"):
+            if path in items:
+                continue
+            try:
+                payload = _load_accessible_project_payload(path, owner_email)
+            except Exception:
+                continue
+            items[path] = {"path": path, "payload": payload}
+    return sorted(items.values(), key=lambda item: item["path"].stat().st_mtime, reverse=True)
+
+
+def _render_project_store_controls() -> None:
+    owner_email = _current_owner_email()
+    if not owner_email:
+        st.info("Connecte-toi pour enregistrer et recharger des projets HelioCOP.")
+        return
+
+    project_files = _accessible_project_files(owner_email)
+    labels = [_project_file_label(project_file) for project_file in project_files]
+    duplicates = {label for label in labels if labels.count(label) > 1}
+    display_labels = [
+        f"{label} [{index + 1}]" if label in duplicates else label
+        for index, label in enumerate(labels)
+    ]
+
+    c_select, c_load, c_new, c_save, c_delete = st.columns([4, 1, 1, 1, 1])
+    selected_index = None
+    with c_select:
+        selected_label = st.selectbox(
+            "Projet enregistré",
+            options=display_labels,
+            index=0 if display_labels else None,
+            placeholder="Aucun projet HelioCOP enregistré",
+            key="heliocop_project_store_selected",
+        )
+        if selected_label in display_labels:
+            selected_index = display_labels.index(selected_label)
+    with c_load:
+        st.write("")
+        if st.button("Charger", width="stretch", disabled=selected_index is None, key="heliocop_project_load"):
+            selected_project = project_files[int(selected_index)]
+            payload = _load_accessible_project_payload(selected_project["path"], owner_email)
+            _restore_project_payload(payload)
+            st.session_state["heliocop_project_store_notice"] = "Projet HelioCOP chargé."
+            st.rerun()
+    with c_new:
+        st.write("")
+        if st.button("Nouveau", width="stretch", key="heliocop_project_new"):
+            _reset_project_state()
+            st.rerun()
+    with c_save:
+        st.write("")
+        if st.button("Enregistrer", type="primary", width="stretch", key="heliocop_project_save"):
+            payload = _build_project_payload()
+            path = PROJECT_STORE.save_project(
+                payload=payload,
+                owner_email=owner_email,
+                project_name=str(payload.get("name") or "Nouveau projet HelioCOP"),
+                project_id=str(payload.get("project_id") or ""),
+            )
+            st.session_state["heliocop_current_project_id"] = str(payload.get("project_id") or path.stem)
+            st.session_state["heliocop_project_library_id"] = str(payload.get("library_id") or "")
+            st.session_state["heliocop_project_created_at"] = str(payload.get("created_at") or now_iso())
+            st.session_state["heliocop_project_store_notice"] = "Projet HelioCOP enregistré."
+            st.rerun()
+    with c_delete:
+        st.write("")
+        selected_owner_email = ""
+        if selected_index is not None:
+            selected_owner_email = normalize_email(str(project_files[int(selected_index)]["payload"].get("owner_email", "")))
+        can_delete = selected_index is not None and selected_owner_email == owner_email
+        if st.button("Supprimer", width="stretch", disabled=not can_delete, key="heliocop_project_delete"):
+            selected_project = project_files[int(selected_index)]
+            PROJECT_STORE.delete_project(path=selected_project["path"], owner_email=owner_email)
+            st.session_state["heliocop_project_store_notice"] = "Projet HelioCOP supprimé."
+            st.rerun()
+
+    notice = st.session_state.pop("heliocop_project_store_notice", "")
+    reset_notice = st.session_state.pop("heliocop_project_reset_notice", "")
+    if notice:
+        st.success(str(notice))
+    if reset_notice:
+        st.info(str(reset_notice))
 
 
 def _number(value: float, digits: int = 1) -> str:
@@ -527,6 +774,8 @@ def render_heliocop_app() -> None:
         "ou usage process avec profil thermique horaire 8760 h. Le schéma ECS2 reste l'architecture de référence."
     )
 
+    _render_project_store_controls()
+
     tab_labels = [
         "1. Projet",
         "2. Orientation / surface",
@@ -550,15 +799,8 @@ def render_heliocop_app() -> None:
         st.subheader("Caractéristiques du site")
         identity = render_project_identity_form(
             key_prefix="heliocop",
-            project_id="current",
-            defaults=ProjectIdentity(
-                project_name="Nouveau projet HelioCOP",
-                typology="Logement collectif",
-                latitude=47.2184,
-                longitude=-1.5536,
-                weather_region="Bretagne",
-                weather_station="Rennes",
-            ),
+            project_id=str(st.session_state.get("heliocop_current_project_id") or "current"),
+            defaults=_identity_from_state(),
             options=ProjectIdentityOptions(
                 show_typology=True,
                 show_weather=True,
@@ -1848,6 +2090,7 @@ def render_heliocop_app() -> None:
             "solopac_results": asdict(solopac_results) if solopac_results is not None else None,
             "economics": asdict(economics_for_summary) if economics_for_summary is not None else None,
         }
+        st.session_state["heliocop_last_summary_payload"] = summary_payload
         st.download_button(
             "Télécharger la synthèse JSON",
             data=json.dumps(summary_payload, ensure_ascii=False, indent=2).encode("utf-8"),
@@ -1859,4 +2102,3 @@ def render_heliocop_app() -> None:
             "Prédimensionnement de note d'opportunité — règles ECS2 SOCOL / COSTIC et références SoloPAC 1.1. "
             "À affiner avec le futur moteur dynamique HelioCOP."
         )
-
