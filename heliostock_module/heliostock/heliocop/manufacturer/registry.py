@@ -11,7 +11,7 @@ from .hp_digitized import load_digitized_heat_pump_csv
 from .hp_xml import load_heat_pump_xml
 from .hp_rated import load_rated_heat_pump_csv
 from .schemas import HeatPumpProduct, WISCCollectorProduct
-from .wisc_xml import load_wisc_xml
+from ...common.collector_library import load_heliocop_collector_library
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 PAC_DIR = BASE_DIR / "data" / "pac"
@@ -51,6 +51,24 @@ def _nominal_for_xml(path: Path, metadata: Iterable[dict]) -> float | None:
     if "p50" in stem_norm:
         return 50.0
     return None
+
+
+def _wisc_product_from_common(reference) -> WISCCollectorProduct:
+    return WISCCollectorProduct(
+        manufacturer=reference.manufacturer,
+        model=reference.model,
+        certification=reference.certification,
+        unit_area_m2=reference.unit_area_m2,
+        coefficients=reference.coefficients,
+        Kd=reference.kd,
+        KT=dict(reference.kt_by_angle or {}),
+        KL=dict(reference.kl_by_angle or {}),
+        collector_type=reference.collector_type,
+        provenance=reference.source,
+        standard_version=reference.standard_version,
+        equation_schema=reference.equation_schema,
+        schema_verified=reference.schema_verified,
+    )
 
 
 class ManufacturerRegistry:
@@ -105,7 +123,7 @@ class ManufacturerRegistry:
             for path in sorted(DIGITIZED_DIR.glob("*.csv")):
                 product = load_digitized_heat_pump_csv(path)
                 products[product.id] = product
-        collectors = [load_wisc_xml(path) for path in sorted(WISC_DIR.glob("*.xml"))]
+        collectors = [_wisc_product_from_common(ref) for ref in load_heliocop_collector_library(WISC_DIR).values()]
         return cls(products.values(), collectors)
 
     @property

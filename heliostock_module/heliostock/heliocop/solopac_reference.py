@@ -18,6 +18,8 @@ from math import ceil
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from ..common.collector_library import get_heliocop_collector_reference
+
 BASE_DIR = Path(__file__).resolve().parent
 PAC_DATA_DIR = BASE_DIR / "data" / "pac"
 COLLECTOR_DATA_DIR = BASE_DIR / "data" / "capteurs"
@@ -190,29 +192,22 @@ def load_pac_reference(xml_filename: str | None) -> PacReferencePerformance | No
 
 
 def load_collector_reference(xml_filename: str | None) -> CollectorReference | None:
-    path = _xml_file(COLLECTOR_DATA_DIR, xml_filename)
-    if path is None:
-        return None
-    try:
-        values = _xml_values(path)
-    except (OSError, ET.ParseError):
-        return None
-    area = _f(values, "Scapt_Uni")
-    if area <= 0:
+    shared = get_heliocop_collector_reference(xml_filename, data_dir=COLLECTOR_DATA_DIR)
+    if shared is None or shared.unit_area_m2 <= 0:
         return None
     return CollectorReference(
-        brand=values.get("Marque_Capteur", ""),
-        model=values.get("Modele_Capteur", ""),
-        collector_type=values.get("Type_Capteur", ""),
-        unit_area_m2=area,
-        eta0=_f(values, "Coef_eta0"),
-        a1_w_m2_k=_f(values, "Coef_a1"),
-        a2_w_m2_k2=_f(values, "Coef_a2"),
-        a3_j_m3_k=_f(values, "Coef_a3"),
-        a4=_f(values, "Coef_a4"),
-        a5_j_m2_k=_f(values, "Coef_a5"),
-        a6_s_m=_f(values, "Coef_a6"),
-        certification=values.get("Certification_Capteur", ""),
+        brand=shared.manufacturer,
+        model=shared.model,
+        collector_type=shared.collector_type,
+        unit_area_m2=shared.unit_area_m2,
+        eta0=shared.eta0,
+        a1_w_m2_k=shared.a1_w_m2_k,
+        a2_w_m2_k2=shared.a2_w_m2_k2,
+        a3_j_m3_k=shared.a3,
+        a4=shared.a4,
+        a5_j_m2_k=shared.a5,
+        a6_s_m=shared.a6,
+        certification=shared.certification,
     )
 
 

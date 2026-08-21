@@ -1,5 +1,10 @@
 from heliostock.collector_library import COLLECTOR_LIBRARY, DEFAULT_COLLECTOR_NAME, get_collector_reference
-from heliostock.common.collector_library import as_heliosolo_capteur_library, make_collector_reference
+from heliostock.common.collector_library import (
+    as_heliosolo_capteur_library,
+    get_heliocop_collector_reference,
+    load_heliocop_collector_library,
+    make_collector_reference,
+)
 from heliostock.opportunity_notes.opportunity_model import SizingInputs
 
 
@@ -44,3 +49,16 @@ def test_custom_collector_can_be_added_to_shared_library():
 
     assert get_collector_reference("TestFab Capteur 1", extra_collectors={"TestFab Capteur 1": custom}).area_m2 == 2.8
     assert capteur_library["TestFab"]["Capteur 1"]["n0"] == 0.79
+
+
+def test_common_library_exposes_heliocop_pac_solar_collectors():
+    library = load_heliocop_collector_library()
+
+    assert any("DSTI" in ref.model for ref in library.values())
+    dualsun = get_heliocop_collector_reference("DualsunDSTI425-108.xml")
+
+    assert dualsun is not None
+    assert dualsun.manufacturer == "Dualsun"
+    assert dualsun.unit_area_m2 > 0.0
+    assert dualsun.coefficients["eta0"] > 0.0
+    assert "a8" in dualsun.coefficients
