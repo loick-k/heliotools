@@ -145,3 +145,17 @@ elif selected_app == ui_portal.APP_HELIOSOLO_LABEL:
     except Exception:
         _show_startup_error("HelioSOLO a rencontré une erreur.")
 
+elif selected_app == ui_portal.APP_HELIOCOP_LABEL:
+    try:
+        from heliostock.heliocop import render_heliocop_app
+
+        render_heliocop_app()
+    except ModuleNotFoundError as exc:
+        st.error(
+            "HelioCOP nécessite des dépendances optionnelles. "
+            "Vérifie que `plotly`, `pandas`, `openpyxl`, `xlsxwriter` et `scipy` sont installés, puis relance l'application."
+        )
+        st.caption(str(exc))
+    except Exception:
+        _show_startup_error("HelioCOP a rencontré une erreur.")
+

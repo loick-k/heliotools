@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PAC xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Marque_PAC>Giordano</Marque_PAC>
+  <Modele_PAC>SolarPump_SPC20</Modele_PAC>
+  <GammeTemp_PAC>Haute</GammeTemp_PAC>
+  <COP10_45>3.62</COP10_45>
+  <COP10_55>0.0</COP10_55>
+  <COP10_65>2.59</COP10_65>
+  <COP50_55>0.0</COP50_55>
+  <COP50_65>0.0</COP50_65>
+  <PAbs10_45>5.35</PAbs10_45>
+  <PAbs10_55>0.0</PAbs10_55>
+  <PAbs10_65>7.04</PAbs10_65>
+  <PAbs50_55>0.0</PAbs50_55>
+  <PAbs50_65>0.0</PAbs50_65>
+  <Taux>0.001</Taux>
+  <TminEvaporateur>-5</TminEvaporateur>
+  <TmaxEvaporateur>50</TmaxEvaporateur>
+  <TmaxCondenseur>65</TmaxCondenseur>
+  <DebitNomEvaporateur>4500</DebitNomEvaporateur>
+  <DebitNomCondenseur>4000</DebitNomCondenseur>
+  <PCirculateurEvaporateur>0.600</PCirculateurEvaporateur>
+  <PCirculateurCondenseur>0.15</PCirculateurCondenseur>
+</PAC>

@@ -81,6 +81,7 @@ APP_HELIORC_LABEL = "HelioRC"
 APP_SOCOL_LABEL = "Schémathèque SOCOL"
 APP_HELIOPROFIL_LABEL = "HelioProfil"
 APP_HELIOSOLO_LABEL = "HelioSOLO"
+APP_HELIOCOP_LABEL = "HelioCOP"
 APP_ACCESS_LABELS = (
     APP_HELIOSTOCK_LABEL,
     APP_DASHBOARD_LABEL,
@@ -90,6 +91,7 @@ APP_ACCESS_LABELS = (
     APP_SOCOL_LABEL,
     APP_HELIOPROFIL_LABEL,
     APP_HELIOSOLO_LABEL,
+    APP_HELIOCOP_LABEL,
 )
 PORTAL_PAGE_LABELS = (APP_HOME_LABEL, APP_ADMIN_LABEL)
 
@@ -1696,6 +1698,11 @@ def render_heliotools_home_page() -> None:
             APP_HELIOSOLO_LABEL,
             "Reconstitution SOLO 2018 pour le calcul solaire thermique ECS.",
             "Ouvrir HelioSOLO",
+        ),
+        (
+            APP_HELIOCOP_LABEL,
+            "Prédimensionnement et analyse PAC solaire sur profil ECS ou process.",
+            "Ouvrir HelioCOP",
         ),
     ]
     cards = [card for card in cards + optional_cards if card[0] in allowed_apps]

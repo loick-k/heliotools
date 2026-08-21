@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Capteur xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Marque_Capteur>Dualsun</Marque_Capteur>
+  <Modele_Capteur>DSTN 425-108M10TB-03</Modele_Capteur>
+  <Certification_Capteur>011-7S3218P</Certification_Capteur>
+  <Type_Capteur>WISC (Wind and/or infrared sensitive collector)</Type_Capteur>
+  <Scapt_Uni>1.95</Scapt_Uni>
+  <Coef_eta0>0.448</Coef_eta0>
+  <Coef_a1>29.83</Coef_a1>
+  <Coef_a2>0.0</Coef_a2>
+  <Coef_a3>5.603</Coef_a3>
+  <Coef_a4>0</Coef_a4>
+  <Coef_a5>22353</Coef_a5>
+  <Coef_a6>0.0198</Coef_a6>
+  <Coef_a7>0</Coef_a7>
+  <Coef_a8>0</Coef_a8>
+  <Kd>1.0</Kd>
+  <KT_10>1.00</KT_10>
+  <KT_20>1.00</KT_20>
+  <KT_30>1.00</KT_30>
+  <KT_40>1.00</KT_40>
+  <KT_50>0.99</KT_50>
+  <KT_60>0.96</KT_60>
+  <KT_70>0.88</KT_70>
+  <KT_80>0.65</KT_80>
+  <KT_90>0.00</KT_90>
+  <KL_10>1.00</KL_10>
+  <KL_20>1.00</KL_20>
+  <KL_30>1.00</KL_30>
+  <KL_40>1.00</KL_40>
+  <KL_50>0.99</KL_50>
+  <KL_60>0.96</KL_60>
+  <KL_70>0.88</KL_70>
+  <KL_80>0.65</KL_80>
+  <KL_90>0.00</KL_90>
+</Capteur>

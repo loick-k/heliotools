@@ -1,0 +1,114 @@
+[
+  {
+    "brand": "HelioPAC",
+    "model": "Solerpac SE134A-8",
+    "nominal_power_kw": 8,
+    "usage": "ECS",
+    "xml": "SolerpacSE134A-8.xml",
+    "source": "SoloPAC 1.1 - XML fourni dans archive utilisateur",
+    "usages": [
+      "ECS",
+      "Process"
+    ]
+  },
+  {
+    "brand": "HelioPAC",
+    "model": "Solerpac SE513A-10",
+    "nominal_power_kw": 10,
+    "usage": "ECS",
+    "xml": "SolerpacSE513A-10.xml",
+    "source": "SoloPAC 1.1 - XML fourni dans archive utilisateur",
+    "usages": [
+      "ECS",
+      "Process"
+    ]
+  },
+  {
+    "brand": "HelioPAC",
+    "model": "Solerpac SE134A-12",
+    "nominal_power_kw": 12,
+    "usage": "ECS",
+    "xml": "SolerpacSE134A-12.xml",
+    "source": "SoloPAC 1.1 - XML fourni dans archive utilisateur",
+    "usages": [
+      "ECS",
+      "Process"
+    ]
+  },
+  {
+    "brand": "HelioPAC",
+    "model": "Solerpac SE513A-14",
+    "nominal_power_kw": 14,
+    "usage": "ECS",
+    "xml": "SolerpacSE513A-14.xml",
+    "source": "SoloPAC 1.1 - XML fourni dans archive utilisateur",
+    "usages": [
+      "ECS",
+      "Process"
+    ]
+  },
+  {
+    "brand": "HelioPAC",
+    "model": "Solerpac P25",
+    "nominal_power_kw": 25,
+    "usage": "ECS",
+    "xml": null,
+    "note": "Gamme P HelioPAC : chauffage et process industriels. Données XML SoloPAC 1.1 non fournies pour ce modèle.",
+    "source": "HelioPAC FT1p SOLERPAC Gamme P V3.1 + HelioCOP",
+    "usages": [
+      "ECS",
+      "Process",
+      "Chauffage"
+    ]
+  },
+  {
+    "brand": "HelioPAC",
+    "model": "Solerpac P50 R407C",
+    "nominal_power_kw": 50,
+    "usage": "Process",
+    "xml": "Solerpac 407C.xml",
+    "source": "HelioPAC FT1p SOLERPAC Gamme P V3.1 + XML SoloPAC 1.1",
+    "usages": [
+      "Process",
+      "Chauffage",
+      "Bassin"
+    ],
+    "note": "HelioPAC FT1p V3.1 : process industriels, chauffage et maintien en température des bassins ; température chauffage maxi 55 °C."
+  },
+  {
+    "brand": "Giordano",
+    "model": "SolarPump SPC20",
+    "nominal_power_kw": 20,
+    "usage": "ECS",
+    "xml": "GiordanoSolarPump SPC20.xml",
+    "source": "SoloPAC 1.1 - XML fourni dans archive utilisateur",
+    "usages": [
+      "ECS",
+      "Process"
+    ]
+  },
+  {
+    "brand": "Giordano",
+    "model": "SolarPump SPC30",
+    "nominal_power_kw": 30,
+    "usage": "ECS",
+    "xml": "GiordanoSolarPump SPC30.xml",
+    "source": "SoloPAC 1.1 - XML fourni dans archive utilisateur",
+    "usages": [
+      "ECS",
+      "Process"
+    ]
+  },
+  {
+    "brand": "Giordano",
+    "model": "SolarPump SPC50",
+    "nominal_power_kw": 50,
+    "usage": "ECS",
+    "xml": "GiordanoSolarPump SPC50.xml",
+    "source": "SoloPAC 1.1 - XML fourni dans archive utilisateur",
+    "usages": [
+      "ECS",
+      "Process"
+    ]
+  }
+]

@@ -1,0 +1,4 @@
+manufacturer,model,nominal_power_kw,T_source_in_C,T_sink_out_C,P_heat_kW,P_el_kW,COP,source_temperature_min_C,source_temperature_max_C,sink_temperature_max_C,source_flow_m3h,provenance
+Heliopac,Solerpac-P50,50,10,25,51.5,9.94,5.18,-12,75,55,5,Heliopac FT1p SOLERPAC Gamme P V3.1 - NF EN 14511
+Heliopac,Solerpac-P50,50,10,35,50.0,11.09,4.51,-12,75,55,5,Heliopac FT1p SOLERPAC Gamme P V3.1 - NF EN 14511
+Heliopac,Solerpac-P50,50,20,35,60.0,11.90,5.04,-12,75,55,5,Heliopac FT1p SOLERPAC Gamme P V3.1 - NF EN 14511

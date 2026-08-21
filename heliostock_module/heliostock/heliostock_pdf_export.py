@@ -123,6 +123,21 @@ def _storage_value_for_pdf(scenario: ScenarioResult, *, has_geothermal: bool) ->
     return _fmt_number(volume_l, 0, "L")
 
 
+def _solar_loop_mode_label(value: Any) -> str:
+    if str(value) == "drainback_test":
+        return "Autovidangeable"
+    return "Pressurisé"
+
+
+def _weather_snapshot_value(input_snapshot: dict[str, Any] | None, key: str) -> Any:
+    if not isinstance(input_snapshot, dict):
+        return None
+    weather = input_snapshot.get("weather", {})
+    if not isinstance(weather, dict):
+        return None
+    return weather.get(key)
+
+
 def _monthly_with_solar_losses(scenario: ScenarioResult) -> pd.DataFrame:
     month_df = scenario.hourly_by_month_df.copy()
     if "month" not in month_df.columns and "Mois" in month_df.columns:
@@ -1256,6 +1271,7 @@ def build_heliostock_overview_pdf(
     *,
     calculation_id: str = "",
     calculated_at: str = "",
+    input_snapshot: dict[str, Any] | None = None,
     gmi_context: dict[str, Any] | None = None,
     architectural_context: dict[str, Any] | None = None,
 ) -> bytes:
@@ -1280,6 +1296,9 @@ def build_heliostock_overview_pdf(
     input_metrics = [
         ("Surface solaire", _fmt_number(scenario.config.collector.area_m2, 0, "m²")),
         ("Volume stockage solaire", _storage_value_for_pdf(scenario, has_geothermal=has_geothermal)),
+        ("Inclinaison capteurs", _fmt_number(_weather_snapshot_value(input_snapshot, "tilt_deg"), 0, "°")),
+        ("Azimut vs sud", _fmt_number(_weather_snapshot_value(input_snapshot, "azimuth_deg_south"), 0, "°")),
+        ("Type d'installation solaire", _solar_loop_mode_label(scenario.config.collector.solar_loop_mode)),
     ]
     if has_geothermal:
         input_metrics.extend(

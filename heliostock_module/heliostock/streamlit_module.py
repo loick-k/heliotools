@@ -376,6 +376,7 @@ def render_heliostock_hourly() -> pd.DataFrame:
                 scenario,
                 calculation_id=calculation_id,
                 calculated_at=calculated_at,
+                input_snapshot=input_snapshot,
                 gmi_context=gmi_context,
                 architectural_context=architectural_context,
             ),

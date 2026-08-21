@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Capteur xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Marque_Capteur>Giordano R Energy</Marque_Capteur>
+  <Modele_Capteur>Capteur4N</Modele_Capteur>
+  <Certification_Capteur>24.04.005</Certification_Capteur>
+  <Type_Capteur>WISC (Wind and/or infrared sensitive collector)</Type_Capteur>
+  <Scapt_Uni>4.7</Scapt_Uni>
+  <Coef_eta0>0.589</Coef_eta0>
+  <Coef_a1>40.13</Coef_a1>
+  <Coef_a2>0.0</Coef_a2>
+  <Coef_a3>5.42</Coef_a3>
+  <Coef_a4>0.48</Coef_a4>
+  <Coef_a5>17085</Coef_a5>
+  <Coef_a6>0.007</Coef_a6>
+  <Coef_a7>0.01</Coef_a7>
+  <Coef_a8>0</Coef_a8>
+  <Kd>0.95</Kd>
+  <KT_10>1.00</KT_10>
+  <KT_20>1.00</KT_20>
+  <KT_30>0.99</KT_30>
+  <KT_40>1.01</KT_40>
+  <KT_50>1.08</KT_50>
+  <KT_60>1.00</KT_60>
+  <KT_70>0.82</KT_70>
+  <KT_80>0.47</KT_80>
+  <KT_90>0.00</KT_90>
+  <KL_10>1.00</KL_10>
+  <KL_20>1.00</KL_20>
+  <KL_30>1.00</KL_30>
+  <KL_40>0.99</KL_40>
+  <KL_50>0.98</KL_50>
+  <KL_60>0.94</KL_60>
+  <KL_70>0.83</KL_70>
+  <KL_80>0.58</KL_80>
+  <KL_90>0.00</KL_90>
+</Capteur>

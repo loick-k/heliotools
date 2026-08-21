@@ -56,3 +56,27 @@ def test_helioeco_cashflow_chart_uses_existing_projection_columns():
     assert "Flux annuel inflation annuelle (€)" not in cashflow_rows[0]
     assert "Économie annuelle inflation (€)" in cashflow_rows[0]
     assert '"Économie annuelle inflation (€)"' in app_source
+    assert '"Année"' in app_source
+    assert b"Ann\xc3\x83".decode("utf-8") not in app_source
+    assert "Coût chaleur (€/MWh)" in app_source
+    assert "Flux cumulé (€)" in app_source
+
+
+def test_helioeco_column_lookup_accepts_mojibake_candidates():
+    app_source = _source("heliostock/helioeco/streamlit_helioeco_app.py")
+    helper_block = app_source[
+        app_source.index("def _normalise_column_key") : app_source.index("def _render_heat_cost_breakdown_plotly")
+    ]
+    namespace = {}
+    exec("import unicodedata\n" + helper_block, namespace)
+    first_available_key = namespace["_first_available_key"]
+    row = {
+        "Année": 1,
+        "Flux cumulé inflation annuelle (€)": -100.0,
+    }
+
+    assert first_available_key(row, ("AnnÃ©e", "Annee")) == "Année"
+    assert (
+        first_available_key(row, ("Flux cumulÃ© inflation annuelle (â‚¬)", "Flux cumule inflation annuelle (€)"))
+        == "Flux cumulé inflation annuelle (€)"
+    )
