@@ -22,13 +22,11 @@ from .ui_forms import (
     render_solar_form,
     render_weather_form,
 )
-from .ui_portal import HELIOSTOCK_NOTICE, render_heliostock_project_controls
+from .ui_portal import HELIOSTOCK_NOTICE, heliotools_logo_path, render_heliostock_project_controls
 from .ui_project import render_heliostock_project_form
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
-HELIOTOOLS_LOGO = ASSETS_DIR / "logo_heliotools_v2.png"
-HELIOPILOT_LOGO = HELIOTOOLS_LOGO
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 
 
@@ -140,8 +138,9 @@ def render_heliostock_hourly() -> pd.DataFrame:
     """Render the hourly-only HelioDyn module."""
 
     logo_left, logo_right = st.columns([2, 1])
-    if HELIOPILOT_LOGO.exists():
-        logo_left.image(str(HELIOPILOT_LOGO), width=360)
+    logo_path = heliotools_logo_path()
+    if logo_path.exists():
+        logo_left.image(str(logo_path), width=360)
     else:
         logo_left.header("HelioDyn")
     if ATLANSUN_LOGO.exists():
