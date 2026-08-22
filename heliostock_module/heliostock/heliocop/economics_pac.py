@@ -14,12 +14,23 @@ La décomposition économique reprend la logique HelioEco :
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from math import isfinite
 from typing import Mapping
 
 from .solopac_results import SoloPacResults
 
-from ..gas_reference import GAS_REFERENCE_EXISTING_BOILER, includes_gas_boiler_fixed_costs
+from ..gas_reference import GAS_REFERENCE_EXISTING_BOILER
+from ..common.economics_core import (
+    DEFAULT_REFERENCE_BOILER_CAPEX_EUR_KW,
+    DEFAULT_REFERENCE_BOILER_P2_EUR_KW_YEAR,
+    DEFAULT_REFERENCE_EFFICIENCY,
+    DEFAULT_REFERENCE_ENERGY_COST_EUR_MWH,
+    DEFAULT_REFERENCE_INFLATION,
+    average_escalation_factor,
+    gas_boiler_fixed_costs,
+    p4_eur_mwh,
+    reference_gas_p1_eur_mwh,
+    safe_divide,
+)
 from .model import (
     DEFAULT_AID_EUR_PER_MWH_ENR,
     DEFAULT_COST_UNCERTAINTY,
@@ -48,11 +59,6 @@ DEFAULT_MONTHLY_COP_60C: dict[str, float] = {
 DEFAULT_ELECTRICITY_COST_EUR_MWH = 200.0
 DEFAULT_MAINTENANCE_ANNUAL_EUR = 2000.0
 DEFAULT_ANALYSIS_YEARS = 20
-DEFAULT_REFERENCE_ENERGY_COST_EUR_MWH = 75.0
-DEFAULT_REFERENCE_EFFICIENCY = 0.82
-DEFAULT_REFERENCE_INFLATION = 0.03
-DEFAULT_REFERENCE_BOILER_P2_EUR_KW_YEAR = 10.0
-DEFAULT_REFERENCE_BOILER_CAPEX_EUR_KW = 200.0
 
 
 @dataclass(frozen=True)
@@ -141,18 +147,11 @@ class PacEconomicResults:
 
 
 def _safe_divide(numerator: float, denominator: float) -> float:
-    if denominator <= 0:
-        return 0.0
-    value = numerator / denominator
-    return value if isfinite(value) else 0.0
+    return safe_divide(numerator, denominator)
 
 
 def _average_escalation_factor(rate: float, years: int) -> float:
-    years = max(1, int(years))
-    rate = float(rate)
-    if abs(rate) < 1e-12:
-        return 1.0
-    return ((1.0 + rate) ** years - 1.0) / (years * rate)
+    return average_escalation_factor(rate, years)
 
 
 def normalize_monthly_heat(monthly_heat_mwh: Mapping[str, float] | None, annual_heat_mwh: float | None = None) -> dict[str, float]:
@@ -283,11 +282,16 @@ def compute_pac_heat_cost_model(
         if pac_scenario_boiler_power_kw is None
         else max(0.0, float(pac_scenario_boiler_power_kw))
     )
-    pac_scenario_boiler_investment = 0.0
-    pac_scenario_boiler_p2_annual = 0.0
-    if includes_gas_boiler_fixed_costs(gas_reference_context):
-        pac_scenario_boiler_investment = pac_boiler_power * max(0.0, float(reference_boiler_capex_eur_kw))
-        pac_scenario_boiler_p2_annual = pac_boiler_power * max(0.0, float(reference_boiler_p2_eur_kw_year))
+    pac_boiler_costs = gas_boiler_fixed_costs(
+        gas_reference_context=gas_reference_context,
+        boiler_power_kw=pac_boiler_power,
+        annual_heat_mwh=annual_heat,
+        analysis_years=years,
+        boiler_p2_eur_kw_year=reference_boiler_p2_eur_kw_year,
+        boiler_capex_eur_kw=reference_boiler_capex_eur_kw,
+    )
+    pac_scenario_boiler_investment = pac_boiler_costs.investment_eur
+    pac_scenario_boiler_p2_annual = pac_boiler_costs.p2_annual_eur
 
     p2_annual = pac_maintenance_annual + pac_scenario_boiler_p2_annual
     p2 = _safe_divide(p2_annual, annual_heat)
@@ -297,30 +301,30 @@ def compute_pac_heat_cost_model(
     pac_scenario_net_low = net_capex_low + pac_scenario_boiler_investment
     pac_scenario_net_high = net_capex_high + pac_scenario_boiler_investment
 
-    p4 = _safe_divide(pac_scenario_net_investment, annual_heat * years)
-    p4_low = _safe_divide(pac_scenario_net_low, annual_heat * years)
-    p4_high = _safe_divide(pac_scenario_net_high, annual_heat * years)
+    p4 = p4_eur_mwh(net_investment_eur=pac_scenario_net_investment, annual_heat_mwh=annual_heat, analysis_years=years)
+    p4_low = p4_eur_mwh(net_investment_eur=pac_scenario_net_low, annual_heat_mwh=annual_heat, analysis_years=years)
+    p4_high = p4_eur_mwh(net_investment_eur=pac_scenario_net_high, annual_heat_mwh=annual_heat, analysis_years=years)
     heat_cost = p1 + p2 + p4
     heat_cost_low = p1 + p2 + p4_low
     heat_cost_high = p1 + p2 + p4_high
 
-    eta_ref = max(1e-6, float(reference_efficiency))
-    reference_p1 = (
-        max(0.0, float(reference_energy_cost_eur_mwh))
-        / eta_ref
-        * _average_escalation_factor(float(reference_inflation_rate), years)
+    reference_p1 = reference_gas_p1_eur_mwh(
+        reference_energy_cost_eur_mwh=reference_energy_cost_eur_mwh,
+        reference_efficiency=reference_efficiency,
+        reference_inflation_rate=reference_inflation_rate,
+        analysis_years=years,
     )
-    reference_p2 = 0.0
-    reference_p4 = 0.0
-    reference_boiler_investment = 0.0
-    if includes_gas_boiler_fixed_costs(gas_reference_context):
-        boiler_power = max(0.0, float(reference_boiler_power_kw))
-        reference_p2 = _safe_divide(
-            boiler_power * max(0.0, float(reference_boiler_p2_eur_kw_year)),
-            annual_heat,
-        )
-        reference_boiler_investment = boiler_power * max(0.0, float(reference_boiler_capex_eur_kw))
-        reference_p4 = _safe_divide(reference_boiler_investment, annual_heat * years)
+    reference_boiler_costs = gas_boiler_fixed_costs(
+        gas_reference_context=gas_reference_context,
+        boiler_power_kw=reference_boiler_power_kw,
+        annual_heat_mwh=annual_heat,
+        analysis_years=years,
+        boiler_p2_eur_kw_year=reference_boiler_p2_eur_kw_year,
+        boiler_capex_eur_kw=reference_boiler_capex_eur_kw,
+    )
+    reference_p2 = reference_boiler_costs.p2_eur_mwh
+    reference_p4 = reference_boiler_costs.p4_eur_mwh
+    reference_boiler_investment = reference_boiler_costs.investment_eur
     average_ref = reference_p1 + reference_p2 + reference_p4
     reference_scenario_gross_investment = reference_boiler_investment
     reference_scenario_net_investment = reference_boiler_investment
@@ -444,9 +448,7 @@ def compute_pac_heat_cost_from_solopac(
 
     years = max(1, int(analysis_years))
     eta_gas = max(1e-6, float(reference_efficiency))
-    gas_average_price = max(0.0, float(reference_energy_cost_eur_mwh)) * _average_escalation_factor(
-        float(reference_inflation_rate), years
-    )
+    gas_average_price = max(0.0, float(reference_energy_cost_eur_mwh)) * _average_escalation_factor(float(reference_inflation_rate), years)
     gas_fuel_mwh = q_gas / eta_gas
     p1_electricity_annual = e_total * max(0.0, float(electricity_cost_eur_mwh))
     p1_gas_annual = gas_fuel_mwh * gas_average_price
@@ -458,11 +460,16 @@ def compute_pac_heat_cost_from_solopac(
         if pac_scenario_boiler_power_kw is None
         else max(0.0, float(pac_scenario_boiler_power_kw))
     )
-    pac_scenario_boiler_investment = 0.0
-    pac_scenario_boiler_p2_annual = 0.0
-    if includes_gas_boiler_fixed_costs(gas_reference_context):
-        pac_scenario_boiler_investment = pac_boiler_power * max(0.0, float(reference_boiler_capex_eur_kw))
-        pac_scenario_boiler_p2_annual = pac_boiler_power * max(0.0, float(reference_boiler_p2_eur_kw_year))
+    pac_boiler_costs = gas_boiler_fixed_costs(
+        gas_reference_context=gas_reference_context,
+        boiler_power_kw=pac_boiler_power,
+        annual_heat_mwh=annual_heat,
+        analysis_years=years,
+        boiler_p2_eur_kw_year=reference_boiler_p2_eur_kw_year,
+        boiler_capex_eur_kw=reference_boiler_capex_eur_kw,
+    )
+    pac_scenario_boiler_investment = pac_boiler_costs.investment_eur
+    pac_scenario_boiler_p2_annual = pac_boiler_costs.p2_annual_eur
 
     p2_annual = max(0.0, float(maintenance_annual_eur)) + pac_scenario_boiler_p2_annual
     p2 = _safe_divide(p2_annual, annual_heat)
@@ -471,24 +478,25 @@ def compute_pac_heat_cost_from_solopac(
     pac_scenario_net_investment = net_capex + pac_scenario_boiler_investment
     pac_scenario_net_low = net_capex_low + pac_scenario_boiler_investment
     pac_scenario_net_high = net_capex_high + pac_scenario_boiler_investment
-    p4 = _safe_divide(pac_scenario_net_investment, annual_heat * years)
-    p4_low = _safe_divide(pac_scenario_net_low, annual_heat * years)
-    p4_high = _safe_divide(pac_scenario_net_high, annual_heat * years)
+    p4 = p4_eur_mwh(net_investment_eur=pac_scenario_net_investment, annual_heat_mwh=annual_heat, analysis_years=years)
+    p4_low = p4_eur_mwh(net_investment_eur=pac_scenario_net_low, annual_heat_mwh=annual_heat, analysis_years=years)
+    p4_high = p4_eur_mwh(net_investment_eur=pac_scenario_net_high, annual_heat_mwh=annual_heat, analysis_years=years)
     heat_cost = p1 + p2 + p4
     heat_cost_low = p1 + p2 + p4_low
     heat_cost_high = p1 + p2 + p4_high
 
     reference_p1 = gas_average_price / eta_gas
-    reference_p2 = 0.0
-    reference_p4 = 0.0
-    reference_boiler_investment = 0.0
-    if includes_gas_boiler_fixed_costs(gas_reference_context):
-        boiler_power = max(0.0, float(reference_boiler_power_kw))
-        reference_p2 = _safe_divide(
-            boiler_power * max(0.0, float(reference_boiler_p2_eur_kw_year)), annual_heat
-        )
-        reference_boiler_investment = boiler_power * max(0.0, float(reference_boiler_capex_eur_kw))
-        reference_p4 = _safe_divide(reference_boiler_investment, annual_heat * years)
+    reference_boiler_costs = gas_boiler_fixed_costs(
+        gas_reference_context=gas_reference_context,
+        boiler_power_kw=reference_boiler_power_kw,
+        annual_heat_mwh=annual_heat,
+        analysis_years=years,
+        boiler_p2_eur_kw_year=reference_boiler_p2_eur_kw_year,
+        boiler_capex_eur_kw=reference_boiler_capex_eur_kw,
+    )
+    reference_p2 = reference_boiler_costs.p2_eur_mwh
+    reference_p4 = reference_boiler_costs.p4_eur_mwh
+    reference_boiler_investment = reference_boiler_costs.investment_eur
     average_ref = reference_p1 + reference_p2 + reference_p4
 
     reference_scenario_gross_investment = reference_boiler_investment

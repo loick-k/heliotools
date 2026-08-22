@@ -63,8 +63,8 @@ class SolarInputs:
             warnings.append("L'epaisseur d'isolant du ballon doit etre strictement positive.")
         if self.daily_buffer_insulation_lambda_w_m_k <= 0.0:
             warnings.append("Le lambda de l'isolant du ballon doit etre strictement positif.")
-        if self.daily_buffer_model not in {"mixed", "stratified_3_nodes"}:
-            warnings.append("Le modèle de ballon solaire n'est pas reconnu.")
+        if self.daily_buffer_model != "stratified_3_nodes":
+            warnings.append("Le modèle de ballon solaire doit être 'stratified_3_nodes'.")
         if self.daily_buffer_internal_timestep_s <= 0.0:
             warnings.append("Le pas interne du ballon stratifié doit etre strictement positif.")
         if self.daily_buffer_solar_loop_flow_l_h_m2 <= 0.0:

@@ -113,7 +113,16 @@ class StratifiedTank3Nodes:
             mass_cp = self._mass_cp(index)
             if mass_cp <= 0.0:
                 continue
-            q_loss_j = self.ua_total_w_per_k * ua_fraction * (self.temperatures_c[index] - ambient_c) * dt_s
+            delta_t_k = self.temperatures_c[index] - ambient_c
+            q_raw_j = self.ua_total_w_per_k * ua_fraction * delta_t_k * dt_s
+            # The explicit loss step is capped at the energy that would bring
+            # the node exactly to ambient. This avoids numerical overshoot for
+            # small/high-UA tanks or large internal timesteps.
+            q_to_ambient_j = mass_cp * delta_t_k
+            if q_raw_j >= 0.0:
+                q_loss_j = min(q_raw_j, q_to_ambient_j)
+            else:
+                q_loss_j = max(q_raw_j, q_to_ambient_j)
             self.temperatures_c[index] -= q_loss_j / mass_cp
             q_loss_total_j += q_loss_j
         return q_loss_total_j

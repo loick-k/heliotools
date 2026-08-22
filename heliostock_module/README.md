@@ -51,7 +51,7 @@ Avant de livrer une archive, verifier qu'elle ne contient pas `__pycache__/`, `.
 `heliostock_module/heliostock_module/`. Le depot doit contenir un seul package `heliostock/` actif afin d'eviter les
 conflits d'import et de tests.
 
-## Sauvegarde des projets et secrets
+## Sauvegarde des projets, authentification et secrets
 
 Les projets sauvegardes contiennent les hypotheses d'interface autorisees, le fichier Excel de besoins horaires si
 l'utilisateur l'a charge, et eventuellement le dernier resultat calcule dans un cache local associe au projet.
@@ -64,6 +64,25 @@ dans des fichiers JSON versionnes sur GitHub, separes par application. Configure
 - `GITHUB_BACKUP_TOKEN` : token GitHub avec droit d'ecriture sur le depot ;
 - `GITHUB_BACKUP_PROJECTS_PATH` : chemin du JSON projets HelioStock, par defaut `seed_data/heliostock_projects.json` ;
 - `GITHUB_BACKUP_HELIONOP_PROJECTS_PATH` : chemin du JSON projets HelioNOP, par defaut `seed_data/helionop_projects.json`.
+
+Les comptes utilisateurs et l'historique de connexion ne sont pas des donnees de demonstration et ne doivent pas etre
+versionnes. En production, HelioTools utilise Neon/PostgreSQL comme stockage de reference si l'un des secrets suivants
+est configure :
+
+```text
+NEON_DATABASE_URL=postgresql://...
+# ou
+DATABASE_URL=postgresql://...
+```
+
+Au premier acces, HelioTools cree automatiquement les tables `heliotools_users` et `heliotools_login_events`. Les mots de
+passe restent haches/sales, les roles et permissions sont relus depuis Neon a chaque connexion et les evenements de
+connexion sont ajoutes en base. Les anciennes sauvegardes GitHub `GITHUB_BACKUP_USERS_PATH` et
+`GITHUB_BACKUP_LOGIN_EVENTS_PATH` ne doivent plus pointer vers des fichiers suivis dans le depot ; elles ne servent que de
+transition/migration explicite si necessaire.
+
+Les fichiers `seed_data/users.json` et `seed_data/login_events.json` sont exclus du depot et des archives livrees. Pour
+les tests ou la documentation, utiliser uniquement des fixtures synthetiques dans `tests/fixtures/`.
 
 Le JSON HelioStock conserve les parametres projet et le fichier Excel de besoins horaires encode en base64. Localement, les
 fichiers annexes HelioStock sont ranges dans un dossier explicite associe au projet :
@@ -89,6 +108,7 @@ l'environnement et une empreinte d'authentification non reversible.
 Secrets a configurer en production :
 
 ```text
+NEON_DATABASE_URL=postgresql://...
 AUTH_SESSION_SECRET=REMPLACER-PAR-UN-SECRET-ALEATOIRE
 AUTH_SESSION_HOURS=12
 AUTH_SESSION_ENV=production

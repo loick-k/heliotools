@@ -7,10 +7,11 @@ from heliostock.economics import (
     solar_energy_allocation,
     solar_recharge_value,
 )
+from heliostock.gas_reference import GAS_REFERENCE_EXISTING_BOILER, GAS_REFERENCE_RENEWAL
 from heliostock.scenarios import ScenarioEconomicsConfig, _multiyear_heat_cost
 
 
-def test_mix_backup_gas_p1_uses_same_inflated_cost_as_reference_gas():
+def _gas_only_heat_costs(*, gas_reference_context=GAS_REFERENCE_EXISTING_BOILER):
     solar_economics = {
         "p1_eur_mwh": 0.0,
         "p2_eur_mwh": 0.0,
@@ -20,7 +21,7 @@ def test_mix_backup_gas_p1_uses_same_inflated_cost_as_reference_gas():
         "aid_total_eur": 0.0,
         "net_capex_eur": 0.0,
     }
-    heat_costs = compute_heat_costs(
+    return compute_heat_costs(
         solar_economics=solar_economics,
         annual_solar_mwh=0.0,
         annual_pac_heat_mwh=0.0,
@@ -39,21 +40,49 @@ def test_mix_backup_gas_p1_uses_same_inflated_cost_as_reference_gas():
         geothermal_p1_eur_mwh=200.0,
         backup_p1_eur_mwh=70.0,
         backup_p2_eur_kw_year=10.0,
+        backup_capex_eur_kw=200.0,
+        gas_reference_context=gas_reference_context,
     )
+
+
+def _p1_p2_p4_value(heat_costs, generator: str, poste: str) -> float:
     p1_table = heat_costs["p1_p2_p4"]
-    backup_p1 = float(
-        p1_table[(p1_table["Generateur"] == "Appoint gaz") & (p1_table["Poste"] == "P1")]["EUR/MWh"].iloc[0]
+    return float(
+        p1_table[(p1_table["Generateur"] == generator) & (p1_table["Poste"] == poste)]["EUR/MWh"].iloc[0]
     )
-    backup_p2 = float(
-        p1_table[(p1_table["Generateur"] == "Appoint gaz") & (p1_table["Poste"] == "P2")]["EUR/MWh"].iloc[0]
-    )
+
+
+def test_mix_backup_gas_p1_uses_same_inflated_cost_as_reference_gas_with_existing_boiler():
+    heat_costs = _gas_only_heat_costs()
+    backup_p1 = _p1_p2_p4_value(heat_costs, "Appoint gaz", "P1")
+    backup_p2 = _p1_p2_p4_value(heat_costs, "Appoint gaz", "P2")
+    backup_p4 = _p1_p2_p4_value(heat_costs, "Appoint gaz", "P4")
     reference_p1 = float(heat_costs["reference_p1_eur_mwh"])
     reference_p2 = float(heat_costs["reference_p2_eur_mwh"])
+    reference_p4 = float(heat_costs["reference_p4_eur_mwh"])
 
     assert backup_p1 == reference_p1
     assert backup_p1 > 70.0 / 0.82
+    assert backup_p2 == 0.0
+    assert reference_p2 == 0.0
+    assert backup_p4 == 0.0
+    assert reference_p4 == 0.0
+
+
+def test_mix_backup_gas_fixed_costs_are_included_when_boiler_is_renewed():
+    heat_costs = _gas_only_heat_costs(gas_reference_context=GAS_REFERENCE_RENEWAL)
+    backup_p1 = _p1_p2_p4_value(heat_costs, "Appoint gaz", "P1")
+    backup_p2 = _p1_p2_p4_value(heat_costs, "Appoint gaz", "P2")
+    backup_p4 = _p1_p2_p4_value(heat_costs, "Appoint gaz", "P4")
+    reference_p1 = float(heat_costs["reference_p1_eur_mwh"])
+    reference_p2 = float(heat_costs["reference_p2_eur_mwh"])
+    reference_p4 = float(heat_costs["reference_p4_eur_mwh"])
+
+    assert backup_p1 == reference_p1
     assert backup_p2 == 10.0
     assert reference_p2 == 10.0
+    assert backup_p4 == 10.0
+    assert reference_p4 == 10.0
 
 
 def test_solar_p2_uses_one_percent_capex_over_total_solar_production():

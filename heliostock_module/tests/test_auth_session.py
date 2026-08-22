@@ -149,6 +149,19 @@ def test_portal_restores_cookie_before_auth_gate_and_deletes_on_logout():
     assert AUTH_SESSION_COOKIE_NAME in portal_source
 
 
+def test_portal_cookie_restore_waits_for_cookie_manager_hydration():
+    portal_source = _source("heliostock/ui_portal.py")
+    restore_block = portal_source.split("def restore_persistent_auth_session", 1)[1].split("def _hash_password", 1)[0]
+
+    assert "def _cookie_snapshot" in portal_source
+    assert "if cookies is None:" in restore_block
+    assert 'st.session_state.pop(AUTH_SESSION_RESTORE_ATTEMPTED_KEY, None)' in restore_block
+    assert 'st.session_state[AUTH_SESSION_RESTORE_ATTEMPTED_KEY] = True' in restore_block
+    assert restore_block.index("token = str(cookies.get") < restore_block.index(
+        'st.session_state[AUTH_SESSION_RESTORE_ATTEMPTED_KEY] = True'
+    )
+
+
 def test_cookie_payload_does_not_contain_sensitive_business_or_secret_data():
     config = _config()
     token = create_session_token(

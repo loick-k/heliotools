@@ -1,0 +1,16 @@
+[
+  {
+    "timestamp": "2026-01-01T08:00:00",
+    "email": "admin@example.test",
+    "success": true,
+    "reason": "login",
+    "role": "admin"
+  },
+  {
+    "timestamp": "2026-01-01T08:05:00",
+    "email": "user@example.test",
+    "success": false,
+    "reason": "invalid_credentials",
+    "role": ""
+  }
+]

@@ -29,6 +29,7 @@ from .auth_session import (
     create_session_token,
     validate_token_for_user,
 )
+from .common.auth_store import NeonAuthStore
 from .common.project_store import JsonProjectStore, normalize_email, now_iso, safe_slug
 from .common.project_context import project_context_to_payload
 from .ui_architectural_constraints import (
@@ -56,8 +57,8 @@ RESULT_CACHE_FILENAME = "latest_result.json"
 RESULT_JSON_SCHEMA_VERSION = 1
 RESULT_JSON_MAX_BYTES = 200 * 1024 * 1024
 DEMAND_INPUT_FILENAME = "besoins_horaires.xlsx"
-DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"
-DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"
+DEFAULT_BACKUP_USERS_PATH = ""
+DEFAULT_BACKUP_LOGIN_EVENTS_PATH = ""
 DEFAULT_BACKUP_INSTALLATIONS_PATH = "seed_data/installations.json"
 DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliostock_projects.json"
 PASSWORD_MIN_LENGTH = 10
@@ -190,6 +191,27 @@ def _auth_session_environment_setting() -> str:
     return _secret_value("AUTH_SESSION_ENV") or str(os.environ.get("AUTH_SESSION_ENV", "") or "")
 
 
+def _database_url_setting() -> str:
+    return (
+        _secret_value("NEON_DATABASE_URL")
+        or _secret_value("DATABASE_URL")
+        or str(os.environ.get("NEON_DATABASE_URL", "") or "")
+        or str(os.environ.get("DATABASE_URL", "") or "")
+    )
+
+
+def _auth_store() -> NeonAuthStore:
+    return NeonAuthStore(_database_url_setting())
+
+
+def _auth_database_configured() -> bool:
+    return _auth_store().is_configured
+
+
+def _auth_database_available() -> bool:
+    return _auth_store().available()
+
+
 def _auth_session_config() -> AuthSessionConfig:
     return config_from_values(
         secret=_auth_session_secret(),
@@ -212,17 +234,32 @@ def _cookie_manager_ready() -> bool:
     return _cookie_manager() is not None
 
 
-def _cookie_get(name: str) -> str:
+def _cookie_snapshot() -> dict[str, str] | None:
+    """Return browser cookies when the Streamlit cookie component has hydrated.
+
+    The extra-streamlit-components cookie manager can need one frontend
+    roundtrip after a hard refresh. Returning None distinguishes "not ready yet"
+    from "ready but cookie absent", which keeps persistent auth restoration from
+    failing permanently too early.
+    """
+
     manager = _cookie_manager()
     if manager is None:
-        return ""
+        return None
     try:
         cookies = manager.get_all()
-        if isinstance(cookies, dict):
-            return str(cookies.get(name, "") or "")
     except Exception:
+        return None
+    if not isinstance(cookies, dict):
+        return None
+    return {str(key): str(value) for key, value in cookies.items()}
+
+
+def _cookie_get(name: str) -> str:
+    cookies = _cookie_snapshot()
+    if cookies is None:
         return ""
-    return ""
+    return str(cookies.get(name, "") or "")
 
 
 def _cookie_set(name: str, value: str, *, expires_at: datetime) -> None:
@@ -311,7 +348,10 @@ def _github_backup_enabled() -> bool:
 
 
 def _resolve_backup_users_path() -> Path:
-    configured = Path(_backup_users_path_setting())
+    configured_value = _backup_users_path_setting()
+    if not configured_value:
+        return PROJECTS_DIR / "auth_backup_disabled" / "users.json"
+    configured = Path(configured_value)
     if configured.is_absolute():
         return configured
 
@@ -326,7 +366,10 @@ def _resolve_backup_users_path() -> Path:
 
 
 def _resolve_backup_login_events_path() -> Path:
-    configured = Path(_backup_login_events_path_setting())
+    configured_value = _backup_login_events_path_setting()
+    if not configured_value:
+        return PROJECTS_DIR / "auth_backup_disabled" / "login_events.json"
+    configured = Path(configured_value)
     if configured.is_absolute():
         return configured
 
@@ -405,7 +448,7 @@ def _github_contents_url(path: str) -> str:
 
 
 def _github_read_json_list(path: str) -> list[dict[str, Any]]:
-    if not _github_backup_enabled():
+    if not _github_backup_enabled() or not str(path or "").strip():
         return []
     url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
     req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
@@ -424,7 +467,7 @@ def _github_read_json_list(path: str) -> list[dict[str, Any]]:
 
 
 def _github_file_sha(path: str) -> str | None:
-    if not _github_backup_enabled():
+    if not _github_backup_enabled() or not str(path or "").strip():
         return None
     url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
     req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
@@ -442,7 +485,7 @@ def _github_file_sha(path: str) -> str | None:
 
 
 def _github_write_json_list(path: str, rows: list[dict[str, Any]], *, message: str) -> bool:
-    if not _github_backup_enabled():
+    if not _github_backup_enabled() or not str(path or "").strip():
         return False
     content = json.dumps(rows, ensure_ascii=False, indent=2).encode("utf-8")
     body: dict[str, Any] = {
@@ -470,6 +513,8 @@ def _restore_users_from_backup() -> list[dict[str, Any]]:
     github_users = _github_read_json_list(_backup_users_path_setting())
     if github_users:
         _write_users_file(USERS_FILE, github_users)
+        if _auth_database_available():
+            _auth_store().save_users(github_users)
         return github_users
 
     backup_path = _resolve_backup_users_path()
@@ -478,6 +523,8 @@ def _restore_users_from_backup() -> list[dict[str, Any]]:
     users = _read_users_file(backup_path)
     if users:
         _write_users_file(USERS_FILE, users)
+        if _auth_database_available():
+            _auth_store().save_users(users)
     return users
 
 
@@ -599,7 +646,8 @@ def _delete_project_backup(path: Path) -> None:
 
 def _backup_users_configured() -> bool:
     return (
-        _github_backup_enabled()
+        _auth_database_configured()
+        or _github_backup_enabled()
         or bool(_secret_value("GITHUB_BACKUP_USERS_PATH"))
         or _resolve_backup_users_path().exists()
     )
@@ -613,10 +661,18 @@ def _load_users() -> list[dict[str, Any]]:
     cached = st.session_state.get(USERS_SESSION_CACHE_KEY)
     if isinstance(cached, list):
         return [dict(user) for user in cached if isinstance(user, dict)]
+    if _auth_database_available():
+        users = _auth_store().load_users()
+        if users:
+            st.session_state[USERS_SESSION_CACHE_KEY] = users
+            _write_users_file(USERS_FILE, users)
+            return users
     if USERS_FILE.exists():
         users = _read_users_file(USERS_FILE)
         if users:
             st.session_state[USERS_SESSION_CACHE_KEY] = users
+            if _auth_database_available():
+                _auth_store().save_users(users)
             return users
     users = _restore_users_from_backup()
     if users:
@@ -627,7 +683,10 @@ def _load_users() -> list[dict[str, Any]]:
 def _save_users(users: list[dict[str, Any]]) -> None:
     _write_users_file(USERS_FILE, users)
     st.session_state[USERS_SESSION_CACHE_KEY] = [dict(user) for user in users if isinstance(user, dict)]
-    _write_users_file(_resolve_backup_users_path(), users)
+    if _auth_database_available():
+        _auth_store().save_users(users)
+    if _backup_users_path_setting():
+        _write_users_file(_resolve_backup_users_path(), users)
     _github_write_json_list(
         _backup_users_path_setting(),
         users,
@@ -695,7 +754,10 @@ def _append_login_event(*, email: str, success: bool, reason: str = "", role: st
     rows.append(event)
     rows = rows[-1000:]
     _write_json_list(LOGIN_EVENTS_FILE, rows)
-    _write_json_list(_resolve_backup_login_events_path(), rows)
+    if _auth_database_available():
+        _auth_store().append_login_event(event)
+    if _backup_login_events_path_setting():
+        _write_json_list(_resolve_backup_login_events_path(), rows)
     _github_write_json_list(
         _backup_login_events_path_setting(),
         rows,
@@ -704,6 +766,11 @@ def _append_login_event(*, email: str, success: bool, reason: str = "", role: st
 
 
 def _load_login_events() -> list[dict[str, Any]]:
+    if _auth_database_available():
+        rows = _auth_store().load_login_events(limit=1000)
+        if rows:
+            _write_json_list(LOGIN_EVENTS_FILE, rows)
+            return rows
     rows = _read_json_list(LOGIN_EVENTS_FILE)
     if rows:
         return rows
@@ -761,18 +828,23 @@ def restore_persistent_auth_session() -> bool:
 
     if is_user_authenticated():
         return True
-    if st.session_state.get(AUTH_SESSION_RESTORE_ATTEMPTED_KEY):
-        return False
-    st.session_state[AUTH_SESSION_RESTORE_ATTEMPTED_KEY] = True
 
     config = _auth_session_config()
     if not config.is_enabled or not _cookie_manager_ready():
+        st.session_state.pop(AUTH_SESSION_RESTORE_ATTEMPTED_KEY, None)
         return False
 
-    token = _cookie_get(AUTH_SESSION_COOKIE_NAME)
+    cookies = _cookie_snapshot()
+    if cookies is None:
+        st.session_state.pop(AUTH_SESSION_RESTORE_ATTEMPTED_KEY, None)
+        return False
+
+    token = str(cookies.get(AUTH_SESSION_COOKIE_NAME, "") or "")
     if not token:
+        st.session_state.pop(AUTH_SESSION_RESTORE_ATTEMPTED_KEY, None)
         return False
 
+    st.session_state[AUTH_SESSION_RESTORE_ATTEMPTED_KEY] = True
     probe = validate_token_for_user(token, None, config=config)
     email = ""
     if probe.payload:
@@ -1547,9 +1619,9 @@ def render_admin_login(*, compact: bool = False) -> bool:
                     "Par sécurité, la création libre d'un nouvel administrateur est bloquée."
                 )
                 st.info(
-                    "Vérifie le secret Streamlit `GITHUB_BACKUP_USERS_PATH` "
-                    "(par exemple `seed_data/users.json`) ou restaure l'accès avec "
-                    "`HELIOSTOCK_ADMIN_EMAIL` et `HELIOSTOCK_ADMIN_PASSWORD`."
+                    "Vérifie le secret Streamlit `NEON_DATABASE_URL` ou `DATABASE_URL`, "
+                    "ou restaure l'accès avec `HELIOSTOCK_ADMIN_EMAIL` et "
+                    "`HELIOSTOCK_ADMIN_PASSWORD`."
                 )
                 return False
 

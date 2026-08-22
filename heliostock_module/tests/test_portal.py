@@ -164,7 +164,13 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
 
 def test_users_are_restored_from_configured_backup_path():
     source = _source("heliostock/ui_portal.py")
-    assert 'DEFAULT_BACKUP_USERS_PATH = "seed_data/users.json"' in source
+    assert 'DEFAULT_BACKUP_USERS_PATH = ""' in source
+    assert "NEON_DATABASE_URL" in source
+    assert "DATABASE_URL" in source
+    assert "NeonAuthStore" in source
+    assert "_auth_database_configured()" in source
+    assert "_auth_store().load_users()" in source
+    assert "_auth_store().save_users(users)" in source
     assert "GITHUB_BACKUP_USERS_PATH" in source
     assert "GITHUB_BACKUP_REPO" in source
     assert "GITHUB_BACKUP_BRANCH" in source
@@ -172,8 +178,9 @@ def test_users_are_restored_from_configured_backup_path():
     assert "def _restore_users_from_backup" in source
     assert "_github_read_json_list(_backup_users_path_setting())" in source
     assert "users = _restore_users_from_backup()" in source
-    assert "_write_users_file(_resolve_backup_users_path(), users)" in source
+    assert "if _backup_users_path_setting():" in source
     assert "_github_write_json_list(" in source
+    assert "seed_data/users.json" not in source
 
 
 def test_projects_are_backed_up_to_github_json_without_result_pickle():
@@ -197,12 +204,15 @@ def test_projects_are_backed_up_to_github_json_without_result_pickle():
 def test_login_events_are_recorded_without_secret_values():
     source = _source("heliostock/ui_portal.py")
     assert "LOGIN_EVENTS_FILE" in source
-    assert 'DEFAULT_BACKUP_LOGIN_EVENTS_PATH = "seed_data/login_events.json"' in source
+    assert 'DEFAULT_BACKUP_LOGIN_EVENTS_PATH = ""' in source
+    assert "_auth_store().append_login_event(event)" in source
+    assert "_auth_store().load_login_events(limit=1000)" in source
     assert "def _append_login_event" in source
     assert '"email": _email_normalise(email)' in source
     assert '"success": bool(success)' in source
     assert '"role": str(role or "")' in source
     assert "_github_write_json_list(" in source
+    assert "seed_data/login_events.json" not in source
 
 
 def test_solar_dashboard_access_is_configurable_and_airtable_inputs_are_hidden():

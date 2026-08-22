@@ -43,6 +43,42 @@ def test_losses_cool_nodes_toward_ambient():
     assert after.t_bottom_c < before.t_bottom_c
 
 
+def test_losses_do_not_overshoot_ambient_with_large_ua_or_timestep():
+    tank = StratifiedTank3Nodes(
+        volume_m3=0.01,
+        t_init_c=21.0,
+        ua_total_w_per_k=10_000.0,
+        t_amb_c=20.0,
+        fractions_volume=(1 / 3, 1 / 3, 1 / 3),
+    )
+
+    losses = tank.apply_losses(3600.0, 20.0)
+    state = tank.state()
+
+    assert losses > 0.0
+    assert state.t_bottom_c == pytest.approx(20.0)
+    assert state.t_middle_c == pytest.approx(20.0)
+    assert state.t_top_c == pytest.approx(20.0)
+
+
+def test_losses_can_warm_cold_node_without_overshooting_ambient():
+    tank = StratifiedTank3Nodes(
+        volume_m3=0.01,
+        t_init_c=19.0,
+        ua_total_w_per_k=10_000.0,
+        t_amb_c=20.0,
+        fractions_volume=(1 / 3, 1 / 3, 1 / 3),
+    )
+
+    losses = tank.apply_losses(3600.0, 20.0)
+    state = tank.state()
+
+    assert losses < 0.0
+    assert state.t_bottom_c == pytest.approx(20.0)
+    assert state.t_middle_c == pytest.approx(20.0)
+    assert state.t_top_c == pytest.approx(20.0)
+
+
 def test_stratification_mixes_inverted_layers():
     tank = StratifiedTank3Nodes(volume_m3=1.0, t_init_c=20.0, ua_total_w_per_k=0.0, t_amb_c=20.0)
     tank.temperatures_c = [70.0, 50.0, 40.0]

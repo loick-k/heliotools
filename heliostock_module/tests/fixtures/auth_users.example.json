@@ -1,0 +1,22 @@
+[
+  {
+    "email": "admin@example.test",
+    "nom": "Admin Demo",
+    "role": "admin",
+    "app_access": ["HelioDyn"],
+    "password_hash": "fixture-only:not-a-real-password-hash",
+    "password_updated_at": "2026-01-01T00:00:00",
+    "created_at": "2026-01-01T00:00:00",
+    "active": true
+  },
+  {
+    "email": "user@example.test",
+    "nom": "Utilisateur Demo",
+    "role": "user",
+    "app_access": ["HelioDyn"],
+    "password_hash": "fixture-only:not-a-real-password-hash",
+    "password_updated_at": "2026-01-01T00:00:00",
+    "created_at": "2026-01-01T00:00:00",
+    "active": true
+  }
+]

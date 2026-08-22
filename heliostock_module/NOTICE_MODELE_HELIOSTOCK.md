@@ -280,35 +280,44 @@ Q_solaire_h = max(0, Q_solaire_h)
 
 Le solaire thermique ne va pas directement au process HT. Il charge d'abord le ballon journalier.
 
-Température moyenne capteur utilisée pour la charge ballon :
+Le modèle stratifié utilise la température de bas de ballon comme retour capteur. La température moyenne capteur utilisée
+dans la loi de rendement est ensuite estimée par itération courte :
 
 ```text
-T_capteur_ballon =
-    max(
-        T_ambiance_ballon + approche_capteur_ballon,
-        T_ballon_debut_heure + approche_capteur_ballon
-    )
-```
-
-Comme `T_ballon_debut_heure >= T_ambiance_ballon`, cela revient en pratique à :
-
-```text
-T_capteur_ballon ~= T_ballon_debut_heure + approche_capteur_ballon
+T_entree_capteur = T_bas_ballon + approche_capteur_ballon
+T_sortie_capteur = T_entree_capteur + Q_solaire / (debit_boucle * Cp_eau)
+T_mean_capteur = (T_entree_capteur + T_sortie_capteur) / 2
 ```
 
 Valeur par défaut :
 
 ```text
 approche_capteur_ballon = 10 K
+debit_boucle_solaire = 50 L/h/m² capteur
 ```
 
-Cette température sert uniquement au calcul du rendement capteur de charge ballon.
+Cette logique remplace l'ancien calcul basé sur une température moyenne unique du ballon. Elle permet de représenter
+l'effet principal de la stratification : un bas de ballon froid améliore le rendement capteur, tandis qu'un haut de
+ballon chaud reste disponible pour le préchauffage utile.
 
 ## 8. Modèle du ballon solaire journalier
 
-Fichier concerné : `heliostock/hourly_engine.py`.
+Fichiers concernés :
 
-Le ballon est modélisé comme un volume d'eau équivalent.
+- `heliostock/hourly_engine.py` ;
+- `heliostock/models/stratified_tank_3nodes.py`.
+
+Le ballon solaire journalier est modélisé par défaut comme un ballon stratifié 1D à trois nœuds :
+
+```text
+haut de ballon
+milieu de ballon
+bas de ballon
+```
+
+Chaque nœud est un volume parfaitement mélangé avec sa propre température et son propre bilan d'énergie. Le modèle est
+inspiré de l'approche multinœud décrite par Kleinbach, Beckman et Klein, sans chercher à reproduire un solveur TRNSYS
+ou CFD détaillé.
 
 Volume :
 
@@ -316,30 +325,52 @@ Volume :
 V_ballon = A_capteurs * volume_ballon_L_par_m2
 ```
 
-Capacité thermique :
+Répartition volumique par défaut :
 
 ```text
-C_ballon = V_ballon * 1,163e-3
+bas = 35 %
+milieu = 30 %
+haut = 35 %
 ```
 
-avec `C_ballon` en kWh/K.
-
-Énergie stockée au-dessus de l'ambiance :
+Chaque masse de nœud vaut :
 
 ```text
-E_buffer = C_ballon * (T_ballon - T_ambiance_ballon)
+m_i = V_i * rho_eau
 ```
 
-Température du ballon :
+avec `rho_eau = 1000 kg/m³` et `Cp_eau = 4180 J/kg/K`.
+
+La température moyenne du ballon n'est plus la variable d'état principale ; elle est seulement un indicateur calculé :
 
 ```text
-T_ballon = T_ambiance_ballon + E_buffer / C_ballon
+T_moyenne = somme(m_i * T_i) / somme(m_i)
 ```
 
-Capacité maximale physique, utilisée comme borne de sécurité :
+Énergie stockée au-dessus d'une température de référence :
 
 ```text
-E_buffer_max = C_ballon * (Tmax_ballon - T_ambiance_ballon)
+E_stock = somme(m_i * Cp_eau * max(0, T_i - T_reference))
+```
+
+Ordre physique imposé :
+
+```text
+T_haut >= T_milieu >= T_bas
+```
+
+Si une inversion apparaît, les deux nœuds concernés sont mélangés en conservant l'énergie :
+
+```text
+T_mix = (m_a * T_a + m_b * T_b) / (m_a + m_b)
+```
+
+Cette correction est répétée jusqu'à retrouver un profil stratifié cohérent.
+
+Le modèle horaire utilise des sous-pas internes, 300 s par défaut. Pour une heure, cela donne 12 sous-pas :
+
+```text
+3600 / 300 = 12
 ```
 
 Valeurs par défaut :
@@ -348,55 +379,50 @@ Valeurs par défaut :
 T_ambiance_ballon = 20 °C
 Tmax_ballon = 80 °C
 volume_ballon = 50 L/m² capteur
+mode_charge_solaire = bottom
 ```
 
 ## 9. Bascule vers BTES à Tmax ballon
 
-Le ballon est prioritaire. Le BTES n'est chargé que lorsque le ballon ne peut plus absorber toute la ressource solaire disponible, donc lorsque sa capacité restante jusqu'à `Tmax_ballon` est nulle.
+Le ballon solaire est prioritaire. En mode couplé solaire thermique + géothermie, le BTES n'est chargé que lorsque le
+ballon stratifié ne peut plus absorber toute la ressource solaire disponible, notamment lorsque le haut du ballon atteint
+`Tmax_ballon` ou lorsque le modèle rejette une partie de la charge solaire.
 
 ```text
 Tmax_ballon = 80 °C par défaut
 ```
 
-Énergie équivalente à `Tmax_ballon` :
-
-```text
-E_buffer_max = C_ballon * (Tmax_ballon - T_ambiance_ballon)
-```
-
 À chaque heure :
 
 ```text
-capacite_restante_ballon = max(0, E_buffer_max - E_buffer)
+Q_solaire_vers_ballon = énergie acceptée par le ballon stratifié
+Q_solaire_rejetee_ballon = énergie que le ballon ne peut pas absorber à cause de Tmax
 ```
 
-La charge solaire du ballon vaut :
+La fraction de ressource solaire restante est utilisée pour recalculer un potentiel solaire à température plus basse
+pour l'injection BTES :
 
 ```text
-Q_solaire_vers_ballon =
-    min(
-        Q_solaire_potentiel_ballon * facteur_charge_ballon,
-        capacite_restante_ballon
-    )
+fraction_restante = Q_solaire_rejetee_ballon / Q_solaire_potentiel_ballon
 ```
 
-La fraction de ressource solaire restante est donc nulle tant que le ballon peut absorber toute la production solaire de l'heure. Elle devient positive quand le ballon est à `Tmax_ballon` ou proche de cette limite.
+En mode solaire thermique seul, cette fraction n'est pas redirigée vers le BTES. Elle correspond à une ressource solaire
+non valorisée ou, en mode autovidangeable de test, à une mise en protection jusqu'au prochain minuit.
 
-Le surplus de ressource solaire non utilisé pour charger le ballon peut ensuite être recalculé à température plus basse pour l'injection BTES.
+Si `facteur_charge_ballon < 1`, la part non chargée à cause de ce facteur n'est pas automatiquement envoyée vers le BTES.
+Dans cette version, le BTES reste autorisé uniquement lorsque la limite `Tmax_ballon` est atteinte ou lorsque le ballon
+rejette effectivement une partie de la charge.
 
-Si `facteur_charge_ballon < 1`, la part non chargée à cause de ce facteur n'est pas automatiquement envoyée vers le BTES. Dans cette version, le BTES reste autorisé uniquement lorsque la limite `Tmax_ballon` est atteinte.
+Point important : le code ne modélise pas une vanne hydraulique détaillée. Il représente l'effet de régulation par une
+priorité énergétique : ballon jusqu'à saturation, puis BTES en mode couplé.
 
-Point important : le code ne modélise pas une vanne hydraulique détaillée. Il représente l'effet de régulation par une priorité énergétique : ballon jusqu'à `Tmax_ballon`, puis BTES.
-
-L'énergie réellement stockée dans le ballon peut ensuite redescendre sous `Tmax_ballon` pendant la même heure, car les pertes ballon et le préchauffage HT sont appliqués après la charge solaire.
-
-Ancienne logique supprimée : il n'y a plus de seuil séparé à 65 °C.
+Ancienne logique supprimée : il n'y a plus de seuil séparé à 65 °C pour la bascule vers le stockage géothermique.
 
 ## 10. Pertes du ballon solaire
 
-Les pertes du ballon solaire ne sont plus calculées avec une fraction fixe de l'énergie stockée par jour.
-Le code utilise une constante de refroidissement de type SOLO2018, calculée à partir du volume de ballon, du
-nombre de ballons, de l'épaisseur d'isolant, du lambda isolant et de la surface équivalente du ballon.
+Les pertes du ballon solaire sont appliquées sur chacun des trois nœuds. Le code utilise une constante de refroidissement
+de type SOLO2018, calculée à partir du volume de ballon, du nombre de ballons, de l'épaisseur d'isolant, du lambda
+isolant et de la surface équivalente du ballon.
 
 La constante obtenue est :
 
@@ -404,34 +430,37 @@ La constante obtenue est :
 CRStockSolaire [Wh/L/K/jour]
 ```
 
-La perte journalière SOLO2018 est :
+Cette constante est convertie en UA global :
 
 ```text
-Q_pertes_ballon_jour =
-    (T_ballon - T_ambiance_ballon)
-    * V_ballon_litres
-    * CRStockSolaire
-    / 1000
+UA_total = V_ballon_litres * CRStockSolaire / 24
 ```
 
-Comme HelioStock fonctionne au pas horaire, le code applique :
+L'UA est réparti par défaut entre les nœuds :
 
 ```text
-Q_pertes_ballon_h =
-    (T_ballon - T_ambiance_ballon)
-    * V_ballon_litres
-    * CRStockSolaire
-    / 1000
-    / 24
+UA_bas = 30 % * UA_total
+UA_milieu = 40 % * UA_total
+UA_haut = 30 % * UA_total
 ```
 
-Le code borne toujours la perte pour ne pas extraire plus que l'énergie disponible :
+Pour chaque nœud :
 
 ```text
-Q_pertes_ballon_h = min(E_buffer, Q_pertes_ballon_h)
+Q_pertes_i = UA_i * max(0, T_i - T_ambiance_ballon) * dt
 ```
 
-Hypothèse : le ballon reste représenté par une température unique. Il ne s'agit pas d'un modèle stratifié.
+Le code borne toujours la perte pour ne pas refroidir un nœud sous la température ambiante.
+
+Le modèle ajoute aussi une conductance simplifiée entre couches :
+
+```text
+Q_bas_milieu = G_intercouche * (T_milieu - T_bas) * dt
+Q_milieu_haut = G_intercouche * (T_haut - T_milieu) * dt
+```
+
+Ces échanges conservent l'énergie et sont plafonnés à l'énergie d'égalisation des deux couches afin d'éviter un
+sur-mélange numérique.
 
 ## 11. Préchauffage HT par le ballon solaire
 
@@ -441,15 +470,27 @@ Le process HT cible :
 T_process_HT = 60 °C par défaut
 ```
 
-Le ballon peut préchauffer l'air jusqu'à une température dépendant de son niveau thermique :
+Le soutirage utile se fait depuis le haut du ballon, puis progressivement vers les nœuds inférieurs si l'énergie du haut
+ne suffit pas. L'eau froide de retour entre par le bas dans l'approximation énergétique du modèle.
+
+L'énergie utile disponible dans un nœud est évaluée au-dessus de la température minimale utile :
 
 ```text
-T_sortie_prechauffage =
-    min(
-        T_process_HT,
-        T_cible_max_prechauffage_solaire,
-        max(T_air, T_ballon - approche_echangeur_ballon_process)
-    )
+E_utile_i = m_i * Cp_eau * max(0, T_i - T_min_utile)
+```
+
+Pour une demande HT horaire :
+
+```text
+Q_HT_solaire = min(Q_HT_besoin_h, E_utile_haut + E_utile_milieu + E_utile_bas)
+```
+
+Le champ `solar_ht_from_buffer_kwh` contient donc la chaleur réellement fournie par le ballon au besoin HT.
+
+Appoint HT :
+
+```text
+Q_appoint_HT = max(0, Q_HT_besoin_h - Q_HT_solaire)
 ```
 
 Valeurs par défaut :
@@ -457,48 +498,13 @@ Valeurs par défaut :
 ```text
 T_cible_max_prechauffage_solaire = 60 °C
 approche_echangeur_ballon_process = 5 K
+T_min_utile = 25 °C
 ```
 
-Le préchauffage solaire peut donc couvrir :
-
-- 0 % si le ballon est trop froid ;
-- une fraction partielle si le ballon permet par exemple 25, 30 ou 40 °C ;
-- 100 % si le ballon permet d'atteindre 60 °C.
-
-La fraction du besoin HT couverte par le préchauffage est calculée par ratio de relèvement de température :
+Un bilan énergétique interne du ballon est calculé à chaque heure :
 
 ```text
-deltaT_total_HT = max(0, T_process_HT - T_air)
-deltaT_solaire_HT = max(0, T_sortie_prechauffage - T_air)
-
-fraction_prechauffage =
-    min(1, deltaT_solaire_HT / deltaT_total_HT)
-```
-
-Si `deltaT_total_HT = 0`, la fraction vaut `0`.
-
-Énergie HT théoriquement préchauffable par le ballon :
-
-```text
-Q_HT_prechauffable = Q_HT_besoin_h * fraction_prechauffage
-```
-
-Énergie réellement prise au ballon :
-
-```text
-Q_HT_solaire = min(Q_HT_prechauffable, E_buffer)
-```
-
-Puis :
-
-```text
-E_buffer = E_buffer - Q_HT_solaire
-```
-
-Appoint HT :
-
-```text
-Q_appoint_HT = max(0, Q_HT_besoin_h - Q_HT_solaire)
+E_initiale + Q_solaire - Q_charge_HT - Q_pertes - E_finale = residu
 ```
 
 Variable historique à connaître :
@@ -779,23 +785,20 @@ Pour chaque heure EPW, le moteur fait exactement :
 
 1. Lecture des besoins horaires HT et BT du profil 8760 h.
 2. Lecture de l'état thermique `pygfunction` au début de l'heure.
-3. Calcul de `T_ballon_debut`.
-4. Calcul de `T_capteur_ballon`.
-5. Calcul du potentiel solaire à température ballon.
-6. Charge du ballon jusqu'à `Tmax_ballon`.
-7. Application des pertes horaires du ballon.
-8. Calcul de la température de préchauffage HT possible.
-9. Décharge du ballon vers le préchauffage HT.
-10. Calcul de l'appoint HT.
-11. Calcul de la fraction de ressource solaire restante.
-12. Calcul de `T_capteur_BTES`.
-13. Calcul du potentiel solaire à température BTES.
-14. Injection dans le BTES.
-15. Calcul du COP PAC avec la température source estimée.
-16. Couverture du besoin BT par PAC, limitée par la puissance PAC, la puissance linéique et la Tmin source PAC operationnelle.
-17. Extraction BTES par la PAC.
-18. Mise à jour `pygfunction` avec `q_net_W_m`.
-19. Stockage de tous les résultats horaires.
+3. Lecture de l'état du ballon stratifié : `T_bas`, `T_milieu`, `T_haut`.
+4. Calcul du retour capteur à partir de `T_bas` et de l'approche capteur/ballon.
+5. Calcul itératif du potentiel solaire avec `T_mean_capteur = (T_entree + T_sortie) / 2`.
+6. Avancement du ballon stratifié sur sous-pas internes : charge solaire, soutirage HT, pertes, échanges inter-couches et correction des inversions.
+7. Calcul de l'appoint HT à partir du besoin non couvert par le ballon.
+8. Calcul de la fraction de ressource solaire rejetée par le ballon.
+9. Calcul de `T_capteur_BTES` si le mode couplé autorise l'injection.
+10. Calcul du potentiel solaire à température BTES.
+11. Injection dans le BTES si le mode couplé est actif.
+12. Calcul du COP PAC avec la température source estimée.
+13. Couverture du besoin BT par PAC, limitée par la puissance PAC, la puissance linéique et la Tmin source PAC operationnelle.
+14. Extraction BTES par la PAC.
+15. Mise à jour `pygfunction` avec `q_net_W_m`.
+16. Stockage de tous les résultats horaires, dont les trois températures du ballon.
 
 ## 20. Bilans énergétiques vérifiés par les tests
 
@@ -812,6 +815,9 @@ E_buffer_fin =
   - Q_prechauffage_HT_solaire
   - Q_pertes_ballon
 ```
+
+Dans le modèle stratifié, `E_buffer` est la somme énergétique des trois nœuds par rapport à la température ambiante du
+ballon. Les échanges inter-couches ne changent pas ce bilan global car ils conservent l'énergie dans le ballon.
 
 ### 20.2 Charge lineique BTES
 
@@ -1257,9 +1263,14 @@ P1_appoint_gaz_annuel = Q_appoint_gaz_mix_ENR * P1_gaz_utile_moyen
 
 Cela évite de comparer une référence gaz inflationnée avec un appoint gaz Mix EnR resté au coût année 1.
 
-Le P2 gaz est aussi appliqué aux deux scénarios.
+Le traitement des coûts fixes gaz dépend du contexte de référence choisi dans l'interface et rappelé dans les exports.
 
-Entrée par défaut :
+Deux contextes sont possibles :
+
+- `Chaudière gaz existante` : contexte par défaut. La chaudière gaz est supposée déjà disponible. La référence gaz et l'appoint gaz résiduel intègrent le P1 gaz utile moyen, mais les coûts fixes P2 et P4 gaz ne sont pas ajoutés comme coûts additionnels du projet.
+- `Chaudière gaz à renouveler` : la référence gaz inclut le renouvellement de la chaufferie. Les coûts fixes P2 et P4 gaz sont alors appliqués à la référence 100 % gaz et à l'appoint gaz du Mix EnR.
+
+Dans le contexte `Chaudière gaz à renouveler`, l'entrée P2 par défaut est :
 
 ```text
 ratio_P2_gaz = 10 EUR/kW.an
@@ -1270,6 +1281,7 @@ Pour l'appoint gaz du Mix EnR :
 ```text
 P2_appoint_gaz_annuel = P_appoint_gaz_mix_ENR * ratio_P2_gaz
 P2_appoint_gaz_EUR_MWh = P2_appoint_gaz_annuel / Q_appoint_gaz_mix_ENR
+P4_appoint_gaz_EUR_MWh = CAPEX_appoint_gaz / (Q_appoint_gaz_mix_ENR * duree_analyse)
 ```
 
 Pour la référence 100 % gaz :
@@ -1277,10 +1289,10 @@ Pour la référence 100 % gaz :
 ```text
 P2_reference_gaz_annuel = P_reference_100pct_gaz * ratio_P2_gaz
 P2_reference_gaz_EUR_MWh = P2_reference_gaz_annuel / Q_reference_100pct_gaz
+P4_reference_gaz_EUR_MWh = CAPEX_reference_gaz / (Q_reference_100pct_gaz * duree_analyse)
 ```
 
-Ce poste est volontairement proportionnel à la puissance installée, car l'entretien/conduite d'une chaufferie gaz
-est largement un coût fixe annuel, même lorsque l'appoint fonctionne peu.
+Le P2 est proportionnel à la puissance installée, car l'entretien/conduite d'une chaufferie gaz est largement un coût fixe annuel, même lorsque l'appoint fonctionne peu. En contexte `Chaudière gaz existante`, ce poste n'est pas considéré comme un coût additionnel du projet ENR.
 
 ### 23.5 Pré-dimensionnement PAC géothermie avant saisie PAC finale
 
@@ -1465,6 +1477,8 @@ rendement hydraulique global = 0,90
 
 ```text
 volume = 50 L/m² capteur
+mode ballon = stratifié 3 nœuds
+fractions bas/milieu/haut = 35 % / 30 % / 35 %
 T_ambiance = 20 °C
 Tmax ballon / bascule BTES = 80 °C
 seuil de bascule BTES = Tmax ballon = 80 °C
@@ -1472,6 +1486,9 @@ approche capteur sur ballon = 10 K
 approche échangeur ballon-process = 5 K
 pertes ballon = modele SOLO2018 detaille, 1 ballon, 10 cm isolant, lambda 0,035 W/m/K
 cible max préchauffage HT solaire = 60 °C
+conductance inter-couches = 2 W/K
+pas interne ballon = 300 s
+mode charge solaire = bas de ballon
 ```
 
 ### BTES
@@ -1510,8 +1527,8 @@ Limites actuelles :
 - préchauffage HT calculé par ratio de relèvement de température sur un besoin déjà exprimé en kWh ;
 - pas de dynamique hydraulique détaillée ;
 - pas de pertes réseau détaillées ;
-- pas de stratification du ballon ;
-- ballon représenté par une température unique ;
+- ballon stratifié limité à 3 nœuds parfaitement mélangés, sans description fine des diffuseurs ni des vitesses internes ;
+- soutirage HT du ballon traité par un déplacement énergétique simplifié, pas par un calcul hydraulique de couche limite ;
 - pas de temps de réponse capteur ;
 - pas de capacité thermique du circuit solaire ;
 - pas de modèle d'échangeur détaillé, seulement des approches fixes ;
@@ -1547,7 +1564,7 @@ Priorités techniques :
 2. Renforcer les profils horaires process et les tests de non-régression énergétique.
 3. Consolider les limites de puissance d'injection/extraction BTES par mètre de sonde.
 4. Consolider le backend `pygfunction` et comparer ensuite avec `GHEtool`.
-5. Ajouter une modélisation plus réaliste du ballon : stratification ou au minimum nÅ“uds haut/bas.
+5. Consolider le modèle stratifié 3 nœuds du ballon par comparaison à des cas instrumentés ou à un solveur de référence.
 6. Ajouter des profils d'exploitation : horaires ouvrés, week-ends, arrêts, saisonnalité process.
 7. Ajouter la partie économique géothermie : CAPEX champ de sondes, PAC, appoint, OPEX et valorisation de l'économie de sondes.
 
@@ -1618,11 +1635,3 @@ geothermique detaillee.
 L'outil conserve ses specificites : process HT/BT, solaire thermique via ballon journalier, injection solaire seulement
 apres saturation du ballon, comparaison gaz / geothermie / geothermie + solaire. Il reste un outil d'opportunite et ne
 remplace pas une etude avec TRT, plan de champ reel, hydraulique et ingenierie dediee.
-
-# Ballon solaire journalier stratifié
-
-Le stockage solaire journalier peut être calculé avec un modèle stratifié 3 nœuds : bas, milieu et haut de ballon. Chaque nœud est un volume parfaitement mélangé avec son propre bilan d'énergie. Les inversions de température sont corrigées par mélange conservatif afin de garantir l'ordre physique haut >= milieu >= bas. Les échanges inter-couches sont plafonnés à l'énergie d'égalisation entre deux couches afin d'éviter un sur-mélange numérique lorsque la conductance ou le pas de temps interne sont élevés.
-
-Ce modèle est inspiré de l'approche multinœuds décrite par Kleinbach, Beckman et Klein (1993). Il reste une approximation 1D robuste pour simulation horaire : il ne décrit pas finement les diffuseurs, les vitesses internes, ni la géométrie hydraulique réelle du ballon. Dans ce mode, la température d'entrée capteur est assimilée à la température du bas de ballon. Le rendement capteur est calculé avec la température moyenne dans le capteur, `(T_entrée + T_sortie) / 2`, la sortie étant estimée par le débit spécifique solaire.
-
-Le soutirage HT est représenté par un déplacement simplifié : eau chaude prélevée en haut, entrée d'eau froide en bas et déplacement progressif des trois couches. Le ballon est uniquement solaire ; l'appoint reste un générateur séparé en aval.

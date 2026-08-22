@@ -6,6 +6,7 @@ import streamlit as st
 from heliostock.heliosolo.solo2018_rebuild.defaults import DAYS_BY_MONTH, MONTHS
 from heliostock.heliosolo.solo2018_rebuild.services.profiles import calc_tef_series as _calc_tef_series
 from heliostock.heliosolo.solo2018_rebuild.ui.context import BesoinsState
+from heliostock.heliosolo.solo2018_rebuild.ui.editors import apply_editor_pending_edits as _apply_editor_pending_edits
 from heliostock.heliosolo.solo2018_rebuild.utils import to_float as _to_float, weighted_mean as _weighted_mean
 
 
@@ -120,6 +121,7 @@ def render_besoins_block(mode_meteo_verification: bool, meteo_impose_map: dict) 
         if len(monthly_profile_columns) > 1:
             st.caption("Tableau mensuel des données variables")
             monthly_profiles_df = pd.DataFrame(monthly_profile_columns)
+            monthly_profiles_df = _apply_editor_pending_edits(monthly_profiles_df, "monthly_profiles_editor")
             monthly_column_config = {}
             if "Temperature EF (degC)" in monthly_profiles_df.columns:
                 monthly_column_config["Temperature EF (degC)"] = st.column_config.NumberColumn(

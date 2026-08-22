@@ -1,4 +1,4 @@
-# Notes développeur HelioStock
+﻿# Notes développeur HelioStock
 
 ## Rôle du module
 
@@ -110,7 +110,13 @@ Avant livraison :
 - supprimer `.pytest_cache` ;
 - ne pas inclure `.git` ;
 - ne pas inclure de secrets Streamlit ;
+- ne pas inclure de sauvegardes d'authentification reelles (`seed_data/users.json`, `seed_data/login_events.json`,
+  `heliostock_module/seed_data/users.json`, `heliostock_module/seed_data/login_events.json`) ;
 - ne pas inclure de dossier projet imbriqué obsolète.
+
+Les comptes du portail et les historiques de connexion sont des donnees operationnelles, pas des fixtures. En production,
+la source de verite doit etre Neon/PostgreSQL via `NEON_DATABASE_URL` ou `DATABASE_URL`. Les exemples utilises par les
+tests doivent rester synthetiques et vivre dans `tests/fixtures/`.
 
 ## Limites connues
 
