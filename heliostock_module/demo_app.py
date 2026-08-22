@@ -8,7 +8,12 @@ from heliostock import ui_portal
 st.set_page_config(page_title="HelioTools", layout="wide")
 
 
-ui_portal.restore_persistent_auth_session()
+try:
+    ui_portal.restore_persistent_auth_session()
+except Exception:
+    # Persistent cookies are a comfort feature. A failed restore must never
+    # prevent the portal from rendering the classic login page.
+    st.session_state.pop("user", None)
 
 
 def _is_user_authenticated() -> bool:

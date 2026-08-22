@@ -661,18 +661,16 @@ def _load_users() -> list[dict[str, Any]]:
     cached = st.session_state.get(USERS_SESSION_CACHE_KEY)
     if isinstance(cached, list):
         return [dict(user) for user in cached if isinstance(user, dict)]
+    if USERS_FILE.exists():
+        users = _read_users_file(USERS_FILE)
+        if users:
+            st.session_state[USERS_SESSION_CACHE_KEY] = users
+            return users
     if _auth_database_available():
         users = _auth_store().load_users()
         if users:
             st.session_state[USERS_SESSION_CACHE_KEY] = users
             _write_users_file(USERS_FILE, users)
-            return users
-    if USERS_FILE.exists():
-        users = _read_users_file(USERS_FILE)
-        if users:
-            st.session_state[USERS_SESSION_CACHE_KEY] = users
-            if _auth_database_available():
-                _auth_store().save_users(users)
             return users
     users = _restore_users_from_backup()
     if users:
