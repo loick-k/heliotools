@@ -1,9 +1,9 @@
 [
   {
-    "timestamp": "2026-08-22T21:27:07",
+    "timestamp": "2026-08-22T21:30:57",
     "email": "loick@atlansun.fr",
     "success": true,
-    "reason": "login",
+    "reason": "persistent_session",
     "role": "admin"
   }
 ]
