@@ -59,6 +59,22 @@ class NeonAuthStore:
                     "CREATE INDEX IF NOT EXISTS idx_heliotools_login_events_ts "
                     "ON heliotools_login_events (event_ts DESC)"
                 )
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS heliotools_project_backups (
+                        slug TEXT PRIMARY KEY,
+                        payload JSONB NOT NULL,
+                        app_key TEXT NOT NULL DEFAULT '',
+                        owner_email TEXT NOT NULL DEFAULT '',
+                        project_id TEXT NOT NULL DEFAULT '',
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_heliotools_project_backups_owner "
+                    "ON heliotools_project_backups (owner_email, app_key)"
+                )
             conn.commit()
 
     def load_users(self) -> list[dict[str, Any]]:
@@ -155,6 +171,59 @@ class NeonAuthStore:
                 )
                 rows = cur.fetchall()
         return list(reversed([_json_payload(row[0]) for row in rows]))
+
+    def load_project_backups(self) -> list[dict[str, Any]]:
+        if not self.available():
+            return []
+        self.ensure_schema()
+        with _connect(self.database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT payload
+                    FROM heliotools_project_backups
+                    ORDER BY updated_at DESC, slug
+                    """
+                )
+                rows = cur.fetchall()
+        return [_json_payload(row[0]) for row in rows]
+
+    def save_project_backups(self, projects: list[dict[str, Any]]) -> None:
+        if not self.available():
+            return
+        self.ensure_schema()
+        clean_projects = [dict(project) for project in projects if isinstance(project, dict)]
+        with _connect(self.database_url) as conn:
+            with conn.cursor() as cur:
+                for project in clean_projects:
+                    slug = str(project.get("slug", "") or "").strip()
+                    if not slug:
+                        continue
+                    payload = project.get("payload", project)
+                    if not isinstance(payload, dict):
+                        payload = {}
+                    cur.execute(
+                        """
+                        INSERT INTO heliotools_project_backups
+                            (slug, payload, app_key, owner_email, project_id, updated_at)
+                        VALUES
+                            (%s, %s::jsonb, %s, %s, %s, NOW())
+                        ON CONFLICT (slug) DO UPDATE SET
+                            payload = EXCLUDED.payload,
+                            app_key = EXCLUDED.app_key,
+                            owner_email = EXCLUDED.owner_email,
+                            project_id = EXCLUDED.project_id,
+                            updated_at = NOW()
+                        """,
+                        (
+                            slug,
+                            json.dumps(project, ensure_ascii=False),
+                            str(project.get("app_key") or payload.get("app_key") or ""),
+                            _normalise_email(str(project.get("owner_email") or payload.get("owner_email") or "")),
+                            str(project.get("project_id") or payload.get("project_id") or ""),
+                        ),
+                    )
+            conn.commit()
 
 
 def _psycopg_available() -> bool:

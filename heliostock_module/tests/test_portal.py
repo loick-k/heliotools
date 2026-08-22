@@ -158,6 +158,8 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
     assert "nouvel administrateur est" in source
     assert "HELIOSTOCK_ADMIN_EMAIL" in source
     assert "HELIOSTOCK_ADMIN_PASSWORD" in source
+    assert "Base utilisateurs configuree mais vide" in source
+    assert "def _admin_bootstrap_configured" in source
     assert "def _is_system_project_file" in source
     assert "LOGIN_EVENTS_FILE.resolve()" in source
 
@@ -199,6 +201,19 @@ def test_projects_are_backed_up_to_github_json_without_result_pickle():
     assert "heliostock_projects.json" in readme
     assert "Le cache resultat JSON" in readme
     assert "results/latest_result.json" in readme
+
+
+def test_project_backups_are_synced_to_neon_without_global_purge():
+    portal_source = _source("heliostock/ui_portal.py")
+    store_source = _source("heliostock/common/auth_store.py")
+
+    assert "heliotools_project_backups" in store_source
+    assert "def load_project_backups" in store_source
+    assert "def save_project_backups" in store_source
+    assert "DELETE FROM heliotools_project_backups" not in store_source
+    assert "_auth_store().load_project_backups()" in portal_source
+    assert "_auth_store().save_project_backups" in portal_source
+    assert "def _normalise_project_backups" in portal_source
 
 
 def test_login_events_are_recorded_without_secret_values():

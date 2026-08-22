@@ -320,6 +320,19 @@ def _admin_password() -> str:
     return _secret_value("HELIOSTOCK_ADMIN_PASSWORD")
 
 
+def _admin_bootstrap_configured() -> bool:
+    email = _admin_email()
+    password = _admin_password()
+    try:
+        cfg = st.secrets.get("bootstrap_admin", {})
+        if isinstance(cfg, dict):
+            email = email or str(cfg.get("email", "") or "")
+            password = password or str(cfg.get("password", "") or "")
+    except Exception:
+        pass
+    return bool(email and password)
+
+
 def _github_backup_repo() -> str:
     return _secret_value("GITHUB_BACKUP_REPO")
 
@@ -547,23 +560,47 @@ def _load_project_backups() -> list[dict[str, Any]]:
     if isinstance(cached, list):
         return [dict(project) for project in cached if isinstance(project, dict)]
 
+    if _auth_database_available():
+        neon_projects = _auth_store().load_project_backups()
+        if neon_projects:
+            _write_json_list(_resolve_backup_projects_path(), neon_projects)
+            st.session_state[PROJECTS_SESSION_CACHE_KEY] = neon_projects
+            return neon_projects
+
     github_projects = _github_read_json_list(_backup_projects_path_setting())
     if github_projects:
         _write_json_list(_resolve_backup_projects_path(), github_projects)
+        if _auth_database_available():
+            _auth_store().save_project_backups(_normalise_project_backups(github_projects))
         st.session_state[PROJECTS_SESSION_CACHE_KEY] = github_projects
         return github_projects
 
     backup_path = _resolve_backup_projects_path()
     projects = _read_json_list(backup_path)
     if projects:
+        if _auth_database_available():
+            _auth_store().save_project_backups(_normalise_project_backups(projects))
         st.session_state[PROJECTS_SESSION_CACHE_KEY] = projects
     return projects
 
 
+def _normalise_project_backups(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    clean_projects: list[dict[str, Any]] = []
+    for project in projects:
+        if not isinstance(project, dict):
+            continue
+        clean_project = dict(project)
+        clean_project["slug"] = _project_backup_slug(clean_project)
+        clean_projects.append(clean_project)
+    return clean_projects
+
+
 def _save_project_backups(projects: list[dict[str, Any]]) -> None:
-    clean_projects = [dict(project) for project in projects if isinstance(project, dict)]
+    clean_projects = _normalise_project_backups(projects)
     st.session_state[PROJECTS_SESSION_CACHE_KEY] = clean_projects
     _write_json_list(_resolve_backup_projects_path(), clean_projects)
+    if _auth_database_available():
+        _auth_store().save_project_backups(clean_projects)
     _github_write_json_list(
         _backup_projects_path_setting(),
         clean_projects,
@@ -1617,6 +1654,12 @@ def render_admin_login(*, compact: bool = False) -> bool:
 
         if not _load_users():
             if _has_existing_project_data() or _backup_users_configured():
+                if _auth_database_configured() and not _admin_bootstrap_configured():
+                    st.warning(
+                        "Base utilisateurs configuree mais vide : ajoute temporairement "
+                        "`HELIOSTOCK_ADMIN_EMAIL` et `HELIOSTOCK_ADMIN_PASSWORD` dans les secrets "
+                        "Streamlit, puis redemarre l'app pour creer le premier administrateur."
+                    )
                 st.error(
                     "Aucun compte utilisateur n'a pu être restauré depuis la sauvegarde configurée. "
                     "Par sécurité, la création libre d'un nouvel administrateur est bloquée."
