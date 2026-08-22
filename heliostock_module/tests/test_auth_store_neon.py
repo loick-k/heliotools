@@ -13,10 +13,10 @@ def test_auth_store_defines_neon_schema_without_project_secrets():
 
     assert "CREATE TABLE IF NOT EXISTS heliotools_users" in source
     assert "CREATE TABLE IF NOT EXISTS heliotools_login_events" in source
+    assert "CREATE TABLE IF NOT EXISTS heliotools_project_backups" in source
     assert "payload JSONB NOT NULL" in source
     assert "password_updated_at TIMESTAMPTZ" in source
     assert "event_ts TIMESTAMPTZ" in source
-    assert "project" not in source.lower()
     assert "GITHUB_BACKUP_TOKEN" not in source
 
 
@@ -24,8 +24,8 @@ def test_seed_auth_files_are_not_versioned_defaults():
     portal_source = _source("heliostock/ui_portal.py")
     gitignore = (MODULE_ROOT.parent / ".gitignore").read_text(encoding="utf-8")
 
-    assert 'DEFAULT_BACKUP_USERS_PATH = ""' in portal_source
-    assert 'DEFAULT_BACKUP_LOGIN_EVENTS_PATH = ""' in portal_source
+    assert "DEFAULT_BACKUP_USERS_PATH" not in portal_source
+    assert "DEFAULT_BACKUP_LOGIN_EVENTS_PATH" not in portal_source
     assert "seed_data/users.json" not in portal_source
     assert "seed_data/login_events.json" not in portal_source
     assert "heliostock_module/seed_data/users.json" in gitignore

@@ -161,45 +161,34 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
     assert "Base utilisateurs configuree mais vide" in source
     assert "def _admin_bootstrap_configured" in source
     assert "def _auth_database_status" in source
-    assert "def _github_json_list_status" in source
-    assert "def _github_decoded_content" in source
-    assert "download_url" in source
     assert "Diagnostic de restauration" in source
     assert "Comptes trouves dans Neon" in source
     assert "Projets trouves dans Neon" in source
-    assert "Comptes trouves dans le backup GitHub" in source
-    assert "Projets trouves dans le backup GitHub" in source
     assert "def _is_system_project_file" in source
-    assert "LOGIN_EVENTS_FILE.resolve()" in source
 
 
-def test_users_are_restored_from_configured_backup_path():
+def test_users_are_loaded_and_saved_only_with_neon():
     source = _source("heliostock/ui_portal.py")
-    assert 'DEFAULT_BACKUP_USERS_PATH = ""' in source
     assert "NEON_DATABASE_URL" in source
     assert "DATABASE_URL" in source
     assert "NeonAuthStore" in source
     assert "_auth_database_configured()" in source
     assert "_auth_store().load_users()" in source
     assert "_auth_store().save_users(users)" in source
-    assert "GITHUB_BACKUP_USERS_PATH" in source
-    assert "GITHUB_BACKUP_REPO" in source
-    assert "GITHUB_BACKUP_BRANCH" in source
-    assert "GITHUB_BACKUP_TOKEN" in source
-    assert "def _restore_users_from_backup" in source
-    assert "_github_read_json_list(_backup_users_path_setting())" in source
-    assert "users = _restore_users_from_backup()" in source
-    assert "if _backup_users_path_setting():" in source
-    assert "_github_write_json_list(" in source
+    assert "GITHUB_BACKUP_USERS_PATH" not in source
+    assert "GITHUB_BACKUP_REPO" not in source
+    assert "GITHUB_BACKUP_BRANCH" not in source
+    assert "GITHUB_BACKUP_TOKEN" not in source
+    assert "def _restore_users_from_backup" not in source
+    assert "_github_read_json_list" not in source
+    assert "_github_write_json_list(" not in source
     assert "seed_data/users.json" not in source
 
 
-def test_projects_are_backed_up_to_github_json_without_result_pickle():
+def test_projects_are_backed_up_to_neon_without_result_pickle():
     source = _source("heliostock/ui_portal.py")
     readme = _source("README.md")
 
-    assert 'DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliostock_projects.json"' in source
-    assert "GITHUB_BACKUP_PROJECTS_PATH" in source
     assert "def _restore_projects_from_backup" in source
     assert "def _upsert_project_backup" in source
     assert "demand_excel_base64" in source
@@ -207,7 +196,7 @@ def test_projects_are_backed_up_to_github_json_without_result_pickle():
     assert "_upsert_project_backup(" in source
     assert "_delete_project_backup(selected_path)" in source
     assert "_save_local_result_json(result_path, cached_result)" in source
-    assert "heliostock_projects.json" in readme
+    assert "heliotools_project_backups" in readme
     assert "Le cache resultat JSON" in readme
     assert "results/latest_result.json" in readme
 
@@ -228,15 +217,15 @@ def test_project_backups_are_synced_to_neon_without_global_purge():
 
 def test_login_events_are_recorded_without_secret_values():
     source = _source("heliostock/ui_portal.py")
-    assert "LOGIN_EVENTS_FILE" in source
-    assert 'DEFAULT_BACKUP_LOGIN_EVENTS_PATH = ""' in source
+    assert "LOGIN_EVENTS_FILE" not in source
+    assert "DEFAULT_BACKUP_LOGIN_EVENTS_PATH" not in source
     assert "_auth_store().append_login_event(event)" in source
     assert "_auth_store().load_login_events(limit=1000)" in source
     assert "def _append_login_event" in source
     assert '"email": _email_normalise(email)' in source
     assert '"success": bool(success)' in source
     assert '"role": str(role or "")' in source
-    assert "_github_write_json_list(" in source
+    assert "_github_write_json_list(" not in source
     assert "seed_data/login_events.json" not in source
 
 
@@ -271,15 +260,15 @@ def test_opportunity_notes_app_access_is_configurable_and_callable():
     assert "PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)" in app_source
 
 
-def test_helionop_projects_are_restored_from_github_backup():
+def test_helionop_projects_are_restored_from_common_neon_backup():
     app_source = _source("heliostock/opportunity_notes/streamlit_opportunity_app.py")
 
-    assert 'DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/helionop_projects.json"' in app_source
-    assert "GITHUB_BACKUP_HELIONOP_PROJECTS_PATH" in app_source
     assert "def _restore_projects_from_backup" in app_source
     assert "def _upsert_project_backup" in app_source
-    assert "ui_portal._github_read_json_list(_backup_projects_path_setting())" in app_source
-    assert "ui_portal._github_write_json_list(" in app_source
+    assert "ui_portal._load_project_backups()" in app_source
+    assert "ui_portal._save_project_backups(" in app_source
+    assert "ui_portal._normalise_project_app_key(" in app_source
+    assert "GITHUB_BACKUP_HELIONOP_PROJECTS_PATH" not in app_source
     assert "_restore_projects_from_backup()" in app_source
     assert "_upsert_project_backup(path=path, payload=saved_payload)" in app_source
 
@@ -403,10 +392,10 @@ def test_admin_project_listing_includes_common_app_projects(tmp_path, monkeypatc
     assert any(label.startswith("HelioRC - Projet RC - ") for label in labels)
 
 
-def test_login_events_file_is_not_listed_as_project():
+def test_auth_runtime_files_are_not_listed_as_project():
     source = _source("heliostock/ui_portal.py")
-    assert "USERS_FILE.resolve()" in source
-    assert "LOGIN_EVENTS_FILE.resolve()" in source
+    assert "USERS_FILE" not in source
+    assert "LOGIN_EVENTS_FILE" not in source
     assert "def _is_heliostock_project_file" in source
     assert 'data.get("app") == "HelioStock"' in source
 
@@ -478,9 +467,9 @@ def test_login_portal_uses_discreet_beta_copy():
     assert "Atlansun" not in login_block
 
 
-def test_portal_uses_short_github_timeout_and_session_user_cache():
+def test_portal_uses_neon_and_session_user_cache():
     source = _source("heliostock/ui_portal.py")
-    assert "GITHUB_BACKUP_TIMEOUT_SECONDS = 3" in source
     assert "USERS_SESSION_CACHE_KEY" in source
     assert "st.session_state[USERS_SESSION_CACHE_KEY]" in source
-    assert "timeout=GITHUB_BACKUP_TIMEOUT_SECONDS" in source
+    assert "GITHUB_BACKUP_TIMEOUT_SECONDS" not in source
+    assert "_auth_store().load_users()" in source

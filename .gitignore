@@ -24,6 +24,11 @@ heliostock_module/seed_data/users.json
 heliostock_module/seed_data/login_events.json
 heliostock_module/seed_data/*users*.json
 heliostock_module/seed_data/*login*.json
+heliostock_module/seed_data/*projects*.json
+heliostock_module/seed_data/heliostock_projects.json
+heliostock_module/seed_data/helionop_projects.json
+heliostock_module/seed_data/heliorc_projects.json
+heliostock_module/seed_data/heliocop_projects.json
 
 # Local client/process demand files
 *.xlsx

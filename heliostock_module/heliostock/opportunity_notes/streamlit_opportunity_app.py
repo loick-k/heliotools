@@ -97,7 +97,6 @@ from .. import ui_portal
 APP_KEY = "helionop"
 APP_LABEL = "HelioNOP"
 PROJECT_STORE = JsonProjectStore(APP_KEY, app_label=APP_LABEL)
-DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/helionop_projects.json"
 PROJECTS_SESSION_CACHE_KEY = "helionop_projects_cache"
 ECS_PROFILE_INPUT_MODES: tuple[str, ...] = (
     "Profil L/jour moyen",
@@ -448,28 +447,6 @@ def empty_project_payload() -> dict[str, Any]:
     }
 
 
-def _backup_projects_path_setting() -> str:
-    return (
-        ui_portal._secret_value("GITHUB_BACKUP_HELIONOP_PROJECTS_PATH")
-        or ui_portal._secret_value("GITHUB_BACKUP_PROJECTS_PATH_HELIONOP")
-        or DEFAULT_BACKUP_PROJECTS_PATH
-    )
-
-
-def _resolve_backup_projects_path():
-    configured = Path(_backup_projects_path_setting())
-    if configured.is_absolute():
-        return configured
-    candidates = [
-        Path.cwd() / configured,
-        Path(__file__).resolve().parents[2] / configured,
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
 def _project_backup_slug(project: dict[str, Any]) -> str:
     slug = str(project.get("slug", "") or "").strip()
     if slug:
@@ -486,33 +463,46 @@ def _load_project_backups() -> list[dict[str, Any]]:
     if isinstance(cached, list):
         return [dict(project) for project in cached if isinstance(project, dict)]
 
-    github_projects = ui_portal._github_read_json_list(_backup_projects_path_setting())
-    if github_projects:
-        ui_portal._write_json_list(_resolve_backup_projects_path(), github_projects)
-        st.session_state[PROJECTS_SESSION_CACHE_KEY] = github_projects
-        return github_projects
-
-    projects = ui_portal._read_json_list(_resolve_backup_projects_path())
-    if projects:
-        st.session_state[PROJECTS_SESSION_CACHE_KEY] = projects
+    projects = []
+    for project in ui_portal._load_project_backups():
+        payload = project.get("payload", project) if isinstance(project, dict) else {}
+        if not isinstance(payload, dict):
+            continue
+        app_key = ui_portal._normalise_project_app_key(
+            str(project.get("app_key") or payload.get("app_key") or ""),
+            str(project.get("app_label") or payload.get("app_label") or payload.get("app") or ""),
+        )
+        if app_key == APP_KEY:
+            projects.append(dict(project))
+    st.session_state[PROJECTS_SESSION_CACHE_KEY] = projects
     return projects
 
 
 def _save_project_backups(projects: list[dict[str, Any]]) -> None:
     clean_projects = [dict(project) for project in projects if isinstance(project, dict)]
     st.session_state[PROJECTS_SESSION_CACHE_KEY] = clean_projects
-    ui_portal._write_json_list(_resolve_backup_projects_path(), clean_projects)
-    ui_portal._github_write_json_list(
-        _backup_projects_path_setting(),
-        clean_projects,
-        message="chore: update helionop projects backup",
-    )
+    others = []
+    for project in ui_portal._load_project_backups():
+        payload = project.get("payload", project) if isinstance(project, dict) else {}
+        if not isinstance(project, dict) or not isinstance(payload, dict):
+            continue
+        app_key = ui_portal._normalise_project_app_key(
+            str(project.get("app_key") or payload.get("app_key") or ""),
+            str(project.get("app_label") or payload.get("app_label") or payload.get("app") or ""),
+        )
+        if app_key != APP_KEY:
+            others.append(dict(project))
+    ui_portal._save_project_backups(others + clean_projects)
 
 
 def _restore_projects_from_backup() -> None:
     for project in _load_project_backups():
         payload = dict(project.get("payload", project)) if isinstance(project, dict) else {}
-        if not payload or str(payload.get("app_key", APP_KEY)) != APP_KEY:
+        app_key = ui_portal._normalise_project_app_key(
+            str(project.get("app_key") or payload.get("app_key") or ""),
+            str(project.get("app_label") or payload.get("app_label") or payload.get("app") or ""),
+        )
+        if not payload or app_key != APP_KEY:
             continue
         owner_email = normalize_email(str(payload.get("owner_email", "")))
         if not owner_email:
@@ -529,6 +519,8 @@ def _upsert_project_backup(*, path, payload: dict[str, Any]) -> None:
     backup_item = {
         "slug": path.with_suffix("").name,
         "saved_at": now_iso(),
+        "app_key": APP_KEY,
+        "app_label": APP_LABEL,
         "owner_email": payload.get("owner_email", ""),
         "project_id": payload.get("project_id", ""),
         "name": payload.get("name", path.stem),

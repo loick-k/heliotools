@@ -16,8 +16,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from urllib import error as urlerror
-from urllib import request as urlrequest
 
 import streamlit as st
 import pandas as pd
@@ -46,21 +44,16 @@ except Exception:  # pragma: no cover - depends on optional frontend package.
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
 MODULE_DIR = Path(__file__).resolve().parents[1]
 HELIOSTOCK_NOTICE = MODULE_DIR / "NOTICE_MODELE_HELIOSTOCK.md"
-HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
+HELIOTOOLS_LOGO = ASSETS_DIR / "logo_heliotools_v2.png"
+LEGACY_HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 PROJECTS_DIR = Path.home() / ".heliostock" / "projects"
 HELIOSTOCK_PROJECT_STORE = JsonProjectStore("heliostock", app_label="HelioDyn")
-USERS_FILE = PROJECTS_DIR / "users.json"
-LOGIN_EVENTS_FILE = PROJECTS_DIR / "login_events.json"
 RESULT_SIDECAR_SUFFIX = "_resultat.pkl"
 RESULT_CACHE_FILENAME = "latest_result.json"
 RESULT_JSON_SCHEMA_VERSION = 1
 RESULT_JSON_MAX_BYTES = 200 * 1024 * 1024
 DEMAND_INPUT_FILENAME = "besoins_horaires.xlsx"
-DEFAULT_BACKUP_USERS_PATH = ""
-DEFAULT_BACKUP_LOGIN_EVENTS_PATH = ""
-DEFAULT_BACKUP_INSTALLATIONS_PATH = "seed_data/installations.json"
-DEFAULT_BACKUP_PROJECTS_PATH = "seed_data/heliostock_projects.json"
 PASSWORD_MIN_LENGTH = 10
 LOGIN_MAX_FAILURES = 5
 LOGIN_LOCK_SECONDS = 60
@@ -69,7 +62,6 @@ LOGIN_LOCK_STATE_KEY = "heliotools_login_locked_until"
 USERS_SESSION_CACHE_KEY = "heliotools_users_cache"
 PROJECTS_SESSION_CACHE_KEY = "heliotools_projects_cache"
 AUTH_SESSION_RESTORE_ATTEMPTED_KEY = "heliotools_auth_session_restore_attempted"
-GITHUB_BACKUP_TIMEOUT_SECONDS = 3
 FORBIDDEN_PROJECT_KEY_FRAGMENTS = ("token", "api_key", "apikey", "secret", "password")
 APP_HOME_LABEL = "Accueil HelioTools"
 APP_HELIOSTOCK_LEGACY_LABEL = "HelioStock"
@@ -101,6 +93,43 @@ PROJECT_ACCESS_STORES = (
     JsonProjectStore("heliorc", app_label=APP_HELIORC_LABEL),
     JsonProjectStore("heliocop", app_label=APP_HELIOCOP_LABEL),
 )
+
+
+def heliotools_logo_path() -> Path:
+    """Return the HelioTools logo, with the legacy filename kept as a deployment fallback."""
+    return HELIOTOOLS_LOGO if HELIOTOOLS_LOGO.exists() else LEGACY_HELIOPILOT_LOGO
+
+
+def _normalise_project_app_key(app_key: str, app_label: str = "") -> str:
+    raw_key = safe_slug(str(app_key or "").strip(), fallback="")
+    raw_label = safe_slug(str(app_label or "").strip(), fallback="")
+    aliases = {
+        "helio_dyn": HELIOSTOCK_PROJECT_STORE.app_key,
+        "heliodyn": HELIOSTOCK_PROJECT_STORE.app_key,
+        "heliostock": HELIOSTOCK_PROJECT_STORE.app_key,
+        "helio_stock": HELIOSTOCK_PROJECT_STORE.app_key,
+        "helio_nop": "helionop",
+        "helionop": "helionop",
+        "note_opportunite": "helionop",
+        "opportunity_notes": "helionop",
+        "helio_rc": "heliorc",
+        "heliorc": "heliorc",
+        "rcu": "heliorc",
+        "helio_r_c": "heliorc",
+        "helio_cop": "heliocop",
+        "heliocop": "heliocop",
+    }
+    return aliases.get(raw_key) or aliases.get(raw_label) or raw_key or raw_label
+
+
+def _project_store_for_app_key(app_key: str, app_label: str = "") -> JsonProjectStore | None:
+    clean_app_key = _normalise_project_app_key(app_key, app_label)
+    if not clean_app_key:
+        return None
+    for store in PROJECT_ACCESS_STORES:
+        if store.app_key == clean_app_key:
+            return store
+    return None
 
 
 SAVEABLE_WIDGET_KEYS = [
@@ -337,266 +366,6 @@ def _admin_bootstrap_configured() -> bool:
     return bool(email and password)
 
 
-def _github_backup_repo() -> str:
-    return _secret_value("GITHUB_BACKUP_REPO")
-
-
-def _github_backup_branch() -> str:
-    return _secret_value("GITHUB_BACKUP_BRANCH") or "main"
-
-
-def _github_backup_token() -> str:
-    return _secret_value("GITHUB_BACKUP_TOKEN")
-
-
-def _backup_users_path_setting() -> str:
-    return _secret_value("GITHUB_BACKUP_USERS_PATH") or DEFAULT_BACKUP_USERS_PATH
-
-
-def _backup_login_events_path_setting() -> str:
-    return _secret_value("GITHUB_BACKUP_LOGIN_EVENTS_PATH") or DEFAULT_BACKUP_LOGIN_EVENTS_PATH
-
-
-def _backup_installations_path_setting() -> str:
-    return _secret_value("GITHUB_BACKUP_INSTALLATIONS_PATH") or DEFAULT_BACKUP_INSTALLATIONS_PATH
-
-
-def _backup_projects_path_setting() -> str:
-    return _secret_value("GITHUB_BACKUP_PROJECTS_PATH") or DEFAULT_BACKUP_PROJECTS_PATH
-
-
-def _github_backup_enabled() -> bool:
-    return bool(_github_backup_repo() and _github_backup_branch() and _github_backup_token())
-
-
-def _resolve_backup_users_path() -> Path:
-    configured_value = _backup_users_path_setting()
-    if not configured_value:
-        return PROJECTS_DIR / "auth_backup_disabled" / "users.json"
-    configured = Path(configured_value)
-    if configured.is_absolute():
-        return configured
-
-    candidates = [
-        Path.cwd() / configured,
-        Path(__file__).resolve().parents[1] / configured,
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
-def _resolve_backup_login_events_path() -> Path:
-    configured_value = _backup_login_events_path_setting()
-    if not configured_value:
-        return PROJECTS_DIR / "auth_backup_disabled" / "login_events.json"
-    configured = Path(configured_value)
-    if configured.is_absolute():
-        return configured
-
-    candidates = [
-        Path.cwd() / configured,
-        Path(__file__).resolve().parents[1] / configured,
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
-def _resolve_backup_projects_path() -> Path:
-    configured = Path(_backup_projects_path_setting())
-    if configured.is_absolute():
-        return configured
-
-    candidates = [
-        Path.cwd() / configured,
-        Path(__file__).resolve().parents[1] / configured,
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0]
-
-
-def _read_users_file(path: Path) -> list[dict[str, Any]]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    return data if isinstance(data, list) else []
-
-
-def _read_json_list(path: Path) -> list[dict[str, Any]]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    return data if isinstance(data, list) else []
-
-
-def _write_users_file(path: Path, users: list[dict[str, Any]]) -> bool:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(users, ensure_ascii=False, indent=2), encoding="utf-8")
-        return True
-    except Exception:
-        return False
-
-
-def _write_json_list(path: Path, rows: list[dict[str, Any]]) -> bool:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
-        return True
-    except Exception:
-        return False
-
-
-def _github_api_headers() -> dict[str, str]:
-    return {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {_github_backup_token()}",
-        "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "HelioTools-Streamlit",
-    }
-
-
-def _github_contents_url(path: str) -> str:
-    repo = _github_backup_repo().strip().strip("/")
-    safe_path = str(path or "").strip().lstrip("/")
-    return f"https://api.github.com/repos/{repo}/contents/{safe_path}"
-
-
-def _github_decoded_content(payload: dict[str, Any]) -> str:
-    encoded = str(payload.get("content", "") or "")
-    if encoded:
-        return base64.b64decode(encoded).decode("utf-8")
-    download_url = str(payload.get("download_url", "") or "")
-    if not download_url:
-        return ""
-    req = urlrequest.Request(download_url, headers=_github_api_headers(), method="GET")
-    with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
-        return response.read().decode("utf-8")
-
-
-def _github_read_json_list(path: str) -> list[dict[str, Any]]:
-    if not _github_backup_enabled() or not str(path or "").strip():
-        return []
-    url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
-    req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
-    try:
-        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return []
-    try:
-        decoded = _github_decoded_content(payload)
-        data = json.loads(decoded)
-    except Exception:
-        return []
-    return data if isinstance(data, list) else []
-
-
-def _github_json_list_status(path: str) -> dict[str, Any]:
-    status: dict[str, Any] = {
-        "configured": _github_backup_enabled() and bool(str(path or "").strip()),
-        "path": str(path or "").strip(),
-        "reachable": False,
-        "entries_count": 0,
-        "error": "",
-    }
-    if not status["configured"]:
-        status["error"] = "Backup GitHub non configure"
-        return status
-    url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
-    req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
-    try:
-        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        status["reachable"] = True
-    except urlerror.HTTPError as exc:
-        status["error"] = f"HTTP {exc.code}"
-        return status
-    except Exception as exc:
-        status["error"] = str(exc.__class__.__name__)
-        return status
-    try:
-        decoded = _github_decoded_content(payload)
-        data = json.loads(decoded)
-    except Exception as exc:
-        status["error"] = str(exc.__class__.__name__)
-        return status
-    if not isinstance(data, list):
-        status["error"] = "JSON non liste"
-        return status
-    status["entries_count"] = len(data)
-    return status
-
-
-def _github_file_sha(path: str) -> str | None:
-    if not _github_backup_enabled() or not str(path or "").strip():
-        return None
-    url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
-    req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
-    try:
-        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urlerror.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        return None
-    except Exception:
-        return None
-    sha = payload.get("sha")
-    return str(sha) if sha else None
-
-
-def _github_write_json_list(path: str, rows: list[dict[str, Any]], *, message: str) -> bool:
-    if not _github_backup_enabled() or not str(path or "").strip():
-        return False
-    content = json.dumps(rows, ensure_ascii=False, indent=2).encode("utf-8")
-    body: dict[str, Any] = {
-        "message": message,
-        "content": base64.b64encode(content).decode("ascii"),
-        "branch": _github_backup_branch(),
-    }
-    sha = _github_file_sha(path)
-    if sha:
-        body["sha"] = sha
-    req = urlrequest.Request(
-        _github_contents_url(path),
-        data=json.dumps(body).encode("utf-8"),
-        headers={**_github_api_headers(), "Content-Type": "application/json"},
-        method="PUT",
-    )
-    try:
-        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS):
-            return True
-    except Exception:
-        return False
-
-
-def _restore_users_from_backup() -> list[dict[str, Any]]:
-    github_users = _github_read_json_list(_backup_users_path_setting())
-    if github_users:
-        _write_users_file(USERS_FILE, github_users)
-        if _auth_database_available():
-            _auth_store().save_users(github_users)
-        return github_users
-
-    backup_path = _resolve_backup_users_path()
-    if not backup_path.exists():
-        return []
-    users = _read_users_file(backup_path)
-    if users:
-        _write_users_file(USERS_FILE, users)
-        if _auth_database_available():
-            _auth_store().save_users(users)
-    return users
-
-
 def _project_backup_slug(project: dict[str, Any]) -> str:
     slug = str(project.get("slug", "") or "").strip()
     if slug:
@@ -613,26 +382,9 @@ def _load_project_backups() -> list[dict[str, Any]]:
 
     if _auth_database_available():
         neon_projects = _auth_store().load_project_backups()
-        if neon_projects:
-            _write_json_list(_resolve_backup_projects_path(), neon_projects)
-            st.session_state[PROJECTS_SESSION_CACHE_KEY] = neon_projects
-            return neon_projects
-
-    github_projects = _github_read_json_list(_backup_projects_path_setting())
-    if github_projects:
-        _write_json_list(_resolve_backup_projects_path(), github_projects)
-        if _auth_database_available():
-            _auth_store().save_project_backups(_normalise_project_backups(github_projects))
-        st.session_state[PROJECTS_SESSION_CACHE_KEY] = github_projects
-        return github_projects
-
-    backup_path = _resolve_backup_projects_path()
-    projects = _read_json_list(backup_path)
-    if projects:
-        if _auth_database_available():
-            _auth_store().save_project_backups(_normalise_project_backups(projects))
-        st.session_state[PROJECTS_SESSION_CACHE_KEY] = projects
-    return projects
+        st.session_state[PROJECTS_SESSION_CACHE_KEY] = neon_projects
+        return neon_projects
+    return []
 
 
 def _normalise_project_backups(projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -649,14 +401,9 @@ def _normalise_project_backups(projects: list[dict[str, Any]]) -> list[dict[str,
 def _save_project_backups(projects: list[dict[str, Any]]) -> None:
     clean_projects = _normalise_project_backups(projects)
     st.session_state[PROJECTS_SESSION_CACHE_KEY] = clean_projects
-    _write_json_list(_resolve_backup_projects_path(), clean_projects)
-    if _auth_database_available():
-        _auth_store().save_project_backups(clean_projects)
-    _github_write_json_list(
-        _backup_projects_path_setting(),
-        clean_projects,
-        message="chore: update heliostock projects backup",
-    )
+    if not _auth_database_available():
+        raise RuntimeError("Neon n'est pas disponible : le registre des projets ne peut pas être sauvegardé.")
+    _auth_store().save_project_backups(clean_projects)
 
 
 def _restore_projects_from_backup() -> None:
@@ -670,10 +417,31 @@ def _restore_projects_from_backup() -> None:
             continue
         payload = dict(project.get("payload", project))
         payload.pop("demand_excel_base64", None)
-        path = PROJECTS_DIR / f"{slug}.json"
+        app_key = str(project.get("app_key") or payload.get("app_key") or "").strip()
+        app_label = str(
+            project.get("app_label")
+            or payload.get("app_label")
+            or payload.get("app")
+            or ""
+        ).strip()
+        if not app_key and payload.get("app") == "HelioStock":
+            app_key = HELIOSTOCK_PROJECT_STORE.app_key
+        store = _project_store_for_app_key(app_key, app_label)
+        owner = _email_normalise(str(project.get("owner_email") or payload.get("owner_email") or payload.get("created_by_email") or ""))
+        if store is not None and owner:
+            store.ensure_owner_dir(owner)
+            payload["app_key"] = store.app_key
+            payload["app_label"] = store.app_label
+            payload.setdefault("owner_email", owner)
+            path = store.owner_dir(owner) / f"{slug}.json"
+        else:
+            path = PROJECTS_DIR / f"{slug}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
         demand_encoded = project.get("demand_excel_base64")
-        demand_path, _ = _project_artifact_paths(path)
+        if store is not None and store.app_key == HELIOSTOCK_PROJECT_STORE.app_key:
+            demand_path = store.project_input_path(path, DEMAND_INPUT_FILENAME)
+        else:
+            demand_path, _ = _project_artifact_paths(path)
         if isinstance(demand_encoded, str) and demand_encoded:
             try:
                 demand_path.write_bytes(base64.b64decode(demand_encoded.encode("ascii")))
@@ -686,6 +454,9 @@ def _upsert_project_backup(*, path: Path, payload: dict[str, Any], demand_bytes:
     backup_item = {
         "slug": slug,
         "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "app_key": payload.get("app_key", ""),
+        "app_label": payload.get("app_label", ""),
+        "project_id": payload.get("project_id", ""),
         "owner_email": payload.get("owner_email", ""),
         "name": payload.get("name", slug),
         "payload": payload,
@@ -695,7 +466,11 @@ def _upsert_project_backup(*, path: Path, payload: dict[str, Any], demand_bytes:
             else ""
         ),
     }
-    projects = [project for project in _load_project_backups() if _project_backup_slug(project) != slug]
+    projects = [
+        project
+        for project in _load_project_backups()
+        if not _project_backup_matches_path(project, path=path, payload=payload)
+    ]
     projects.append(backup_item)
     _save_project_backups(projects)
 
@@ -738,12 +513,7 @@ def _delete_project_backup(path: Path) -> None:
 
 
 def _backup_users_configured() -> bool:
-    return (
-        _auth_database_configured()
-        or _github_backup_enabled()
-        or bool(_secret_value("GITHUB_BACKUP_USERS_PATH"))
-        or _resolve_backup_users_path().exists()
-    )
+    return _auth_database_configured()
 
 
 def _email_normalise(email: str) -> str:
@@ -754,35 +524,18 @@ def _load_users() -> list[dict[str, Any]]:
     cached = st.session_state.get(USERS_SESSION_CACHE_KEY)
     if isinstance(cached, list):
         return [dict(user) for user in cached if isinstance(user, dict)]
-    if USERS_FILE.exists():
-        users = _read_users_file(USERS_FILE)
-        if users:
-            st.session_state[USERS_SESSION_CACHE_KEY] = users
-            return users
     if _auth_database_available():
         users = _auth_store().load_users()
-        if users:
-            st.session_state[USERS_SESSION_CACHE_KEY] = users
-            _write_users_file(USERS_FILE, users)
-            return users
-    users = _restore_users_from_backup()
-    if users:
         st.session_state[USERS_SESSION_CACHE_KEY] = users
-    return users
+        return users
+    return []
 
 
 def _save_users(users: list[dict[str, Any]]) -> None:
-    _write_users_file(USERS_FILE, users)
     st.session_state[USERS_SESSION_CACHE_KEY] = [dict(user) for user in users if isinstance(user, dict)]
-    if _auth_database_available():
-        _auth_store().save_users(users)
-    if _backup_users_path_setting():
-        _write_users_file(_resolve_backup_users_path(), users)
-    _github_write_json_list(
-        _backup_users_path_setting(),
-        users,
-        message="chore: update heliotools users backup",
-    )
+    if not _auth_database_available():
+        raise RuntimeError("Neon n'est pas disponible : les comptes utilisateurs ne peuvent pas être sauvegardés.")
+    _auth_store().save_users(users)
 
 
 def _default_app_access(role: str) -> list[str]:
@@ -841,36 +594,14 @@ def _append_login_event(*, email: str, success: bool, reason: str = "", role: st
         "reason": str(reason or ""),
         "role": str(role or ""),
     }
-    rows = _read_json_list(LOGIN_EVENTS_FILE)
-    rows.append(event)
-    rows = rows[-1000:]
-    _write_json_list(LOGIN_EVENTS_FILE, rows)
     if _auth_database_available():
         _auth_store().append_login_event(event)
-    if _backup_login_events_path_setting():
-        _write_json_list(_resolve_backup_login_events_path(), rows)
-    _github_write_json_list(
-        _backup_login_events_path_setting(),
-        rows,
-        message="chore: update heliotools login events",
-    )
 
 
 def _load_login_events() -> list[dict[str, Any]]:
     if _auth_database_available():
-        rows = _auth_store().load_login_events(limit=1000)
-        if rows:
-            _write_json_list(LOGIN_EVENTS_FILE, rows)
-            return rows
-    rows = _read_json_list(LOGIN_EVENTS_FILE)
-    if rows:
-        return rows
-    github_rows = _github_read_json_list(_backup_login_events_path_setting())
-    if github_rows:
-        _write_json_list(LOGIN_EVENTS_FILE, github_rows)
-        return github_rows
-    backup_path = _resolve_backup_login_events_path()
-    return _read_json_list(backup_path)
+        return _auth_store().load_login_events(limit=1000)
+    return []
 
 
 def _user_by_email(email: str) -> dict[str, Any] | None:
@@ -1233,23 +964,18 @@ def _set_project_shared_emails(path: Path, emails: list[str]) -> None:
     data["shared_with_emails"] = clean
     data["updated_at"] = now_iso()
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    if _project_app_key(path) != HELIOSTOCK_PROJECT_STORE.app_key:
-        return
-    demand_path, _ = _project_artifact_paths(path)
-    legacy_demand_path, _ = _legacy_project_sidecar_paths(path)
-    demand_bytes = demand_path.read_bytes() if demand_path.exists() else None
-    if demand_bytes is None and legacy_demand_path.exists():
-        demand_bytes = legacy_demand_path.read_bytes()
+    demand_bytes = None
+    if _project_app_key(path) == HELIOSTOCK_PROJECT_STORE.app_key:
+        demand_path, _ = _project_artifact_paths(path)
+        legacy_demand_path, _ = _legacy_project_sidecar_paths(path)
+        demand_bytes = demand_path.read_bytes() if demand_path.exists() else None
+        if demand_bytes is None and legacy_demand_path.exists():
+            demand_bytes = legacy_demand_path.read_bytes()
     _upsert_project_backup(path=path, payload=data, demand_bytes=demand_bytes)
 
 
 def _is_system_project_file(path: Path) -> bool:
-    resolved = path.resolve()
-    system_files = {
-        USERS_FILE.resolve(),
-        LOGIN_EVENTS_FILE.resolve(),
-    }
-    return resolved in system_files
+    return path.name in {"users.json", "login_events.json"}
 
 
 def _is_heliostock_project_file(path: Path) -> bool:
@@ -1269,7 +995,11 @@ def _project_app_key(path: Path) -> str:
         return ""
     if not isinstance(data, dict):
         return ""
-    return str(data.get("app_key") or ("heliostock" if data.get("app") == "HelioStock" else "")).strip()
+    app_key = str(data.get("app_key") or "").strip()
+    app_label = str(data.get("app_label") or data.get("app") or "").strip()
+    if not app_key and data.get("app") == "HelioStock":
+        app_key = HELIOSTOCK_PROJECT_STORE.app_key
+    return _normalise_project_app_key(app_key, app_label)
 
 
 def _project_app_label(path: Path) -> str:
@@ -1279,9 +1009,12 @@ def _project_app_label(path: Path) -> str:
         return "Projet"
     if not isinstance(data, dict):
         return "Projet"
-    app_key = str(data.get("app_key") or "").strip()
+    app_key = _project_app_key(path)
     if app_key == HELIOSTOCK_PROJECT_STORE.app_key or data.get("app") == "HelioStock":
         return APP_HELIOSTOCK_LABEL
+    store = _project_store_for_app_key(app_key, str(data.get("app_label") or data.get("app") or ""))
+    if store is not None:
+        return store.app_label
     return str(data.get("app_label") or data.get("app") or app_key or "Projet")
 
 
@@ -1295,7 +1028,11 @@ def _is_common_project_file(path: Path) -> bool:
     if not isinstance(data, dict):
         return False
     app_keys = {store.app_key for store in PROJECT_ACCESS_STORES}
-    return str(data.get("app_key") or "").strip() in app_keys and bool(data.get("owner_email"))
+    app_key = _normalise_project_app_key(
+        str(data.get("app_key") or "").strip(),
+        str(data.get("app_label") or data.get("app") or "").strip(),
+    )
+    return app_key in app_keys and bool(data.get("owner_email"))
 
 
 def _can_access_project(path: Path) -> bool:
@@ -1354,6 +1091,10 @@ def _all_heliostock_project_files() -> list[Path]:
 
 def _all_common_project_files() -> list[Path]:
     files = _raw_heliostock_project_files()
+    if PROJECTS_DIR.exists():
+        for path in PROJECTS_DIR.rglob("*.json"):
+            if _is_common_project_file(path):
+                files.append(path)
     for store in PROJECT_ACCESS_STORES:
         root = store.app_dir()
         if not root.exists():
@@ -1673,9 +1414,10 @@ def render_brand_header(*, subtitle: str = "Outil en bêta test", show_partner_l
     col_title, col_logo = st.columns([2, 1])
     with col_title:
         logo_col, _ = st.columns([9, 11])
-        if HELIOPILOT_LOGO.exists():
+        logo_path = heliotools_logo_path()
+        if logo_path.exists():
             with logo_col:
-                st.image(str(HELIOPILOT_LOGO), width="stretch", output_format="PNG")
+                st.image(str(logo_path), width="stretch", output_format="PNG")
         else:
             st.title("HelioTools")
         st.markdown(f"##### {subtitle}")
@@ -1722,8 +1464,6 @@ def render_admin_login(*, compact: bool = False) -> bool:
                     "`HELIOSTOCK_ADMIN_PASSWORD`."
                 )
                 with st.expander("Diagnostic de restauration", expanded=True):
-                    github_users_status = _github_json_list_status(_backup_users_path_setting())
-                    github_projects_status = _github_json_list_status(_backup_projects_path_setting())
                     if db_status:
                         st.write(
                             {
@@ -1737,29 +1477,6 @@ def render_admin_login(*, compact: bool = False) -> bool:
                         )
                     else:
                         st.write({"Neon configure": False})
-                    st.write(
-                        {
-                            "Backup GitHub configure": _github_backup_enabled(),
-                            "Chemin backup utilisateurs configure": bool(_backup_users_path_setting()),
-                            "Chemin backup projets configure": bool(_backup_projects_path_setting()),
-                        }
-                    )
-                    st.write(
-                        {
-                            "Backup utilisateurs GitHub lisible": bool(github_users_status.get("reachable")),
-                            "Comptes trouves dans le backup GitHub": int(github_users_status.get("entries_count") or 0),
-                            "Erreur backup utilisateurs": str(github_users_status.get("error") or ""),
-                            "Chemin backup utilisateurs": str(github_users_status.get("path") or ""),
-                        }
-                    )
-                    st.write(
-                        {
-                            "Backup projets GitHub lisible": bool(github_projects_status.get("reachable")),
-                            "Projets trouves dans le backup GitHub": int(github_projects_status.get("entries_count") or 0),
-                            "Erreur backup projets": str(github_projects_status.get("error") or ""),
-                            "Chemin backup projets": str(github_projects_status.get("path") or ""),
-                        }
-                    )
                 return False
 
             st.subheader("Initialisation administrateur")
@@ -2098,8 +1815,9 @@ def render_portal_sidebar() -> str:
         st.session_state["portal_navigation_initialized"] = True
 
     with st.sidebar:
-        if HELIOPILOT_LOGO.exists():
-            st.image(str(HELIOPILOT_LOGO), width="stretch")
+        logo_path = heliotools_logo_path()
+        if logo_path.exists():
+            st.image(str(logo_path), width="stretch")
         if is_user_authenticated():
             user = st.session_state.get("user") if isinstance(st.session_state.get("user"), dict) else {}
             st.write(f"Connecté : {user.get('nom') or user.get('email') or st.session_state.get('heliostock_admin_email', 'admin')}")

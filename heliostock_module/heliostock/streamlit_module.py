@@ -27,7 +27,8 @@ from .ui_project import render_heliostock_project_form
 
 
 ASSETS_DIR = Path(__file__).resolve().parents[1] / "assets"
-HELIOPILOT_LOGO = ASSETS_DIR / "logo_heliopilot_v5.png"
+HELIOTOOLS_LOGO = ASSETS_DIR / "logo_heliotools_v2.png"
+HELIOPILOT_LOGO = HELIOTOOLS_LOGO
 ATLANSUN_LOGO = ASSETS_DIR / "Logo_Atlansun.png"
 
 

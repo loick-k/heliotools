@@ -56,18 +56,9 @@ conflits d'import et de tests.
 Les projets sauvegardes contiennent les hypotheses d'interface autorisees, le fichier Excel de besoins horaires si
 l'utilisateur l'a charge, et eventuellement le dernier resultat calcule dans un cache local associe au projet.
 
-Sur Streamlit Cloud, le stockage local peut etre perdu lors d'un reboot. HelioTools peut donc dupliquer les projets
-dans des fichiers JSON versionnes sur GitHub, separes par application. Configurer les secrets :
-
-- `GITHUB_BACKUP_REPO` : depot cible, par exemple `loick-k/heliotools` ;
-- `GITHUB_BACKUP_BRANCH` : branche cible, par exemple `main` ;
-- `GITHUB_BACKUP_TOKEN` : token GitHub avec droit d'ecriture sur le depot ;
-- `GITHUB_BACKUP_PROJECTS_PATH` : chemin du JSON projets HelioStock, par defaut `seed_data/heliostock_projects.json` ;
-- `GITHUB_BACKUP_HELIONOP_PROJECTS_PATH` : chemin du JSON projets HelioNOP, par defaut `seed_data/helionop_projects.json`.
-
-Les comptes utilisateurs et l'historique de connexion ne sont pas des donnees de demonstration et ne doivent pas etre
-versionnes. En production, HelioTools utilise Neon/PostgreSQL comme stockage de reference si l'un des secrets suivants
-est configure :
+Sur Streamlit Cloud, le stockage local peut etre perdu lors d'un reboot. HelioTools utilise donc Neon/PostgreSQL comme
+stockage persistant unique pour les comptes, l'historique de connexion et les sauvegardes de projets. Configurer l'un des
+secrets suivants :
 
 ```text
 NEON_DATABASE_URL=postgresql://...
@@ -75,14 +66,19 @@ NEON_DATABASE_URL=postgresql://...
 DATABASE_URL=postgresql://...
 ```
 
-Au premier acces, HelioTools cree automatiquement les tables `heliotools_users` et `heliotools_login_events`. Les mots de
-passe restent haches/sales, les roles et permissions sont relus depuis Neon a chaque connexion et les evenements de
-connexion sont ajoutes en base. Les anciennes sauvegardes GitHub `GITHUB_BACKUP_USERS_PATH` et
-`GITHUB_BACKUP_LOGIN_EVENTS_PATH` ne doivent plus pointer vers des fichiers suivis dans le depot ; elles ne servent que de
-transition/migration explicite si necessaire.
+Au premier acces, HelioTools cree automatiquement les tables `heliotools_users`, `heliotools_login_events` et
+`heliotools_project_backups`. Les mots de passe restent haches/sales, les roles et permissions sont relus depuis Neon a
+chaque connexion, les evenements de connexion sont ajoutes en base et les projets sont isoles par application et par
+utilisateur.
 
-Les fichiers `seed_data/users.json` et `seed_data/login_events.json` sont exclus du depot et des archives livrees. Pour
-les tests ou la documentation, utiliser uniquement des fixtures synthetiques dans `tests/fixtures/`.
+Les anciens fichiers JSON de sauvegarde (`seed_data/users.json`, `seed_data/login_events.json`,
+`seed_data/*projects*.json`) ne sont plus une source de reference et ne doivent pas etre versionnes ni inclus dans les
+archives livrees. Pour les tests ou la documentation, utiliser uniquement des fixtures synthetiques dans
+`tests/fixtures/`. Une migration ponctuelle depuis d'anciens fichiers locaux peut etre lancee avec :
+
+```bash
+python heliostock_module/scripts/migrate_auth_backup_to_neon.py
+```
 
 Le JSON HelioStock conserve les parametres projet et le fichier Excel de besoins horaires encode en base64. Localement, les
 fichiers annexes HelioStock sont ranges dans un dossier explicite associe au projet :
