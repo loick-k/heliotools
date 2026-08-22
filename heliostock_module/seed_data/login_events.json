@@ -12,5 +12,12 @@
     "success": true,
     "reason": "persistent_session",
     "role": "admin"
+  },
+  {
+    "timestamp": "2026-08-22T21:36:39",
+    "email": "loick@atlansun.fr",
+    "success": true,
+    "reason": "persistent_session",
+    "role": "admin"
   }
 ]
