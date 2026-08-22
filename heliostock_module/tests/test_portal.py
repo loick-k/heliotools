@@ -371,6 +371,38 @@ def test_project_access_accepts_shared_users(tmp_path, monkeypatch):
     assert ui_portal._can_access_project(project_path)
 
 
+def test_admin_project_listing_includes_common_app_projects(tmp_path, monkeypatch):
+    if importlib.util.find_spec("streamlit") is None:
+        return
+    from heliostock import ui_portal
+
+    legacy_dir = tmp_path / "legacy"
+    stores_root = tmp_path / "stores"
+    helionop_store = ui_portal.JsonProjectStore("helionop", app_label="HelioNOP", root_dir=stores_root)
+    heliorc_store = ui_portal.JsonProjectStore("heliorc", app_label="HelioRC", root_dir=stores_root)
+
+    monkeypatch.setattr(ui_portal, "PROJECTS_DIR", legacy_dir)
+    monkeypatch.setattr(ui_portal, "PROJECT_ACCESS_STORES", (helionop_store, heliorc_store))
+    monkeypatch.setattr(ui_portal, "_restore_projects_from_backup", lambda: None)
+
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "legacy-nop.json").write_text(
+        '{"app_key":"helionop","app_label":"HelioNOP","name":"Projet NOP","owner_email":"alice@example.com"}',
+        encoding="utf-8",
+    )
+    heliorc_store.save_project(
+        payload={"app_key": "heliorc", "shared_with_emails": ["bob@example.com"]},
+        owner_email="alice@example.com",
+        project_name="Projet RC",
+        project_id="rc-001",
+    )
+
+    labels = [ui_portal._project_access_label(path) for path in ui_portal._all_common_project_files()]
+
+    assert any(label.startswith("HelioNOP - Projet NOP - ") for label in labels)
+    assert any(label.startswith("HelioRC - Projet RC - ") for label in labels)
+
+
 def test_login_events_file_is_not_listed_as_project():
     source = _source("heliostock/ui_portal.py")
     assert "USERS_FILE.resolve()" in source
