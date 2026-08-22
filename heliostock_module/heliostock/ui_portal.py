@@ -488,6 +488,43 @@ def _github_read_json_list(path: str) -> list[dict[str, Any]]:
     return data if isinstance(data, list) else []
 
 
+def _github_json_list_status(path: str) -> dict[str, Any]:
+    status: dict[str, Any] = {
+        "configured": _github_backup_enabled() and bool(str(path or "").strip()),
+        "path": str(path or "").strip(),
+        "reachable": False,
+        "entries_count": 0,
+        "error": "",
+    }
+    if not status["configured"]:
+        status["error"] = "Backup GitHub non configure"
+        return status
+    url = f"{_github_contents_url(path)}?ref={_github_backup_branch()}"
+    req = urlrequest.Request(url, headers=_github_api_headers(), method="GET")
+    try:
+        with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        status["reachable"] = True
+    except urlerror.HTTPError as exc:
+        status["error"] = f"HTTP {exc.code}"
+        return status
+    except Exception as exc:
+        status["error"] = str(exc.__class__.__name__)
+        return status
+    encoded = str(payload.get("content", "") or "")
+    try:
+        decoded = base64.b64decode(encoded).decode("utf-8")
+        data = json.loads(decoded)
+    except Exception as exc:
+        status["error"] = str(exc.__class__.__name__)
+        return status
+    if not isinstance(data, list):
+        status["error"] = "JSON non liste"
+        return status
+    status["entries_count"] = len(data)
+    return status
+
+
 def _github_file_sha(path: str) -> str | None:
     if not _github_backup_enabled() or not str(path or "").strip():
         return None
@@ -1675,6 +1712,8 @@ def render_admin_login(*, compact: bool = False) -> bool:
                     "`HELIOSTOCK_ADMIN_PASSWORD`."
                 )
                 with st.expander("Diagnostic de restauration", expanded=True):
+                    github_users_status = _github_json_list_status(_backup_users_path_setting())
+                    github_projects_status = _github_json_list_status(_backup_projects_path_setting())
                     if db_status:
                         st.write(
                             {
@@ -1693,6 +1732,22 @@ def render_admin_login(*, compact: bool = False) -> bool:
                             "Backup GitHub configure": _github_backup_enabled(),
                             "Chemin backup utilisateurs configure": bool(_backup_users_path_setting()),
                             "Chemin backup projets configure": bool(_backup_projects_path_setting()),
+                        }
+                    )
+                    st.write(
+                        {
+                            "Backup utilisateurs GitHub lisible": bool(github_users_status.get("reachable")),
+                            "Comptes trouves dans le backup GitHub": int(github_users_status.get("entries_count") or 0),
+                            "Erreur backup utilisateurs": str(github_users_status.get("error") or ""),
+                            "Chemin backup utilisateurs": str(github_users_status.get("path") or ""),
+                        }
+                    )
+                    st.write(
+                        {
+                            "Backup projets GitHub lisible": bool(github_projects_status.get("reachable")),
+                            "Projets trouves dans le backup GitHub": int(github_projects_status.get("entries_count") or 0),
+                            "Erreur backup projets": str(github_projects_status.get("error") or ""),
+                            "Chemin backup projets": str(github_projects_status.get("path") or ""),
                         }
                     )
                 return False

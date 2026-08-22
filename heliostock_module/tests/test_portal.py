@@ -161,9 +161,12 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
     assert "Base utilisateurs configuree mais vide" in source
     assert "def _admin_bootstrap_configured" in source
     assert "def _auth_database_status" in source
+    assert "def _github_json_list_status" in source
     assert "Diagnostic de restauration" in source
     assert "Comptes trouves dans Neon" in source
     assert "Projets trouves dans Neon" in source
+    assert "Comptes trouves dans le backup GitHub" in source
+    assert "Projets trouves dans le backup GitHub" in source
     assert "def _is_system_project_file" in source
     assert "LOGIN_EVENTS_FILE.resolve()" in source
 
