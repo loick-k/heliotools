@@ -24,6 +24,36 @@ class NeonAuthStore:
     def available(self) -> bool:
         return self.is_configured and _psycopg_available()
 
+    def status(self) -> dict[str, Any]:
+        """Return a non-sensitive connectivity summary for admin diagnostics."""
+
+        status: dict[str, Any] = {
+            "configured": self.is_configured,
+            "driver_available": _psycopg_available(),
+            "reachable": False,
+            "users_count": 0,
+            "projects_count": 0,
+            "error": "",
+        }
+        if not self.is_configured:
+            status["error"] = "NEON_DATABASE_URL/DATABASE_URL absent"
+            return status
+        if not status["driver_available"]:
+            status["error"] = "Package psycopg indisponible"
+            return status
+        try:
+            self.ensure_schema()
+            with _connect(self.database_url) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM heliotools_users")
+                    status["users_count"] = int(cur.fetchone()[0])
+                    cur.execute("SELECT COUNT(*) FROM heliotools_project_backups")
+                    status["projects_count"] = int(cur.fetchone()[0])
+            status["reachable"] = True
+        except Exception as exc:
+            status["error"] = str(exc.__class__.__name__)
+        return status
+
     def ensure_schema(self) -> None:
         if not self.available():
             return

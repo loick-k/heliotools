@@ -212,6 +212,10 @@ def _auth_database_available() -> bool:
     return _auth_store().available()
 
 
+def _auth_database_status() -> dict[str, Any]:
+    return _auth_store().status()
+
+
 def _auth_session_config() -> AuthSessionConfig:
     return config_from_values(
         secret=_auth_session_secret(),
@@ -1654,6 +1658,7 @@ def render_admin_login(*, compact: bool = False) -> bool:
 
         if not _load_users():
             if _has_existing_project_data() or _backup_users_configured():
+                db_status = _auth_database_status() if _auth_database_configured() else {}
                 if _auth_database_configured() and not _admin_bootstrap_configured():
                     st.warning(
                         "Base utilisateurs configuree mais vide : ajoute temporairement "
@@ -1669,6 +1674,27 @@ def render_admin_login(*, compact: bool = False) -> bool:
                     "ou restaure l'accès avec `HELIOSTOCK_ADMIN_EMAIL` et "
                     "`HELIOSTOCK_ADMIN_PASSWORD`."
                 )
+                with st.expander("Diagnostic de restauration", expanded=True):
+                    if db_status:
+                        st.write(
+                            {
+                                "Neon configure": bool(db_status.get("configured")),
+                                "Client PostgreSQL disponible": bool(db_status.get("driver_available")),
+                                "Neon joignable": bool(db_status.get("reachable")),
+                                "Comptes trouves dans Neon": int(db_status.get("users_count") or 0),
+                                "Projets trouves dans Neon": int(db_status.get("projects_count") or 0),
+                                "Erreur technique": str(db_status.get("error") or ""),
+                            }
+                        )
+                    else:
+                        st.write({"Neon configure": False})
+                    st.write(
+                        {
+                            "Backup GitHub configure": _github_backup_enabled(),
+                            "Chemin backup utilisateurs configure": bool(_backup_users_path_setting()),
+                            "Chemin backup projets configure": bool(_backup_projects_path_setting()),
+                        }
+                    )
                 return False
 
             st.subheader("Initialisation administrateur")

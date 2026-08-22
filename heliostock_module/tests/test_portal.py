@@ -160,6 +160,10 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
     assert "HELIOSTOCK_ADMIN_PASSWORD" in source
     assert "Base utilisateurs configuree mais vide" in source
     assert "def _admin_bootstrap_configured" in source
+    assert "def _auth_database_status" in source
+    assert "Diagnostic de restauration" in source
+    assert "Comptes trouves dans Neon" in source
+    assert "Projets trouves dans Neon" in source
     assert "def _is_system_project_file" in source
     assert "LOGIN_EVENTS_FILE.resolve()" in source
 
@@ -208,6 +212,7 @@ def test_project_backups_are_synced_to_neon_without_global_purge():
     store_source = _source("heliostock/common/auth_store.py")
 
     assert "heliotools_project_backups" in store_source
+    assert "def status" in store_source
     assert "def load_project_backups" in store_source
     assert "def save_project_backups" in store_source
     assert "DELETE FROM heliotools_project_backups" not in store_source
