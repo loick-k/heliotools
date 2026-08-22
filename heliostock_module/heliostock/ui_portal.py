@@ -469,6 +469,18 @@ def _github_contents_url(path: str) -> str:
     return f"https://api.github.com/repos/{repo}/contents/{safe_path}"
 
 
+def _github_decoded_content(payload: dict[str, Any]) -> str:
+    encoded = str(payload.get("content", "") or "")
+    if encoded:
+        return base64.b64decode(encoded).decode("utf-8")
+    download_url = str(payload.get("download_url", "") or "")
+    if not download_url:
+        return ""
+    req = urlrequest.Request(download_url, headers=_github_api_headers(), method="GET")
+    with urlrequest.urlopen(req, timeout=GITHUB_BACKUP_TIMEOUT_SECONDS) as response:
+        return response.read().decode("utf-8")
+
+
 def _github_read_json_list(path: str) -> list[dict[str, Any]]:
     if not _github_backup_enabled() or not str(path or "").strip():
         return []
@@ -479,9 +491,8 @@ def _github_read_json_list(path: str) -> list[dict[str, Any]]:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception:
         return []
-    encoded = str(payload.get("content", "") or "")
     try:
-        decoded = base64.b64decode(encoded).decode("utf-8")
+        decoded = _github_decoded_content(payload)
         data = json.loads(decoded)
     except Exception:
         return []
@@ -511,9 +522,8 @@ def _github_json_list_status(path: str) -> dict[str, Any]:
     except Exception as exc:
         status["error"] = str(exc.__class__.__name__)
         return status
-    encoded = str(payload.get("content", "") or "")
     try:
-        decoded = base64.b64decode(encoded).decode("utf-8")
+        decoded = _github_decoded_content(payload)
         data = json.loads(decoded)
     except Exception as exc:
         status["error"] = str(exc.__class__.__name__)

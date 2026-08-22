@@ -162,6 +162,8 @@ def test_admin_creation_is_blocked_when_project_data_already_exists():
     assert "def _admin_bootstrap_configured" in source
     assert "def _auth_database_status" in source
     assert "def _github_json_list_status" in source
+    assert "def _github_decoded_content" in source
+    assert "download_url" in source
     assert "Diagnostic de restauration" in source
     assert "Comptes trouves dans Neon" in source
     assert "Projets trouves dans Neon" in source
