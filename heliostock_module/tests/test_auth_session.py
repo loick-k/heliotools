@@ -162,6 +162,15 @@ def test_portal_cookie_restore_waits_for_cookie_manager_hydration():
     )
 
 
+def test_cookie_manager_is_not_streamlit_cached():
+    portal_source = _source("heliostock/ui_portal.py")
+    before_cookie_manager = portal_source.split("def _cookie_manager", 1)[0]
+    decorator_context = before_cookie_manager.rsplit("\n\n", 1)[-1]
+
+    assert "@st.cache_resource" not in decorator_context
+    assert "@st.cache_data" not in decorator_context
+
+
 def test_cookie_payload_does_not_contain_sensitive_business_or_secret_data():
     config = _config()
     token = create_session_token(

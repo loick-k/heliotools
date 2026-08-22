@@ -220,14 +220,19 @@ def _auth_session_config() -> AuthSessionConfig:
     )
 
 
-@st.cache_resource
 def _cookie_manager() -> Any | None:
     if stx is None:
         return None
+    state_key = "heliotools_cookie_manager"
+    cached_manager = st.session_state.get(state_key)
+    if cached_manager is not None:
+        return cached_manager
     try:
-        return stx.CookieManager()
+        manager = stx.CookieManager()
     except Exception:
         return None
+    st.session_state[state_key] = manager
+    return manager
 
 
 def _cookie_manager_ready() -> bool:
